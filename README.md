@@ -117,6 +117,41 @@ Routers contain no business logic; services never import FastAPI request objects
 Nothing is written to the tenant registry until payment succeeds. Until then the whole signup
 lives in `platform.signups` and expires after 7 days.
 
+### Partner invitation → account → under that consultant
+
+1. Consultant calls `POST /partners` with name, email, mobile and role. The account is
+   created with status `invited`, **no password**, and `consultant_id` set to the inviting
+   consultant.
+2. An email goes out with a **single-use link to the frontend** (`FRONTEND_URL` +
+   `/invite/accept?token=...`), valid for `INVITE_EXPIRE_DAYS` (7 by default).
+3. The accept screen calls `GET /auth/invite/{token}` to show the organization, the role
+   and who invited them — before asking for anything.
+4. `POST /auth/invite/accept` with `{token, password, confirm_password}` sets the password,
+   activates the account, burns the token, and returns a signed-in token pair.
+5. From then on the partner signs in with email + password and lands **under the consultant
+   who invited them**. `/tasks`, `/earnings` and `/cases` are all scoped accordingly.
+
+`POST /partners/{id}/resend` issues a fresh token and invalidates the previous link.
+`DELETE /partners/{id}` revokes access and removes the directory entry. The same mechanism
+serves team consultants (`POST /team`) and consultant-created clients (`POST /clients`).
+
+### Client self-signup → choose a consultant
+
+1. `GET /auth/consultants` — a public directory spanning every active organization. A client
+   picks a **consultant**, not a firm; the organization follows from that choice.
+2. `POST /auth/register/client` with `consultant_id`. The account is created inside that
+   consultant's workspace with `consultant_id` set, status `pending_verification`, and an
+   email OTP is sent.
+3. `POST /auth/verify-email` with the code activates the account and signs them in.
+   `POST /auth/verify-email/resend` issues a fresh code.
+
+**An unverified account cannot sign in.** `POST /auth/login` rejects
+`pending_verification` and tells the caller to request a new code. (This was a real hole:
+before this change a self-registered client could sign in without ever verifying.)
+
+`organization_id` is still accepted on `/auth/register/client` for backward compatibility —
+without a `consultant_id` the workspace owner becomes the consultant.
+
 ### Request → documents → case
 `POST /requests` (client) → `POST /requests/{id}/documents/request` (consultant decides the
 checklist; `GET .../documents/suggest` gives an AI-proposed list) → client uploads via

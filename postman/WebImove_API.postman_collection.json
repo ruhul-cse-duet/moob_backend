@@ -22,7 +22,7 @@
         "type": "text/javascript",
         "exec": [
           "if (!pm.collectionVariables.get('base_url')) {",
-          "  pm.collectionVariables.set('base_url', 'http://10.10.20.11:8002');",
+          "  pm.collectionVariables.set('base_url', 'http://localhost:8000');",
           "}"
         ]
       }
@@ -31,7 +31,7 @@
   "variable": [
     {
       "key": "base_url",
-      "value": "http://10.10.20.11:8002"
+      "value": "http://localhost:8000"
     },
     {
       "key": "access_token",
@@ -575,7 +575,45 @@
           ]
         },
         {
-          "name": "Consultant organizations a client can join",
+          "name": "Consultants a client can sign up under (public)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/consultants",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "consultants"
+              ],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "<search>",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "organization_id",
+                  "value": "{{organization_id}}",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Consultants a client can sign up under (public)",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Organizations a client can join (public)",
           "request": {
             "method": "GET",
             "header": [],
@@ -599,7 +637,7 @@
                 }
               ]
             },
-            "description": "Consultant organizations a client can join",
+            "description": "Organizations a client can join (public)",
             "auth": {
               "type": "noauth"
             }
@@ -607,7 +645,7 @@
           "response": []
         },
         {
-          "name": "Client creates an account under a chosen consultant",
+          "name": "Step 2 of client signup: create the account under that consultant",
           "request": {
             "method": "POST",
             "header": [
@@ -629,10 +667,10 @@
                 "client"
               ]
             },
-            "description": "Client creates an account under a chosen consultant",
+            "description": "Step 2 of client signup: create the account under that consultant",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"password\": \"Str0ng!Pass1\",\n  \"organization_id\": \"{{organization_id}}\",\n  \"full_name\": \"Sarah Jenkins\",\n  \"email\": \"sarah.jenkins@jenkinslaw.com\",\n  \"mobile\": \"+15550142042\",\n  \"nationality\": \"<nationality>\",\n  \"language\": \"<language>\",\n  \"country_of_residence\": \"United Kingdom\"\n}",
+              "raw": "{\n  \"password\": \"Str0ng!Pass1\",\n  \"consultant_id\": \"<consultant_id>\",\n  \"organization_id\": \"{{organization_id}}\",\n  \"full_name\": \"Sarah Jenkins\",\n  \"email\": \"sarah.jenkins@jenkinslaw.com\",\n  \"mobile\": \"+15550142042\",\n  \"confirm_password\": \"Str0ng!Pass1\",\n  \"nationality\": \"<nationality>\",\n  \"language\": \"<language>\",\n  \"country_of_residence\": \"United Kingdom\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -656,6 +694,9 @@
                   "  let body = {};",
                   "  try { body = pm.response.json(); } catch (e) { body = {}; }",
                   "  if (body?.debug_code !== undefined && body?.debug_code !== null) { pm.collectionVariables.set('otp_code', body?.debug_code); console.log('saved otp_code'); }",
+                  "  if (body?.user_id !== undefined && body?.user_id !== null) { pm.collectionVariables.set('user_id', body?.user_id); console.log('saved user_id'); }",
+                  "  if (body?.tenant_id !== undefined && body?.tenant_id !== null) { pm.collectionVariables.set('tenant_id', body?.tenant_id); console.log('saved tenant_id'); }",
+                  "  if (body?.consultant?.id !== undefined && body?.consultant?.id !== null) { pm.collectionVariables.set('consultant_id', body?.consultant?.id); console.log('saved consultant_id'); }",
                   "}"
                 ]
               }
@@ -663,7 +704,7 @@
           ]
         },
         {
-          "name": "Verify an account email with the six-digit code",
+          "name": "Step 3 of client signup: verify the code and sign in",
           "request": {
             "method": "POST",
             "header": [
@@ -684,7 +725,7 @@
                 "verify-email"
               ]
             },
-            "description": "Verify an account email with the six-digit code",
+            "description": "Step 3 of client signup: verify the code and sign in",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"email\": \"sarah.jenkins@jenkinslaw.com\",\n  \"code\": \"{{otp_code}}\"\n}",
@@ -719,7 +760,77 @@
           ]
         },
         {
-          "name": "Partner or client accepts an invitation and sets a password",
+          "name": "Send a fresh verification code",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/verify-email/resend",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "verify-email",
+                "resend"
+              ]
+            },
+            "description": "Send a fresh verification code",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"sarah.jenkins@jenkinslaw.com\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Inspect an invitation before accepting it",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/invite/:token",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "invite",
+                ":token"
+              ],
+              "variable": [
+                {
+                  "key": "token",
+                  "value": "<token>"
+                }
+              ]
+            },
+            "description": "Inspect an invitation before accepting it",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Accept an invitation, set a password, and sign in",
           "request": {
             "method": "POST",
             "header": [
@@ -741,7 +852,7 @@
                 "accept"
               ]
             },
-            "description": "Partner or client accepts an invitation and sets a password",
+            "description": "Accept an invitation, set a password, and sign in",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"password\": \"Str0ng!Pass1\",\n  \"token\": \"{{invite_token}}\",\n  \"confirm_password\": \"Str0ng!Pass1\"\n}",
@@ -2699,7 +2810,7 @@
           ]
         },
         {
-          "name": "Case list, filterable by workflow stage",
+          "name": "Case list, filterable by workflow stage and consultant",
           "request": {
             "method": "GET",
             "header": [],
@@ -2746,7 +2857,7 @@
                 }
               ]
             },
-            "description": "Case list, filterable by workflow stage"
+            "description": "Case list, filterable by workflow stage and consultant"
           },
           "response": []
         },
@@ -2765,6 +2876,14 @@
                 "v1",
                 "cases",
                 "stage-counts"
+              ],
+              "query": [
+                {
+                  "key": "consultant_id",
+                  "value": "<consultant_id>",
+                  "description": "",
+                  "disabled": true
+                }
               ]
             },
             "description": "Counts for the stage filter chips"
@@ -5069,6 +5188,7 @@
                   "if (ok) {",
                   "  let body = {};",
                   "  try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "  if (body?.id !== undefined && body?.id !== null) { pm.collectionVariables.set('client_id', body?.id); console.log('saved client_id'); }",
                   "  if (body?.id !== undefined && body?.id !== null) { pm.collectionVariables.set('user_id', body?.id); console.log('saved user_id'); }",
                   "}"
                 ]

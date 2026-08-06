@@ -62,14 +62,16 @@ CAPTURE: Dict[str, List[tuple]] = {
         ("tenant_id", "tenant_id"),
     ],
     "POST /api/v1/clients": [("client_id", "id"), ("user_id", "id")],
-    "POST /api/v1/auth/register/client": [("otp_code", "debug_code")],
+    "POST /api/v1/auth/register/client": [
+        ("otp_code", "debug_code"), ("user_id", "user_id"),
+        ("tenant_id", "tenant_id"), ("consultant_id", "consultant.id"),
+    ],
     "POST /api/v1/auth/forgot-password": [("otp_code", "debug_code")],
     "POST /api/v1/requests": [("request_id", "id")],
     "POST /api/v1/requests/{request_id}/complete": [("case_id", "id")],
     "POST /api/v1/cases": [("case_id", "id")],
     "POST /api/v1/tasks": [("task_id", "id")],
     "POST /api/v1/partners": [("partner_id", "id")],
-    "POST /api/v1/clients": [("user_id", "id")],
     "POST /api/v1/invoices": [("invoice_id", "id")],
     "POST /api/v1/earnings": [("earning_id", "id")],
     "POST /api/v1/support/tickets": [("ticket_id", "id")],
@@ -91,6 +93,8 @@ ONBOARDING_PATHS = {
 
 PUBLIC_PATHS = {
     "/api/v1/auth/signup/personal", "/api/v1/auth/login", "/api/v1/auth/login/2fa",
+    "/api/v1/auth/consultants", "/api/v1/auth/invite/{token}",
+    "/api/v1/auth/verify-email/resend",
     "/api/v1/auth/refresh", "/api/v1/auth/logout", "/api/v1/auth/forgot-password",
     "/api/v1/auth/reset-password", "/api/v1/auth/verify-email",
     "/api/v1/auth/invite/accept", "/api/v1/auth/organizations",
