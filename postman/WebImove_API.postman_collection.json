@@ -1,0 +1,6005 @@
+{
+  "info": {
+    "name": "WebImove API",
+    "_postman_id": "webimove-api-collection",
+    "description": "WebImove \u2014 AI powered immigration case management.\n\nGenerated from the live FastAPI OpenAPI schema by `postman/generate_collection.py`. Re-run that script after changing routes; do not hand-edit this file.\n\n**How to use**\n1. Select the `WebImove \u2014 Local` environment.\n2. Run the consultant signup steps 1\u21925 in order, or `Auth \u2192 Sign in`. Tokens are captured automatically into collection variables.\n3. In non-production, `debug_code` in OTP responses is saved to `{{otp_code}}`, so verification steps work without opening an inbox.\n4. Ids from create calls (request, case, task, invoice\u2026) are saved automatically, so detail and action endpoints resolve without copy-paste.\n\nEndpoints under **Super Admin** need a platform account: `python scripts_create_superadmin.py admin@webimove.com 'StrongPass1!'`",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "if (!pm.collectionVariables.get('base_url')) {",
+          "  pm.collectionVariables.set('base_url', 'http://10.10.20.11:8002');",
+          "}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://10.10.20.11:8002"
+    },
+    {
+      "key": "access_token",
+      "value": ""
+    },
+    {
+      "key": "refresh_token",
+      "value": ""
+    },
+    {
+      "key": "onboarding_token",
+      "value": ""
+    },
+    {
+      "key": "challenge_token",
+      "value": ""
+    },
+    {
+      "key": "otp_code",
+      "value": ""
+    },
+    {
+      "key": "invite_token",
+      "value": ""
+    },
+    {
+      "key": "tenant_id",
+      "value": ""
+    },
+    {
+      "key": "organization_id",
+      "value": ""
+    },
+    {
+      "key": "user_id",
+      "value": ""
+    },
+    {
+      "key": "consultant_id",
+      "value": ""
+    },
+    {
+      "key": "client_id",
+      "value": ""
+    },
+    {
+      "key": "partner_id",
+      "value": ""
+    },
+    {
+      "key": "admin_id",
+      "value": ""
+    },
+    {
+      "key": "request_id",
+      "value": ""
+    },
+    {
+      "key": "case_id",
+      "value": ""
+    },
+    {
+      "key": "document_id",
+      "value": ""
+    },
+    {
+      "key": "task_id",
+      "value": ""
+    },
+    {
+      "key": "invoice_id",
+      "value": ""
+    },
+    {
+      "key": "earning_id",
+      "value": ""
+    },
+    {
+      "key": "ticket_id",
+      "value": ""
+    },
+    {
+      "key": "policy_id",
+      "value": ""
+    },
+    {
+      "key": "conversation_id",
+      "value": ""
+    },
+    {
+      "key": "thread_id",
+      "value": ""
+    },
+    {
+      "key": "notification_id",
+      "value": ""
+    },
+    {
+      "key": "appointment_id",
+      "value": ""
+    },
+    {
+      "key": "session_id",
+      "value": ""
+    },
+    {
+      "key": "file_id",
+      "value": ""
+    },
+    {
+      "key": "plan_code",
+      "value": "professional"
+    },
+    {
+      "key": "kind",
+      "value": "privacy_policy"
+    },
+    {
+      "key": "key",
+      "value": "maintenance_mode"
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth & Onboarding",
+      "item": [
+        {
+          "name": "Step 1 of 5 \u00b7 Personal",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/signup/personal",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "signup",
+                "personal"
+              ]
+            },
+            "description": "Step 1 of 5 \u00b7 Personal",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"Str0ng!Pass1\",\n  \"full_name\": \"Sarah Jenkins\",\n  \"email\": \"sarah.jenkins@jenkinslaw.com\",\n  \"mobile\": \"+15550142042\",\n  \"confirm_password\": \"Str0ng!Pass1\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = pm.response.code >= 200 && pm.response.code < 300;",
+                  "pm.test('2xx', function () { pm.expect(ok).to.be.true; });",
+                  "if (ok) {",
+                  "  let body = {};",
+                  "  try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "  if (body?.onboarding_token !== undefined && body?.onboarding_token !== null) { pm.collectionVariables.set('onboarding_token', body?.onboarding_token); console.log('saved onboarding_token'); }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Step 2 of 5 \u00b7 Organization",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/signup/organization",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "signup",
+                "organization"
+              ]
+            },
+            "description": "Step 2 of 5 \u00b7 Organization",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"organization_name\": \"Jenkins Immigration Law\",\n  \"business_type\": \"immigration\",\n  \"country\": \"United Kingdom\",\n  \"office_address\": \"12 King Street, London, EC2V 8AS\",\n  \"accept_terms\": true,\n  \"accept_privacy\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{onboarding_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = pm.response.code >= 200 && pm.response.code < 300;",
+                  "pm.test('2xx', function () { pm.expect(ok).to.be.true; });",
+                  "if (ok) {",
+                  "  let body = {};",
+                  "  try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "  if (body?.onboarding_token !== undefined && body?.onboarding_token !== null) { pm.collectionVariables.set('onboarding_token', body?.onboarding_token); console.log('saved onboarding_token'); }",
+                  "  if (body?.debug_code !== undefined && body?.debug_code !== null) { pm.collectionVariables.set('otp_code', body?.debug_code); console.log('saved otp_code'); }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Step 3 of 5 \u00b7 Verify email",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/signup/verify",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "signup",
+                "verify"
+              ]
+            },
+            "description": "Step 3 of 5 \u00b7 Verify email",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"{{otp_code}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{onboarding_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = pm.response.code >= 200 && pm.response.code < 300;",
+                  "pm.test('2xx', function () { pm.expect(ok).to.be.true; });",
+                  "if (ok) {",
+                  "  let body = {};",
+                  "  try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "  if (body?.onboarding_token !== undefined && body?.onboarding_token !== null) { pm.collectionVariables.set('onboarding_token', body?.onboarding_token); console.log('saved onboarding_token'); }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Resend the six-digit code",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/signup/verify/resend",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "signup",
+                "verify",
+                "resend"
+              ]
+            },
+            "description": "Resend the six-digit code",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{onboarding_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = pm.response.code >= 200 && pm.response.code < 300;",
+                  "pm.test('2xx', function () { pm.expect(ok).to.be.true; });",
+                  "if (ok) {",
+                  "  let body = {};",
+                  "  try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "  if (body?.debug_code !== undefined && body?.debug_code !== null) { pm.collectionVariables.set('otp_code', body?.debug_code); console.log('saved otp_code'); }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Step 4 of 5 \u00b7 Plan catalogue",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/plans",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "plans"
+              ]
+            },
+            "description": "Step 4 of 5 \u00b7 Plan catalogue",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Order summary for a plan and cycle",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/plans/{{plan_code}}/summary",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "plans",
+                "{{plan_code}}",
+                "summary"
+              ],
+              "query": [
+                {
+                  "key": "billing_cycle",
+                  "value": "monthly",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Order summary for a plan and cycle"
+          },
+          "response": []
+        },
+        {
+          "name": "Step 4 of 5 \u00b7 Choose a plan",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/signup/plan",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "signup",
+                "plan"
+              ]
+            },
+            "description": "Step 4 of 5 \u00b7 Choose a plan",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plan_code\": \"starter\",\n  \"billing_cycle\": \"monthly\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{onboarding_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = pm.response.code >= 200 && pm.response.code < 300;",
+                  "pm.test('2xx', function () { pm.expect(ok).to.be.true; });",
+                  "if (ok) {",
+                  "  let body = {};",
+                  "  try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "  if (body?.onboarding_token !== undefined && body?.onboarding_token !== null) { pm.collectionVariables.set('onboarding_token', body?.onboarding_token); console.log('saved onboarding_token'); }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Step 5 of 5 \u00b7 Pay and activate the tenant",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/signup/payment",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "signup",
+                "payment"
+              ]
+            },
+            "description": "Step 5 of 5 \u00b7 Pay and activate the tenant",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name_on_card\": \"Sarah Jenkins\",\n  \"card_number\": \"4242424242424242\",\n  \"expiry\": \"12/28\",\n  \"cvc\": \"123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{onboarding_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = pm.response.code >= 200 && pm.response.code < 300;",
+                  "pm.test('2xx', function () { pm.expect(ok).to.be.true; });",
+                  "if (ok) {",
+                  "  let body = {};",
+                  "  try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "  if (body?.access_token !== undefined && body?.access_token !== null) { pm.collectionVariables.set('access_token', body?.access_token); console.log('saved access_token'); }",
+                  "  if (body?.refresh_token !== undefined && body?.refresh_token !== null) { pm.collectionVariables.set('refresh_token', body?.refresh_token); console.log('saved refresh_token'); }",
+                  "  if (body?.tenant_id !== undefined && body?.tenant_id !== null) { pm.collectionVariables.set('tenant_id', body?.tenant_id); console.log('saved tenant_id'); }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Consultant organizations a client can join",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/organizations",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "organizations"
+              ],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "<search>",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Consultant organizations a client can join",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Client creates an account under a chosen consultant",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/register/client",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "register",
+                "client"
+              ]
+            },
+            "description": "Client creates an account under a chosen consultant",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"Str0ng!Pass1\",\n  \"organization_id\": \"{{organization_id}}\",\n  \"full_name\": \"Sarah Jenkins\",\n  \"email\": \"sarah.jenkins@jenkinslaw.com\",\n  \"mobile\": \"+15550142042\",\n  \"nationality\": \"<nationality>\",\n  \"language\": \"<language>\",\n  \"country_of_residence\": \"United Kingdom\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = pm.response.code >= 200 && pm.response.code < 300;",
+                  "pm.test('2xx', function () { pm.expect(ok).to.be.true; });",
+                  "if (ok) {",
+                  "  let body = {};",
+                  "  try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "  if (body?.debug_code !== undefined && body?.debug_code !== null) { pm.collectionVariables.set('otp_code', body?.debug_code); console.log('saved otp_code'); }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verify an account email with the six-digit code",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/verify-email",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "verify-email"
+              ]
+            },
+            "description": "Verify an account email with the six-digit code",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"sarah.jenkins@jenkinslaw.com\",\n  \"code\": \"{{otp_code}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = pm.response.code >= 200 && pm.response.code < 300;",
+                  "pm.test('2xx', function () { pm.expect(ok).to.be.true; });",
+                  "if (ok) {",
+                  "  let body = {};",
+                  "  try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "  if (body?.access_token !== undefined && body?.access_token !== null) { pm.collectionVariables.set('access_token', body?.access_token); console.log('saved access_token'); }",
+                  "  if (body?.refresh_token !== undefined && body?.refresh_token !== null) { pm.collectionVariables.set('refresh_token', body?.refresh_token); console.log('saved refresh_token'); }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Partner or client accepts an invitation and sets a password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/invite/accept",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "invite",
+                "accept"
+              ]
+            },
+            "description": "Partner or client accepts an invitation and sets a password",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"Str0ng!Pass1\",\n  \"token\": \"{{invite_token}}\",\n  \"confirm_password\": \"Str0ng!Pass1\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = pm.response.code >= 200 && pm.response.code < 300;",
+                  "pm.test('2xx', function () { pm.expect(ok).to.be.true; });",
+                  "if (ok) {",
+                  "  let body = {};",
+                  "  try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "  if (body?.access_token !== undefined && body?.access_token !== null) { pm.collectionVariables.set('access_token', body?.access_token); console.log('saved access_token'); }",
+                  "  if (body?.refresh_token !== undefined && body?.refresh_token !== null) { pm.collectionVariables.set('refresh_token', body?.refresh_token); console.log('saved refresh_token'); }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Sign in (all roles). Returns a 2FA challenge when 2FA is on.",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Sign in (all roles). Returns a 2FA challenge when 2FA is on.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"sarah.jenkins@jenkinslaw.com\",\n  \"password\": \"Str0ng!Pass1\",\n  \"trust_device\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = pm.response.code >= 200 && pm.response.code < 300;",
+                  "pm.test('2xx', function () { pm.expect(ok).to.be.true; });",
+                  "if (ok) {",
+                  "  let body = {};",
+                  "  try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "  if (body?.access_token !== undefined && body?.access_token !== null) { pm.collectionVariables.set('access_token', body?.access_token); console.log('saved access_token'); }",
+                  "  if (body?.refresh_token !== undefined && body?.refresh_token !== null) { pm.collectionVariables.set('refresh_token', body?.refresh_token); console.log('saved refresh_token'); }",
+                  "  if (body?.tenant_id !== undefined && body?.tenant_id !== null) { pm.collectionVariables.set('tenant_id', body?.tenant_id); console.log('saved tenant_id'); }",
+                  "  if (body?.challenge_token !== undefined && body?.challenge_token !== null) { pm.collectionVariables.set('challenge_token', body?.challenge_token); console.log('saved challenge_token'); }",
+                  "  if (body?.user?.id !== undefined && body?.user?.id !== null) { pm.collectionVariables.set('consultant_id', body?.user?.id); console.log('saved consultant_id'); }",
+                  "  if (body?.user?.id !== undefined && body?.user?.id !== null) { pm.collectionVariables.set('user_id', body?.user?.id); console.log('saved user_id'); }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Second leg of a two-factor sign-in",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login/2fa",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login",
+                "2fa"
+              ]
+            },
+            "description": "Second leg of a two-factor sign-in",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"sarah.jenkins@jenkinslaw.com\",\n  \"code\": \"{{otp_code}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = pm.response.code >= 200 && pm.response.code < 300;",
+                  "pm.test('2xx', function () { pm.expect(ok).to.be.true; });",
+                  "if (ok) {",
+                  "  let body = {};",
+                  "  try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "  if (body?.access_token !== undefined && body?.access_token !== null) { pm.collectionVariables.set('access_token', body?.access_token); console.log('saved access_token'); }",
+                  "  if (body?.refresh_token !== undefined && body?.refresh_token !== null) { pm.collectionVariables.set('refresh_token', body?.refresh_token); console.log('saved refresh_token'); }",
+                  "  if (body?.tenant_id !== undefined && body?.tenant_id !== null) { pm.collectionVariables.set('tenant_id', body?.tenant_id); console.log('saved tenant_id'); }",
+                  "  if (body?.user?.id !== undefined && body?.user?.id !== null) { pm.collectionVariables.set('consultant_id', body?.user?.id); console.log('saved consultant_id'); }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Refresh",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/refresh",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "refresh"
+              ]
+            },
+            "description": "Refresh",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = pm.response.code >= 200 && pm.response.code < 300;",
+                  "pm.test('2xx', function () { pm.expect(ok).to.be.true; });",
+                  "if (ok) {",
+                  "  let body = {};",
+                  "  try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "  if (body?.access_token !== undefined && body?.access_token !== null) { pm.collectionVariables.set('access_token', body?.access_token); console.log('saved access_token'); }",
+                  "  if (body?.refresh_token !== undefined && body?.refresh_token !== null) { pm.collectionVariables.set('refresh_token', body?.refresh_token); console.log('saved refresh_token'); }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/logout",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "logout"
+              ]
+            },
+            "description": "Logout",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Forgot Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/forgot-password",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "forgot-password"
+              ]
+            },
+            "description": "Forgot Password",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"sarah.jenkins@jenkinslaw.com\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = pm.response.code >= 200 && pm.response.code < 300;",
+                  "pm.test('2xx', function () { pm.expect(ok).to.be.true; });",
+                  "if (ok) {",
+                  "  let body = {};",
+                  "  try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "  if (body?.debug_code !== undefined && body?.debug_code !== null) { pm.collectionVariables.set('otp_code', body?.debug_code); console.log('saved otp_code'); }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reset Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/reset-password",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "reset-password"
+              ]
+            },
+            "description": "Reset Password",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"Str0ng!Pass1\",\n  \"email\": \"sarah.jenkins@jenkinslaw.com\",\n  \"code\": \"{{otp_code}}\",\n  \"confirm_password\": \"Str0ng!Pass1\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Change Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/change-password",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "change-password"
+              ]
+            },
+            "description": "Change Password",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"Str0ng!Pass1\",\n  \"current_password\": \"Str0ng!Pass1\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Current session profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "me"
+              ]
+            },
+            "description": "Current session profile"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "AI Analysis Report",
+      "item": [
+        {
+          "name": "Consolidated AI analysis across a case's documents",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/analysis/case/{{case_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "analysis",
+                "case",
+                "{{case_id}}"
+              ]
+            },
+            "description": "Consolidated AI analysis across a case's documents"
+          },
+          "response": []
+        },
+        {
+          "name": "Consolidated AI analysis for one request",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/analysis/request/{{request_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "analysis",
+                "request",
+                "{{request_id}}"
+              ]
+            },
+            "description": "Consolidated AI analysis for one request"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "AI Assistant",
+      "item": [
+        {
+          "name": "Ask the AI assistant",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ai/chat",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ai",
+                "chat"
+              ]
+            },
+            "description": "Ask the AI assistant",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"The upload fails at 90% on the mobile app.\",\n  \"conversation_id\": \"<conversation_id>\",\n  \"case_id\": \"{{case_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = pm.response.code >= 200 && pm.response.code < 300;",
+                  "pm.test('2xx', function () { pm.expect(ok).to.be.true; });",
+                  "if (ok) {",
+                  "  let body = {};",
+                  "  try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "  if (body?.conversation_id !== undefined && body?.conversation_id !== null) { pm.collectionVariables.set('conversation_id', body?.conversation_id); console.log('saved conversation_id'); }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Assistant history",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ai/conversations",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ai",
+                "conversations"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Assistant history"
+          },
+          "response": []
+        },
+        {
+          "name": "Conversation",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ai/conversations/{{conversation_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ai",
+                "conversations",
+                "{{conversation_id}}"
+              ]
+            },
+            "description": "Conversation"
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Conversation",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ai/conversations/{{conversation_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ai",
+                "conversations",
+                "{{conversation_id}}"
+              ]
+            },
+            "description": "Delete Conversation"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Agenda & Appointments",
+      "item": [
+        {
+          "name": "Create Appointment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/agenda",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "agenda"
+              ]
+            },
+            "description": "Create Appointment",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Translate Employment Contract (ES to EN)\",\n  \"client_id\": \"{{user_id}}\",\n  \"request_id\": \"{{request_id}}\",\n  \"case_id\": \"{{case_id}}\",\n  \"starts_at\": \"2026-09-01T10:00:00Z\",\n  \"duration_minutes\": 30,\n  \"location\": \"<location>\",\n  \"notes\": \"Eligibility confirmed; awaiting bank statement.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = pm.response.code >= 200 && pm.response.code < 300;",
+                  "pm.test('2xx', function () { pm.expect(ok).to.be.true; });",
+                  "if (ok) {",
+                  "  let body = {};",
+                  "  try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "  if (body?.id !== undefined && body?.id !== null) { pm.collectionVariables.set('appointment_id', body?.id); console.log('saved appointment_id'); }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Agenda for a date range",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/agenda",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "agenda"
+              ],
+              "query": [
+                {
+                  "key": "date_from",
+                  "value": "2026-09-01T10:00:00Z",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "date_to",
+                  "value": "2026-09-01T10:00:00Z",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Agenda for a date range"
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/agenda/{{appointment_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "agenda",
+                "{{appointment_id}}"
+              ]
+            },
+            "description": "Cancel"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Client Billing",
+      "item": [
+        {
+          "name": "Issue an invoice to a client",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/invoices",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "invoices"
+              ]
+            },
+            "description": "Issue an invoice to a client",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": \"{{user_id}}\",\n  \"case_id\": \"{{case_id}}\",\n  \"items\": [\n    {\n      \"description\": \"<description>\",\n      \"quantity\": 1,\n      \"unit_price\": 100.0\n    }\n  ],\n  \"currency\": \"USD\",\n  \"tax_rate\": 0.0,\n  \"due_in_days\": 14,\n  \"notes\": \"Eligibility confirmed; awaiting bank statement.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = pm.response.code >= 200 && pm.response.code < 300;",
+                  "pm.test('2xx', function () { pm.expect(ok).to.be.true; });",
+                  "if (ok) {",
+                  "  let body = {};",
+                  "  try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "  if (body?.id !== undefined && body?.id !== null) { pm.collectionVariables.set('invoice_id', body?.id); console.log('saved invoice_id'); }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Invoices (clients see only their own)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/invoices",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "invoices"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "draft",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "client_id",
+                  "value": "{{user_id}}",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Invoices (clients see only their own)"
+          },
+          "response": []
+        },
+        {
+          "name": "Outstanding / paid / overdue totals",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/invoices/summary",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "invoices",
+                "summary"
+              ]
+            },
+            "description": "Outstanding / paid / overdue totals"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Invoice",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/invoices/{{invoice_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "invoices",
+                "{{invoice_id}}"
+              ]
+            },
+            "description": "Get Invoice"
+          },
+          "response": []
+        },
+        {
+          "name": "Send a draft invoice to the client",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/invoices/{{invoice_id}}/send",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "invoices",
+                "{{invoice_id}}",
+                "send"
+              ]
+            },
+            "description": "Send a draft invoice to the client"
+          },
+          "response": []
+        },
+        {
+          "name": "Record payment against an invoice",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/invoices/{{invoice_id}}/mark-paid",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "invoices",
+                "{{invoice_id}}",
+                "mark-paid"
+              ],
+              "query": [
+                {
+                  "key": "method",
+                  "value": "<method>",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Record payment against an invoice"
+          },
+          "response": []
+        },
+        {
+          "name": "Void an invoice",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/invoices/{{invoice_id}}/void",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "invoices",
+                "{{invoice_id}}",
+                "void"
+              ]
+            },
+            "description": "Void an invoice"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Consent & Privacy Centre",
+      "item": [
+        {
+          "name": "My consent state, one row per consent type",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/privacy/consents",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "privacy",
+                "consents"
+              ]
+            },
+            "description": "My consent state, one row per consent type"
+          },
+          "response": []
+        },
+        {
+          "name": "Grant or revoke a consent",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/privacy/consents",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "privacy",
+                "consents"
+              ]
+            },
+            "description": "Grant or revoke a consent",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"terms_of_service\",\n  \"granted\": true,\n  \"policy_version\": \"2.0\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Full consent audit trail",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/privacy/consents/history",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "privacy",
+                "consents",
+                "history"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Full consent audit trail"
+          },
+          "response": []
+        },
+        {
+          "name": "Request a data export, deletion or correction",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/privacy/requests",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "privacy",
+                "requests"
+              ]
+            },
+            "description": "Request a data export, deletion or correction",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"export\",\n  \"reason\": \"No longer using the service.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "My data requests",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/privacy/requests",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "privacy",
+                "requests"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "My data requests"
+          },
+          "response": []
+        },
+        {
+          "name": "Everything this workspace holds about me, as JSON",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/privacy/export",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "privacy",
+                "export"
+              ]
+            },
+            "description": "Everything this workspace holds about me, as JSON"
+          },
+          "response": []
+        },
+        {
+          "name": "Data requests waiting on this organization",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/privacy/admin/requests",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "privacy",
+                "admin",
+                "requests"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "pending",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Data requests waiting on this organization"
+          },
+          "response": []
+        },
+        {
+          "name": "Progress a data request",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/privacy/admin/requests/{{request_id}}/status?status=pending",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "privacy",
+                "admin",
+                "requests",
+                "{{request_id}}",
+                "status"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "pending",
+                  "description": "",
+                  "disabled": false
+                },
+                {
+                  "key": "note",
+                  "value": "<note>",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Progress a data request"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Consultants & Ownership",
+      "item": [
+        {
+          "name": "Consultants in this workspace, with their caseload",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/consultants",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "consultants"
+              ]
+            },
+            "description": "Consultants in this workspace, with their caseload"
+          },
+          "response": []
+        },
+        {
+          "name": "My own clients, partners and workload",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/consultants/me/roster",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "consultants",
+                "me",
+                "roster"
+              ]
+            },
+            "description": "My own clients, partners and workload"
+          },
+          "response": []
+        },
+        {
+          "name": "Everyone and everything under one consultant",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/consultants/{{consultant_id}}/roster",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "consultants",
+                "{{consultant_id}}",
+                "roster"
+              ]
+            },
+            "description": "Everyone and everything under one consultant"
+          },
+          "response": []
+        },
+        {
+          "name": "Clients under one consultant",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/consultants/{{consultant_id}}/clients",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "consultants",
+                "{{consultant_id}}",
+                "clients"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Clients under one consultant"
+          },
+          "response": []
+        },
+        {
+          "name": "Partners this consultant has delegated to",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/consultants/{{consultant_id}}/partners",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "consultants",
+                "{{consultant_id}}",
+                "partners"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Partners this consultant has delegated to"
+          },
+          "response": []
+        },
+        {
+          "name": "Move a client to a different consultant",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/consultants/clients/{{client_id}}/assign",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "consultants",
+                "clients",
+                "{{client_id}}",
+                "assign"
+              ]
+            },
+            "description": "Move a client to a different consultant",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"consultant_id\": \"<consultant_id>\",\n  \"reassign_open_work\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Dashboard & Reporting",
+      "item": [
+        {
+          "name": "Home screen: greeting counters, queue preview, activity",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/dashboard",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dashboard"
+              ]
+            },
+            "description": "Home screen: greeting counters, queue preview, activity"
+          },
+          "response": []
+        },
+        {
+          "name": "Reporting: pipeline and throughput",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/reporting/overview",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reporting",
+                "overview"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "30",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Reporting: pipeline and throughput"
+          },
+          "response": []
+        },
+        {
+          "name": "Recent activity feed",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/activities",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "activities"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Recent activity feed"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Documents",
+      "item": [
+        {
+          "name": "Document centre",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/documents",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "documents"
+              ],
+              "query": [
+                {
+                  "key": "request_id",
+                  "value": "{{request_id}}",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "case_id",
+                  "value": "{{case_id}}",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "upload_needed",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Document centre"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Document",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/documents/{{document_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "documents",
+                "{{document_id}}"
+              ]
+            },
+            "description": "Get Document"
+          },
+          "response": []
+        },
+        {
+          "name": "Upload a requested document (runs AI analysis)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/documents/{{document_id}}/upload",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "documents",
+                "{{document_id}}",
+                "upload"
+              ]
+            },
+            "description": "Upload a requested document (runs AI analysis)",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Pick a file: PDF, JPG, PNG, WEBP, DOC or DOCX (max 25 MB)"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Stream the stored file out of GridFS",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/documents/{{document_id}}/file",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "documents",
+                "{{document_id}}",
+                "file"
+              ]
+            },
+            "description": "Stream the stored file out of GridFS"
+          },
+          "response": []
+        },
+        {
+          "name": "Approve",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/documents/{{document_id}}/approve",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "documents",
+                "{{document_id}}",
+                "approve"
+              ]
+            },
+            "description": "Approve"
+          },
+          "response": []
+        },
+        {
+          "name": "Return to the client for re-upload with feedback",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/documents/{{document_id}}/reject",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "documents",
+                "{{document_id}}",
+                "reject"
+              ]
+            },
+            "description": "Return to the client for re-upload with feedback",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"feedback\": \"Statement is older than 3 months. Please upload a recent one.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Comment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/documents/{{document_id}}/comment",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "documents",
+                "{{document_id}}",
+                "comment"
+              ]
+            },
+            "description": "Comment",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"comment\": \"Checked against the checklist.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Re-run the AI analysis",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/documents/{{document_id}}/reanalyze",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "documents",
+                "{{document_id}}",
+                "reanalyze"
+              ]
+            },
+            "description": "Re-run the AI analysis"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Root",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": []
+            },
+            "description": "Root",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "Health",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Help & Support",
+      "item": [
+        {
+          "name": "Raise a support ticket",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/support/tickets",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "support",
+                "tickets"
+              ]
+            },
+            "description": "Raise a support ticket",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subject\": \"Cannot upload a document\",\n  \"message\": \"The upload fails at 90% on the mobile app.\",\n  \"category\": \"billing\",\n  \"priority\": \"low\",\n  \"case_reference\": \"PAY-2026-0001\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = pm.response.code >= 200 && pm.response.code < 300;",
+                  "pm.test('2xx', function () { pm.expect(ok).to.be.true; });",
+                  "if (ok) {",
+                  "  let body = {};",
+                  "  try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "  if (body?.id !== undefined && body?.id !== null) { pm.collectionVariables.set('ticket_id', body?.id); console.log('saved ticket_id'); }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "My tickets",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/support/tickets",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "support",
+                "tickets"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "open",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "My tickets"
+          },
+          "response": []
+        },
+        {
+          "name": "Ticket Detail",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/support/tickets/{{ticket_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "support",
+                "tickets",
+                "{{ticket_id}}"
+              ]
+            },
+            "description": "Ticket Detail"
+          },
+          "response": []
+        },
+        {
+          "name": "Reply",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/support/tickets/{{ticket_id}}/reply",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "support",
+                "tickets",
+                "{{ticket_id}}",
+                "reply"
+              ]
+            },
+            "description": "Reply",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"body\": \"Adding more detail here.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Immigration Cases",
+      "item": [
+        {
+          "name": "Create Case",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/cases",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "cases"
+              ]
+            },
+            "description": "Create Case",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": \"{{user_id}}\",\n  \"case_type\": \"<case_type>\",\n  \"destination_country\": \"Canada\",\n  \"deadline\": \"2026-09-01T10:00:00Z\",\n  \"request_id\": \"{{request_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = pm.response.code >= 200 && pm.response.code < 300;",
+                  "pm.test('2xx', function () { pm.expect(ok).to.be.true; });",
+                  "if (ok) {",
+                  "  let body = {};",
+                  "  try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "  if (body?.id !== undefined && body?.id !== null) { pm.collectionVariables.set('case_id', body?.id); console.log('saved case_id'); }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Case list, filterable by workflow stage",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/cases",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "cases"
+              ],
+              "query": [
+                {
+                  "key": "stage",
+                  "value": "new_request",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "<search>",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "consultant_id",
+                  "value": "<consultant_id>",
+                  "description": "Only this consultant's cases",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Case list, filterable by workflow stage"
+          },
+          "response": []
+        },
+        {
+          "name": "Counts for the stage filter chips",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/cases/stage-counts",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "cases",
+                "stage-counts"
+              ]
+            },
+            "description": "Counts for the stage filter chips"
+          },
+          "response": []
+        },
+        {
+          "name": "Case detail with documents, tasks and timeline",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/cases/{{case_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "cases",
+                "{{case_id}}"
+              ]
+            },
+            "description": "Case detail with documents, tasks and timeline"
+          },
+          "response": []
+        },
+        {
+          "name": "Update Case",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/cases/{{case_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "cases",
+                "{{case_id}}"
+              ]
+            },
+            "description": "Update Case",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"case_type\": \"<case_type>\",\n  \"deadline\": \"2026-09-01T10:00:00Z\",\n  \"consultant_id\": \"<consultant_id>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Immigration timeline with completion state",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/cases/{{case_id}}/timeline",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "cases",
+                "{{case_id}}",
+                "timeline"
+              ]
+            },
+            "description": "Immigration timeline with completion state"
+          },
+          "response": []
+        },
+        {
+          "name": "Advance stage",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/cases/{{case_id}}/advance",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "cases",
+                "{{case_id}}",
+                "advance"
+              ]
+            },
+            "description": "Advance stage",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"stage\": \"new_request\",\n  \"note\": \"<note>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Generate AI guidance and auto-create client tasks",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/cases/{{case_id}}/ai-guidance",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "cases",
+                "{{case_id}}",
+                "ai-guidance"
+              ],
+              "query": [
+                {
+                  "key": "create_tasks",
+                  "value": "True",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Generate AI guidance and auto-create client tasks"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Immigration Requests",
+      "item": [
+        {
+          "name": "Client submits a request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/requests",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "requests"
+              ]
+            },
+            "description": "Client submits a request",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"visa_type\": \"Student Visa\",\n  \"destination_country\": \"Canada\",\n  \"purpose\": \"<purpose>\",\n  \"additional_information\": \"<additional_information>\",\n  \"client_notes\": \"Eligibility confirmed; awaiting bank statement.\",\n  \"preferred_appointment\": \"<preferred_appointment>\",\n  \"consultant_id\": \"<consultant_id>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = pm.response.code >= 200 && pm.response.code < 300;",
+                  "pm.test('2xx', function () { pm.expect(ok).to.be.true; });",
+                  "if (ok) {",
+                  "  let body = {};",
+                  "  try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "  if (body?.id !== undefined && body?.id !== null) { pm.collectionVariables.set('request_id', body?.id); console.log('saved request_id'); }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Request queue (tabs: new / waiting / received / review / completed)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/requests",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "requests"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "new",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "<search>",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "consultant_id",
+                  "value": "<consultant_id>",
+                  "description": "Only this consultant's requests",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Request queue (tabs: new / waiting / received / review / completed)"
+          },
+          "response": []
+        },
+        {
+          "name": "Badge counts per tab",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/requests/counts",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "requests",
+                "counts"
+              ]
+            },
+            "description": "Badge counts per tab"
+          },
+          "response": []
+        },
+        {
+          "name": "Request details with client profile and documents",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/requests/{{request_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "requests",
+                "{{request_id}}"
+              ]
+            },
+            "description": "Request details with client profile and documents"
+          },
+          "response": []
+        },
+        {
+          "name": "Update Request",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/requests/{{request_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "requests",
+                "{{request_id}}"
+              ]
+            },
+            "description": "Update Request",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"visa_type\": \"Student Visa\",\n  \"destination_country\": \"Canada\",\n  \"purpose\": \"<purpose>\",\n  \"additional_information\": \"<additional_information>\",\n  \"client_notes\": \"Eligibility confirmed; awaiting bank statement.\",\n  \"preferred_appointment\": \"<preferred_appointment>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Consultant requests the documents this client needs",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/requests/{{request_id}}/documents/request",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "requests",
+                "{{request_id}}",
+                "documents",
+                "request"
+              ]
+            },
+            "description": "Consultant requests the documents this client needs",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"documents\": [\n    {\n      \"name\": \"<name>\",\n      \"category\": \"identity\",\n      \"why\": \"<why>\",\n      \"due_date\": \"2026-09-01T10:00:00Z\"\n    }\n  ],\n  \"message\": \"The upload fails at 90% on the mobile app.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "AI suggestion for the required document checklist",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/requests/{{request_id}}/documents/suggest",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "requests",
+                "{{request_id}}",
+                "documents",
+                "suggest"
+              ]
+            },
+            "description": "AI suggestion for the required document checklist"
+          },
+          "response": []
+        },
+        {
+          "name": "Private working notes for this consultation",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/requests/{{request_id}}/review-notes",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "requests",
+                "{{request_id}}",
+                "review-notes"
+              ]
+            },
+            "description": "Private working notes for this consultation",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"notes\": \"Eligibility confirmed; awaiting bank statement.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Complete consultation and open the immigration case",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/requests/{{request_id}}/complete",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "requests",
+                "{{request_id}}",
+                "complete"
+              ]
+            },
+            "description": "Complete consultation and open the immigration case",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"case_type\": \"<case_type>\",\n  \"deadline\": \"2026-09-01T10:00:00Z\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = pm.response.code >= 200 && pm.response.code < 300;",
+                  "pm.test('2xx', function () { pm.expect(ok).to.be.true; });",
+                  "if (ok) {",
+                  "  let body = {};",
+                  "  try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "  if (body?.id !== undefined && body?.id !== null) { pm.collectionVariables.set('case_id', body?.id); console.log('saved case_id'); }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Legal & Policies",
+      "item": [
+        {
+          "name": "Currently published policies (public)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/legal/policies",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "legal",
+                "policies"
+              ],
+              "query": [
+                {
+                  "key": "kind",
+                  "value": "terms_of_service",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Currently published policies (public)",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "One published policy by kind (public)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/legal/policies/{{kind}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "legal",
+                "policies",
+                "{{kind}}"
+              ]
+            },
+            "description": "One published policy by kind (public)"
+          },
+          "response": []
+        },
+        {
+          "name": "Record that I accepted this policy",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/legal/policies/{{kind}}/accept",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "legal",
+                "policies",
+                "{{kind}}",
+                "accept"
+              ],
+              "query": [
+                {
+                  "key": "version",
+                  "value": "2.0",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Record that I accepted this policy"
+          },
+          "response": []
+        },
+        {
+          "name": "What I have accepted, and whether it is current",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/legal/acceptances",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "legal",
+                "acceptances"
+              ]
+            },
+            "description": "What I have accepted, and whether it is current"
+          },
+          "response": []
+        },
+        {
+          "name": "Publish a new policy version (super admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/legal/admin/policies",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "legal",
+                "admin",
+                "policies"
+              ]
+            },
+            "description": "Publish a new policy version (super admin)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"kind\": \"terms_of_service\",\n  \"version\": \"2.0\",\n  \"title\": \"Translate Employment Contract (ES to EN)\",\n  \"body_markdown\": \"Adding more detail here.\",\n  \"effective_from\": \"<effective_from>\",\n  \"publish\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = pm.response.code >= 200 && pm.response.code < 300;",
+                  "pm.test('2xx', function () { pm.expect(ok).to.be.true; });",
+                  "if (ok) {",
+                  "  let body = {};",
+                  "  try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "  if (body?.id !== undefined && body?.id !== null) { pm.collectionVariables.set('policy_id', body?.id); console.log('saved policy_id'); }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "All policy versions (super admin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/legal/admin/policies",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "legal",
+                "admin",
+                "policies"
+              ],
+              "query": [
+                {
+                  "key": "kind",
+                  "value": "terms_of_service",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "All policy versions (super admin)"
+          },
+          "response": []
+        },
+        {
+          "name": "Make one version the live policy (super admin)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/legal/admin/policies/{{policy_id}}/publish",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "legal",
+                "admin",
+                "policies",
+                "{{policy_id}}",
+                "publish"
+              ]
+            },
+            "description": "Make one version the live policy (super admin)"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Messages",
+      "item": [
+        {
+          "name": "Create Thread",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages/threads",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "threads"
+              ]
+            },
+            "description": "Create Thread",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"participant_ids\": [\n    \"<participant_ids>\"\n  ],\n  \"case_id\": \"{{case_id}}\",\n  \"subject\": \"Cannot upload a document\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = pm.response.code >= 200 && pm.response.code < 300;",
+                  "pm.test('2xx', function () { pm.expect(ok).to.be.true; });",
+                  "if (ok) {",
+                  "  let body = {};",
+                  "  try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "  if (body?.id !== undefined && body?.id !== null) { pm.collectionVariables.set('thread_id', body?.id); console.log('saved thread_id'); }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Threads",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages/threads",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "threads"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "List Threads"
+          },
+          "response": []
+        },
+        {
+          "name": "Thread Messages",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages/threads/{{thread_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "threads",
+                "{{thread_id}}"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Thread Messages"
+          },
+          "response": []
+        },
+        {
+          "name": "Send Message",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages/threads/{{thread_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "threads",
+                "{{thread_id}}"
+              ]
+            },
+            "description": "Send Message",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"body\": \"Adding more detail here.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Notifications",
+      "item": [
+        {
+          "name": "Notification feed",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/notifications",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications"
+              ],
+              "query": [
+                {
+                  "key": "unread_only",
+                  "value": "False",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Notification feed"
+          },
+          "response": []
+        },
+        {
+          "name": "Unread Count",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/notifications/unread-count",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "unread-count"
+              ]
+            },
+            "description": "Unread Count"
+          },
+          "response": []
+        },
+        {
+          "name": "Mark Read",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/notifications/{{notification_id}}/read",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "{{notification_id}}",
+                "read"
+              ]
+            },
+            "description": "Mark Read"
+          },
+          "response": []
+        },
+        {
+          "name": "Mark All Read",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/notifications/read-all",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "read-all"
+              ]
+            },
+            "description": "Mark All Read"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Organization",
+      "item": [
+        {
+          "name": "My organization",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/organization",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "organization"
+              ]
+            },
+            "description": "My organization"
+          },
+          "response": []
+        },
+        {
+          "name": "Update organization details (owner only)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/organization",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "organization"
+              ]
+            },
+            "description": "Update organization details (owner only)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"<name>\",\n  \"country\": \"United Kingdom\",\n  \"office_address\": \"12 King Street, London, EC2V 8AS\",\n  \"logo_url\": \"<logo_url>\",\n  \"website\": \"<website>\",\n  \"phone\": \"<phone>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Partner Earnings",
+      "item": [
+        {
+          "name": "Accrue a fee against a completed partner task",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/earnings",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "earnings"
+              ]
+            },
+            "description": "Accrue a fee against a completed partner task",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"task_id\": \"{{task_id}}\",\n  \"amount\": 100.0,\n  \"currency\": \"USD\",\n  \"note\": \"<note>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = pm.response.code >= 200 && pm.response.code < 300;",
+                  "pm.test('2xx', function () { pm.expect(ok).to.be.true; });",
+                  "if (ok) {",
+                  "  let body = {};",
+                  "  try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "  if (body?.id !== undefined && body?.id !== null) { pm.collectionVariables.set('earning_id', body?.id); console.log('saved earning_id'); }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Earnings ledger",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/earnings",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "earnings"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "accrued",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "partner_id",
+                  "value": "{{partner_id}}",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Earnings ledger"
+          },
+          "response": []
+        },
+        {
+          "name": "Totals for the partner earnings header",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/earnings/summary",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "earnings",
+                "summary"
+              ],
+              "query": [
+                {
+                  "key": "partner_id",
+                  "value": "{{partner_id}}",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Totals for the partner earnings header"
+          },
+          "response": []
+        },
+        {
+          "name": "Approve an accrued fee for payout",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/earnings/{{earning_id}}/approve",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "earnings",
+                "{{earning_id}}",
+                "approve"
+              ]
+            },
+            "description": "Approve an accrued fee for payout"
+          },
+          "response": []
+        },
+        {
+          "name": "Mark approved earnings as paid",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/earnings/payouts",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "earnings",
+                "payouts"
+              ]
+            },
+            "description": "Mark approved earnings as paid",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"partner_id\": \"{{partner_id}}\",\n  \"reference\": \"PAY-2026-0001\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Payout history",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/earnings/payouts",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "earnings",
+                "payouts"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Payout history"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Partner Management",
+      "item": [
+        {
+          "name": "Create a partner and email them an invitation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/partners",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "partners"
+              ]
+            },
+            "description": "Create a partner and email them an invitation",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"Sarah Jenkins\",\n  \"email\": \"sarah.jenkins@jenkinslaw.com\",\n  \"mobile\": \"+15550142042\",\n  \"role\": \"<role>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = pm.response.code >= 200 && pm.response.code < 300;",
+                  "pm.test('2xx', function () { pm.expect(ok).to.be.true; });",
+                  "if (ok) {",
+                  "  let body = {};",
+                  "  try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "  if (body?.id !== undefined && body?.id !== null) { pm.collectionVariables.set('partner_id', body?.id); console.log('saved partner_id'); }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Partner directory for this organization",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/partners",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "partners"
+              ],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "<search>",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "consultant_id",
+                  "value": "<consultant_id>",
+                  "description": "Partners this consultant has delegated to",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Partner directory for this organization"
+          },
+          "response": []
+        },
+        {
+          "name": "Seat usage against the plan",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/partners/seats",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "partners",
+                "seats"
+              ]
+            },
+            "description": "Seat usage against the plan"
+          },
+          "response": []
+        },
+        {
+          "name": "Resend",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/partners/{{partner_id}}/resend",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "partners",
+                "{{partner_id}}",
+                "resend"
+              ]
+            },
+            "description": "Resend"
+          },
+          "response": []
+        },
+        {
+          "name": "Suspend",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/partners/{{partner_id}}/suspend",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "partners",
+                "{{partner_id}}",
+                "suspend"
+              ],
+              "query": [
+                {
+                  "key": "suspend",
+                  "value": "True",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Suspend"
+          },
+          "response": []
+        },
+        {
+          "name": "Revoke partner access",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/partners/{{partner_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "partners",
+                "{{partner_id}}"
+              ]
+            },
+            "description": "Revoke partner access"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Search",
+      "item": [
+        {
+          "name": "Search clients, cases, requests and documents",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/search?q=<q>",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "<q>",
+                  "description": "",
+                  "disabled": false
+                },
+                {
+                  "key": "limit",
+                  "value": "5",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Search clients, cases, requests and documents"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Security",
+      "item": [
+        {
+          "name": "Security posture for the account settings screen",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/security/overview",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "security",
+                "overview"
+              ]
+            },
+            "description": "Security posture for the account settings screen"
+          },
+          "response": []
+        },
+        {
+          "name": "Devices currently signed in",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/security/sessions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "security",
+                "sessions"
+              ]
+            },
+            "description": "Devices currently signed in"
+          },
+          "response": []
+        },
+        {
+          "name": "Sign out one device",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/security/sessions/{{session_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "security",
+                "sessions",
+                "{{session_id}}"
+              ]
+            },
+            "description": "Sign out one device"
+          },
+          "response": []
+        },
+        {
+          "name": "Sign out everywhere (this device included)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/security/sessions/revoke-all",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "security",
+                "sessions",
+                "revoke-all"
+              ]
+            },
+            "description": "Sign out everywhere (this device included)"
+          },
+          "response": []
+        },
+        {
+          "name": "Recent sign-in attempts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/security/login-history",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "security",
+                "login-history"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Recent sign-in attempts"
+          },
+          "response": []
+        },
+        {
+          "name": "Step 1 \u2014 send the code that turns 2FA on",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/security/2fa/enable",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "security",
+                "2fa",
+                "enable"
+              ]
+            },
+            "description": "Step 1 \u2014 send the code that turns 2FA on"
+          },
+          "response": []
+        },
+        {
+          "name": "Step 2 \u2014 confirm and enable",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/security/2fa/confirm",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "security",
+                "2fa",
+                "confirm"
+              ]
+            },
+            "description": "Step 2 \u2014 confirm and enable",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"{{otp_code}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Turn 2FA off (requires the current password)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/security/2fa/disable",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "security",
+                "2fa",
+                "disable"
+              ]
+            },
+            "description": "Turn 2FA off (requires the current password)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"Str0ng!Pass1\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Subscription & Billing",
+      "item": [
+        {
+          "name": "Current subscription (owner only - partners never see billing)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/subscription",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "subscription"
+              ]
+            },
+            "description": "Current subscription (owner only - partners never see billing)"
+          },
+          "response": []
+        },
+        {
+          "name": "Invoices",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/subscription/invoices",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "subscription",
+                "invoices"
+              ]
+            },
+            "description": "Invoices"
+          },
+          "response": []
+        },
+        {
+          "name": "Upgrade or downgrade the plan",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/subscription/change-plan",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "subscription",
+                "change-plan"
+              ]
+            },
+            "description": "Upgrade or downgrade the plan",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plan_code\": \"starter\",\n  \"billing_cycle\": \"monthly\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/subscription/cancel",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "subscription",
+                "cancel"
+              ]
+            },
+            "description": "Cancel"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Tasks (Partner & Client)",
+      "item": [
+        {
+          "name": "Assign a partner (or client) task",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tasks",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tasks"
+              ]
+            },
+            "description": "Assign a partner (or client) task",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Translate Employment Contract (ES to EN)\",\n  \"description\": \"<description>\",\n  \"case_id\": \"{{case_id}}\",\n  \"assignee_id\": \"{{partner_id}}\",\n  \"assignee_type\": \"partner\",\n  \"due_date\": \"2026-09-01T10:00:00Z\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = pm.response.code >= 200 && pm.response.code < 300;",
+                  "pm.test('2xx', function () { pm.expect(ok).to.be.true; });",
+                  "if (ok) {",
+                  "  let body = {};",
+                  "  try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "  if (body?.id !== undefined && body?.id !== null) { pm.collectionVariables.set('task_id', body?.id); console.log('saved task_id'); }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delegated work / My tasks",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tasks",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tasks"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "pending",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "case_id",
+                  "value": "{{case_id}}",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "assignee_type",
+                  "value": "partner",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "mine",
+                  "value": "False",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "consultant_id",
+                  "value": "<consultant_id>",
+                  "description": "Only this consultant's tasks",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Delegated work / My tasks"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Task",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tasks/{{task_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tasks",
+                "{{task_id}}"
+              ]
+            },
+            "description": "Get Task"
+          },
+          "response": []
+        },
+        {
+          "name": "Update Task",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tasks/{{task_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tasks",
+                "{{task_id}}"
+              ]
+            },
+            "description": "Update Task",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Translate Employment Contract (ES to EN)\",\n  \"description\": \"<description>\",\n  \"due_date\": \"2026-09-01T10:00:00Z\",\n  \"status\": \"pending\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Set Status",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tasks/{{task_id}}/status",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tasks",
+                "{{task_id}}",
+                "status"
+              ]
+            },
+            "description": "Set Status",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"pending\",\n  \"note\": \"<note>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Partner uploads the finished deliverable",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tasks/{{task_id}}/deliverables",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tasks",
+                "{{task_id}}",
+                "deliverables"
+              ]
+            },
+            "description": "Partner uploads the finished deliverable",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Pick a file: PDF, JPG, PNG, WEBP, DOC or DOCX (max 25 MB)"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Download a deliverable from GridFS",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tasks/{{task_id}}/deliverables/{{file_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tasks",
+                "{{task_id}}",
+                "deliverables",
+                "{{file_id}}"
+              ]
+            },
+            "description": "Download a deliverable from GridFS"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Users, Team & Clients",
+      "item": [
+        {
+          "name": "My profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "me"
+              ]
+            },
+            "description": "My profile"
+          },
+          "response": []
+        },
+        {
+          "name": "Update Me",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "me"
+              ]
+            },
+            "description": "Update Me",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"Sarah Jenkins\",\n  \"mobile\": \"+15550142042\",\n  \"title\": \"Translate Employment Contract (ES to EN)\",\n  \"language\": \"<language>\",\n  \"nationality\": \"<nationality>\",\n  \"country_of_residence\": \"United Kingdom\",\n  \"avatar_url\": \"<avatar_url>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Directory (consultants, partners, clients)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/users",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "role",
+                  "value": "super_admin",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "<search>",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "consultant_id",
+                  "value": "<consultant_id>",
+                  "description": "Clients owned by, or partners working with, this consultant",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Directory (consultants, partners, clients)"
+          },
+          "response": []
+        },
+        {
+          "name": "Get User",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/{{user_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "{{user_id}}"
+              ]
+            },
+            "description": "Get User"
+          },
+          "response": []
+        },
+        {
+          "name": "Team & Seats: invite another consultant",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/team",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "team"
+              ]
+            },
+            "description": "Team & Seats: invite another consultant",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"Sarah Jenkins\",\n  \"email\": \"sarah.jenkins@jenkinslaw.com\",\n  \"mobile\": \"+15550142042\",\n  \"title\": \"Consultant\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Consultant adds a client to the workspace",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clients",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clients"
+              ]
+            },
+            "description": "Consultant adds a client to the workspace",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"Sarah Jenkins\",\n  \"email\": \"sarah.jenkins@jenkinslaw.com\",\n  \"mobile\": \"+15550142042\",\n  \"nationality\": \"<nationality>\",\n  \"language\": \"<language>\",\n  \"country_of_residence\": \"United Kingdom\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = pm.response.code >= 200 && pm.response.code < 300;",
+                  "pm.test('2xx', function () { pm.expect(ok).to.be.true; });",
+                  "if (ok) {",
+                  "  let body = {};",
+                  "  try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "  if (body?.id !== undefined && body?.id !== null) { pm.collectionVariables.set('user_id', body?.id); console.log('saved user_id'); }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Super Admin \u00b7 Billing",
+      "item": [
+        {
+          "name": "MRR, ARR, plan mix and churn",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/billing/overview",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "billing",
+                "overview"
+              ]
+            },
+            "description": "MRR, ARR, plan mix and churn"
+          },
+          "response": []
+        },
+        {
+          "name": "Every subscription on the platform",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/billing/subscriptions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "billing",
+                "subscriptions"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "<status>",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "plan_code",
+                  "value": "starter",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Every subscription on the platform"
+          },
+          "response": []
+        },
+        {
+          "name": "Collected revenue grouped by month",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/billing/revenue-by-month",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "billing",
+                "revenue-by-month"
+              ],
+              "query": [
+                {
+                  "key": "months",
+                  "value": "12",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Collected revenue grouped by month"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Super Admin \u00b7 Dashboard",
+      "item": [
+        {
+          "name": "AdminDashboard.tsx \u2014 platform overview",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/dashboard",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "dashboard"
+              ]
+            },
+            "description": "AdminDashboard.tsx \u2014 platform overview"
+          },
+          "response": []
+        },
+        {
+          "name": "Compact platform counters",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/stats",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "stats"
+              ]
+            },
+            "description": "Compact platform counters"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Super Admin \u00b7 Helpdesk",
+      "item": [
+        {
+          "name": "Platform-wide ticket queue",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/helpdesk/tickets",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "helpdesk",
+                "tickets"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "open",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "priority",
+                  "value": "low",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "tenant_id",
+                  "value": "<tenant_id>",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "assigned_to",
+                  "value": "<assigned_to>",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "<search>",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Platform-wide ticket queue"
+          },
+          "response": []
+        },
+        {
+          "name": "Queue counters for the helpdesk header",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/helpdesk/stats",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "helpdesk",
+                "stats"
+              ]
+            },
+            "description": "Queue counters for the helpdesk header"
+          },
+          "response": []
+        },
+        {
+          "name": "Ticket Detail",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/helpdesk/tickets/{{ticket_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "helpdesk",
+                "tickets",
+                "{{ticket_id}}"
+              ]
+            },
+            "description": "Ticket Detail"
+          },
+          "response": []
+        },
+        {
+          "name": "Reply",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/helpdesk/tickets/{{ticket_id}}/reply",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "helpdesk",
+                "tickets",
+                "{{ticket_id}}",
+                "reply"
+              ]
+            },
+            "description": "Reply",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"body\": \"Adding more detail here.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Set Status",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/helpdesk/tickets/{{ticket_id}}/status",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "helpdesk",
+                "tickets",
+                "{{ticket_id}}",
+                "status"
+              ]
+            },
+            "description": "Set Status",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"open\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Assign",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/helpdesk/tickets/{{ticket_id}}/assign",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "helpdesk",
+                "tickets",
+                "{{ticket_id}}",
+                "assign"
+              ]
+            },
+            "description": "Assign",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"agent_id\": \"{{admin_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Super Admin \u00b7 Organizations",
+      "item": [
+        {
+          "name": "All organizations on the platform",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/organizations",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "organizations"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "pending_verification",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "plan_code",
+                  "value": "starter",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "<search>",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "All organizations on the platform"
+          },
+          "response": []
+        },
+        {
+          "name": "Organization detail with usage and health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/organizations/{{tenant_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "organizations",
+                "{{tenant_id}}"
+              ]
+            },
+            "description": "Organization detail with usage and health"
+          },
+          "response": []
+        },
+        {
+          "name": "Suspend, reactivate or cancel an organization",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/organizations/{{tenant_id}}/status",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "organizations",
+                "{{tenant_id}}",
+                "status"
+              ]
+            },
+            "description": "Suspend, reactivate or cancel an organization",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"pending_verification\",\n  \"reason\": \"No longer using the service.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Override an organization's plan (comps, migrations, enterprise deals)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/organizations/{{tenant_id}}/plan",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "organizations",
+                "{{tenant_id}}",
+                "plan"
+              ]
+            },
+            "description": "Override an organization's plan (comps, migrations, enterprise deals)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plan_code\": \"starter\",\n  \"note\": \"<note>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Super Admin \u00b7 Oversight",
+      "item": [
+        {
+          "name": "Platform audit trail",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/oversight/audit-log",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "oversight",
+                "audit-log"
+              ],
+              "query": [
+                {
+                  "key": "action",
+                  "value": "login",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "tenant_id",
+                  "value": "<tenant_id>",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "actor_email",
+                  "value": "sarah.jenkins@jenkinslaw.com",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "days",
+                  "value": "30",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Platform audit trail"
+          },
+          "response": []
+        },
+        {
+          "name": "Platform health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/oversight/health",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "oversight",
+                "health"
+              ]
+            },
+            "description": "Platform health"
+          },
+          "response": []
+        },
+        {
+          "name": "Anomalies worth a human look",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/oversight/flags",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "oversight",
+                "flags"
+              ]
+            },
+            "description": "Anomalies worth a human look"
+          },
+          "response": []
+        },
+        {
+          "name": "Recent activity inside one organization",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/oversight/tenant/{{tenant_id}}/activity",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "oversight",
+                "tenant",
+                "{{tenant_id}}",
+                "activity"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Recent activity inside one organization"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Super Admin \u00b7 Platform settings",
+      "item": [
+        {
+          "name": "All platform settings (defaults merged with overrides)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/settings",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "settings"
+              ]
+            },
+            "description": "All platform settings (defaults merged with overrides)"
+          },
+          "response": []
+        },
+        {
+          "name": "Set one platform setting",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/settings/{{key}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "settings",
+                "{{key}}"
+              ]
+            },
+            "description": "Set one platform setting",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"value\": \"<value>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Reset a setting to its default",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/settings/{{key}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "settings",
+                "{{key}}"
+              ]
+            },
+            "description": "Reset a setting to its default"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Super Admin \u00b7 Platform staff",
+      "item": [
+        {
+          "name": "Platform staff directory",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/users",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "admin_role",
+                  "value": "super_admin",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "<search>",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Platform staff directory"
+          },
+          "response": []
+        },
+        {
+          "name": "Invite a platform staff member",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/users",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "users"
+              ]
+            },
+            "description": "Invite a platform staff member",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"Sarah Jenkins\",\n  \"email\": \"sarah.jenkins@jenkinslaw.com\",\n  \"admin_role\": \"super_admin\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ok = pm.response.code >= 200 && pm.response.code < 300;",
+                  "pm.test('2xx', function () { pm.expect(ok).to.be.true; });",
+                  "if (ok) {",
+                  "  let body = {};",
+                  "  try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "  if (body?.id !== undefined && body?.id !== null) { pm.collectionVariables.set('admin_id', body?.id); console.log('saved admin_id'); }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Change a staff member's role or status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/users/{{admin_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "users",
+                "{{admin_id}}"
+              ]
+            },
+            "description": "Change a staff member's role or status",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"Sarah Jenkins\",\n  \"admin_role\": \"super_admin\",\n  \"status\": \"pending_verification\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Admin",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/users/{{admin_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "users",
+                "{{admin_id}}"
+              ]
+            },
+            "description": "Delete Admin"
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+from datetime import datetime
+from typing import Optional
+
+from pydantic import BaseModel, EmailStr, Field
+
+from app.core.enums import UserStatus
+
+
+class PartnerInvite(BaseModel):
+    full_name: str = Field(min_length=2, max_length=120)
+    email: EmailStr
+    mobile: str
+    role: str = Field(description="e.g. Certified Translator, Notary, Legal Document Specialist")
+
+
+class PartnerOut(BaseModel):
+    id: str
+    full_name: str
+    email: EmailStr
+    mobile: Optional[str] = None
+    partner_role: Optional[str] = None
+    status: UserStatus
+    joined_at: Optional[datetime] = None
+    invited_at: Optional[datetime] = None
+    open_tasks: int = 0
+
+
+class SeatUsage(BaseModel):
+    consultant_seats_used: int
+    consultant_seats_limit: Optional[int]
+    partner_seats_used: int
+    partner_seats_limit: Optional[int]
