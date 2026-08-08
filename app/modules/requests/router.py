@@ -22,6 +22,23 @@ router = APIRouter(prefix="/requests", tags=["Immigration Requests"],
                    dependencies=[Depends(require_active_tenant)])
 
 
+@router.get("/client/dashboard", response_model=s.ClientDashboardSummary, summary="Get Client Home Dashboard overview")
+async def client_dashboard(user: CurrentUser = Depends(require_client),
+                           db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+    return await service.get_client_dashboard(db, user)
+
+
+@router.get("/consultant/dashboard", response_model=s.ConsultantDashboardSummary, summary="Get Consultant Home Dashboard overview")
+async def consultant_dashboard(user: CurrentUser = Depends(require_consultant),
+                               db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+    return await service.get_consultant_dashboard(db, user)
+
+
+@router.get("/client/categories", summary="Get list of available immigration request types")
+async def client_categories():
+    return await service.get_client_categories()
+
+
 @router.post("", status_code=status.HTTP_201_CREATED, summary="Client submits a request")
 async def create_request(payload: s.RequestCreate,
                          user: CurrentUser = Depends(require_client),
@@ -47,7 +64,7 @@ async def request_counts(user: CurrentUser = Depends(get_current_user),
     return await service.counts(db, user)
 
 
-@router.get("/{request_id}", summary="Request details with client profile and documents")
+@router.get("/{request_id}", response_model=s.RequestOut, summary="Request details with client profile and documents")
 async def get_request(request_id: str,
                       user: CurrentUser = Depends(get_current_user),
                       db: AsyncIOMotorDatabase = Depends(get_tenant_db)):

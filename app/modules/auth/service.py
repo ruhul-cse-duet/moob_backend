@@ -45,7 +45,8 @@ async def start_signup(data) -> Dict[str, Any]:
         "email": email,
         "full_name": data.full_name,
         "mobile": data.mobile,
-        "password_hash": hash_password(data.password),
+        "dob": getattr(data, "dob", None),
+        "profile_photo_url": getattr(data, "profile_photo_url", None),
         "step": "organization",
         "email_verified": False,
         "completed": False,
@@ -87,8 +88,6 @@ async def set_organization(token: str, data) -> Dict[str, Any]:
                 "business_type": data.business_type,
                 "country": data.country,
                 "office_address": data.office_address,
-                "accepted_terms_at": utcnow(),
-                "accepted_privacy_at": utcnow(),
             },
             "step": "verify",
         }},
@@ -109,11 +108,31 @@ async def verify_signup_email(token: str, code: str) -> Dict[str, Any]:
         email=signup["email"], purpose=OtpPurpose.EMAIL_VERIFICATION, code=code
     )
     await db.signups.update_one(
-        {"_id": signup["_id"]}, {"$set": {"email_verified": True, "step": "plan"}}
+        {"_id": signup["_id"]}, {"$set": {"email_verified": True, "step": "password"}}
+    )
+    return {
+        "onboarding_token": create_onboarding_token(signup_id=str(signup["_id"]), step="password"),
+        "step": "verify",
+        "next_step": "password",
+    }
+
+
+async def set_password(token: str, data) -> Dict[str, Any]:
+    db = platform_db()
+    signup = await _load_signup(token)
+    if not signup.get("email_verified"):
+        raise BadRequest("Verify your email before creating a password")
+
+    await db.signups.update_one(
+        {"_id": signup["_id"]},
+        {"$set": {
+            "password_hash": hash_password(data.password),
+            "step": "plan",
+        }}
     )
     return {
         "onboarding_token": create_onboarding_token(signup_id=str(signup["_id"]), step="plan"),
-        "step": "verify",
+        "step": "password",
         "next_step": "plan",
     }
 
@@ -261,13 +280,42 @@ async def complete_payment(token: str, data) -> Dict[str, Any]:
 
 
 def _fake_charge(data, amount: float) -> Dict[str, Any]:
-    """Replace with Stripe/Adyen. Kept isolated so the swap is a one-file change."""
-    digits = "".join(c for c in data.card_number if c.isdigit())
-    if len(digits) < 12:
-        return {"success": False, "message": "Card number is invalid", "reference": None}
-    if digits.endswith("0000"):
-        return {"success": False, "message": "Card declined", "reference": None}
-    return {"success": True, "message": "ok", "reference": f"pay_{random_token(16)}"}
+    """Charge card using Stripe API."""
+    import stripe
+    from app.core.config import settings
+
+    stripe.api_key = getattr(settings, "STRIPE_SECRET_KEY", "sk_test_51MockupKeyHereForSafety")
+    try:
+        # Create a Token from raw card data (in production this should be done on client,
+        # but to match current backend signup flow API parameters, we do it via token API).
+        # We strip non-digits from card_number
+        card_num = "".join(c for c in data.card_number if c.isdigit())
+        exp_month, exp_year = data.expiry.split("/")
+        # format year as 4 digits
+        if len(exp_year) == 2:
+            exp_year = f"20{exp_year}"
+
+        token_res = stripe.Token.create(
+            card={
+                "number": card_num,
+                "exp_month": int(exp_month),
+                "exp_year": int(exp_year),
+                "cvc": data.cvc,
+                "name": data.name_on_card,
+            },
+        )
+
+        charge = stripe.Charge.create(
+            amount=int(amount * 100),  # Stripe accepts cents
+            currency="usd",
+            source=token_res.id,
+            description="WebImove Subscription Activation",
+        )
+        return {"success": True, "message": "ok", "reference": charge.id}
+    except stripe.error.CardError as e:
+        return {"success": False, "message": e.user_message or "Card declined", "reference": None}
+    except Exception as e:
+        return {"success": False, "message": str(e), "reference": None}
 
 
 # --------------------------------------------------------------------------- #
@@ -393,9 +441,10 @@ async def _token_response(user: dict, role: Role, tenant_id: Optional[str],
             "plan_code": tenant.get("plan_code"),
         }
     # Partners and clients need to know which consultant they sit under, immediately.
-    if tenant_id and user.get("consultant_id"):
-        lookup = await consultant_map(tenant_db(tenant_id), [user["consultant_id"]])
-        profile["consultant"] = lookup.get(user["consultant_id"])
+    consultant_id = user.get("consultant_id")
+    if tenant_id and consultant_id:
+        lookup = await consultant_map(tenant_db(tenant_id), [consultant_id])
+        profile["consultant"] = lookup.get(consultant_id)
     return {
         "access_token": create_access_token(
             user_id=user_id, role=role.value, tenant_id=tenant_id, email=user["email"]
@@ -404,6 +453,7 @@ async def _token_response(user: dict, role: Role, tenant_id: Optional[str],
         "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         "role": role,
         "tenant_id": tenant_id,
+        "consultant_id": consultant_id,
         "user": profile,
     }
 
@@ -576,7 +626,10 @@ async def register_client(data) -> Dict[str, Any]:
         "role": Role.CLIENT.value,
         "status": UserStatus.PENDING_VERIFICATION.value,
         "email_verified": False,
+        "passport_number": getattr(data, "passport_number", None),
         "nationality": data.nationality,
+        "destination_country": getattr(data, "destination_country", None),
+        "preferred_immigration_type": getattr(data, "preferred_immigration_type", None),
         "language": data.language,
         "country_of_residence": data.country_of_residence,
         "consultant_id": consultant_id,
@@ -602,6 +655,281 @@ async def register_client(data) -> Dict[str, Any]:
         "next_step": "verify_email",
         **issued,
     }
+
+
+# --------------------------------------------------------------------------- #
+# Client 7-Step Onboarding Flow
+# Step 1: Account
+# Step 2: Verification
+# Step 3: Create Password
+# Step 4: Immigration Profile
+# Step 5: Choose Consultant / Organization
+# Step 6: Confirm & Submit Request
+# Step 7: Agreements & Finalize Account
+# --------------------------------------------------------------------------- #
+async def start_client_signup(data) -> Dict[str, Any]:
+    db = platform_db()
+    email = data.email.lower().strip()
+
+    if await db.user_directory.find_one({"email": email}):
+        raise Conflict("An account with this email already exists")
+
+    await db.signups.delete_many({"email": email, "completed": {"$ne": True}})
+    doc = {
+        "email": email,
+        "full_name": data.full_name,
+        "mobile": data.mobile,
+        "dob": data.dob,
+        "profile_photo_url": data.profile_photo_url,
+        "role": Role.CLIENT.value,
+        "step": "verification",
+        "email_verified": False,
+        "completed": False,
+        "created_at": utcnow(),
+    }
+    result = await db.signups.insert_one(doc)
+
+    issued = await otp_service.issue_otp(email=email, purpose=OtpPurpose.EMAIL_VERIFICATION)
+
+    return {
+        "client_onboarding_token": create_onboarding_token(
+            signup_id=str(result.inserted_id), step="verification"
+        ),
+        "step": "account",
+        "next_step": "verification",
+        "detail": f"Verification code sent to {email}",
+        **issued,
+    }
+
+
+async def verify_client_signup_email(token: str, code: str) -> Dict[str, Any]:
+    db = platform_db()
+    signup = await _load_signup(token)
+
+    await otp_service.verify_otp(
+        email=signup["email"], purpose=OtpPurpose.EMAIL_VERIFICATION, code=code
+    )
+
+    await db.signups.update_one(
+        {"_id": signup["_id"]},
+        {"$set": {"email_verified": True, "step": "create_password"}},
+    )
+
+    return {
+        "client_onboarding_token": create_onboarding_token(
+            signup_id=str(signup["_id"]), step="create_password"
+        ),
+        "step": "verification",
+        "next_step": "create_password",
+    }
+
+
+async def resend_client_signup_otp(token: str) -> Dict[str, Any]:
+    signup = await _load_signup(token)
+    return await otp_service.issue_otp(
+        email=signup["email"],
+        purpose=OtpPurpose.EMAIL_VERIFICATION,
+        tenant_id=signup.get("tenant_id"),
+    )
+
+
+async def set_client_password(token: str, data) -> Dict[str, Any]:
+    db = platform_db()
+    signup = await _load_signup(token)
+
+    if not signup.get("email_verified"):
+        raise BadRequest("Please verify your email before setting a password")
+
+    await db.signups.update_one(
+        {"_id": signup["_id"]},
+        {"$set": {
+            "password_hash": hash_password(data.password),
+            "step": "immigration",
+        }},
+    )
+
+    return {
+        "client_onboarding_token": create_onboarding_token(
+            signup_id=str(signup["_id"]), step="immigration"
+        ),
+        "step": "create_password",
+        "next_step": "immigration",
+    }
+
+
+async def set_client_immigration(token: str, data) -> Dict[str, Any]:
+    db = platform_db()
+    signup = await _load_signup(token)
+
+    await db.signups.update_one(
+        {"_id": signup["_id"]},
+        {"$set": {
+            "immigration_profile": {
+                "passport_number": data.passport_number,
+                "nationality": data.nationality,
+                "destination_country": data.destination_country,
+                "preferred_immigration_type": data.preferred_immigration_type,
+                "country_of_residence": data.country_of_residence,
+            },
+            "step": "consultant",
+        }},
+    )
+
+    return {
+        "client_onboarding_token": create_onboarding_token(
+            signup_id=str(signup["_id"]), step="consultant"
+        ),
+        "step": "immigration",
+        "next_step": "consultant",
+    }
+
+
+async def set_client_consultant(token: str, data) -> Dict[str, Any]:
+    db = platform_db()
+    signup = await _load_signup(token)
+
+    tenant, consultant_id = await _resolve_signup_target(data)
+    tid = str(tenant["_id"])
+    tdb = tenant_db(tid)
+    consultant = await tdb.users.find_one({"_id": oid(consultant_id)}) if consultant_id else None
+
+    imm = signup.get("immigration_profile", {})
+
+    await db.signups.update_one(
+        {"_id": signup["_id"]},
+        {"$set": {
+            "tenant_id": tid,
+            "consultant_id": consultant_id,
+            "step": "confirm",
+        }},
+    )
+
+    return {
+        "client_onboarding_token": create_onboarding_token(
+            signup_id=str(signup["_id"]), step="confirm"
+        ),
+        "step": "consultant",
+        "next_step": "confirm",
+        "preview": {
+            "organization_name": tenant["name"],
+            "consultant_name": (consultant or {}).get("full_name") or tenant.get("owner_name", "Consultant"),
+            "consultant_country": tenant.get("country", ""),
+            "immigration_type": imm.get("preferred_immigration_type"),
+            "nationality": imm.get("nationality"),
+            "current_country": imm.get("country_of_residence"),
+            "passport_number": imm.get("passport_number"),
+        },
+    }
+
+
+async def confirm_client_signup(token: str, data) -> Dict[str, Any]:
+    db = platform_db()
+    signup = await _load_signup(token)
+
+    if not signup.get("tenant_id") or not signup.get("consultant_id"):
+        raise BadRequest("Please choose a consultant or organization first")
+
+    await db.signups.update_one(
+        {"_id": signup["_id"]},
+        {"$set": {
+            "gdpr_consent": data.gdpr_consent,
+            "accepted_terms_conditions": data.accept_terms_conditions,
+            "step": "agreements",
+        }},
+    )
+
+    return {
+        "client_onboarding_token": create_onboarding_token(
+            signup_id=str(signup["_id"]), step="agreements"
+        ),
+        "step": "confirm",
+        "next_step": "agreements",
+    }
+
+
+async def finalize_client_signup(token: str, data, session: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    db = platform_db()
+    signup = await _load_signup(token)
+
+    if not signup.get("tenant_id") or not signup.get("consultant_id"):
+        raise BadRequest("Signup process is incomplete. Missing consultant context.")
+
+    tid = signup["tenant_id"]
+    consultant_id = signup["consultant_id"]
+    tdb = tenant_db(tid)
+    now = utcnow()
+    imm = signup.get("immigration_profile", {})
+
+    consultant = await tdb.users.find_one({"_id": oid(consultant_id)})
+    tenant = await db.tenants.find_one({"_id": oid(tid)})
+
+    user = {
+        "email": signup["email"],
+        "full_name": signup["full_name"],
+        "mobile": signup["mobile"],
+        "dob": signup.get("dob"),
+        "profile_photo_url": signup.get("profile_photo_url"),
+        "password_hash": signup["password_hash"],
+        "role": Role.CLIENT.value,
+        "status": UserStatus.ACTIVE.value,
+        "email_verified": True,
+        "passport_number": imm.get("passport_number"),
+        "nationality": imm.get("nationality"),
+        "destination_country": imm.get("destination_country"),
+        "preferred_immigration_type": imm.get("preferred_immigration_type"),
+        "country_of_residence": imm.get("country_of_residence"),
+        "consultant_id": consultant_id,
+        "agreements": data.model_dump(),
+        "created_at": now,
+        "updated_at": now,
+    }
+    user_id = str((await tdb.users.insert_one(user)).inserted_id)
+
+    await db.user_directory.insert_one({
+        "email": signup["email"],
+        "tenant_id": tid,
+        "user_id": user_id,
+        "role": Role.CLIENT.value,
+        "created_at": now,
+    })
+
+    # Create immigration request (e.g. REQ-699)
+    req_number = f"REQ-{random_token(4).upper()}"
+    request_doc = {
+        "request_number": req_number,
+        "client_id": user_id,
+        "consultant_id": consultant_id,
+        "immigration_type": imm.get("preferred_immigration_type") or "Immigration Advice",
+        "status": RequestStatus.NEW.value,
+        "stage": "consultant_review",
+        "created_at": now,
+        "updated_at": now,
+    }
+    await tdb.requests.insert_one(request_doc)
+
+    await db.signups.update_one(
+        {"_id": signup["_id"]},
+        {"$set": {"completed": True, "user_id": user_id}}
+    )
+
+    created_user = await tdb.users.find_one({"_id": oid(user_id)})
+    tokens = await _token_response(
+        created_user, Role.CLIENT, tid, tenant=tenant, session=session
+    )
+
+    return {
+        "token_pair": tokens,
+        "request_summary": {
+            "status": "Waiting for review",
+            "request_number": req_number,
+            "organization_name": tenant["name"] if tenant else "",
+            "consultant_name": (consultant or {}).get("full_name") or "",
+            "message": f"Your account is created and linked to {tenant['name'] if tenant else ''}. { (consultant or {}).get('full_name', '') } has received your immigration request.",
+            "next_steps": "Consultant review -> document requests -> case created",
+        },
+    }
+
+
 
 
 async def _resolve_signup_target(data):

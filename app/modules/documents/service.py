@@ -68,16 +68,10 @@ async def upload(db, user: CurrentUser, document_id: str,
         db, request_id=doc.get("request_id"), case_id=doc.get("case_id"),
         client_id=doc.get("client_id"))
 
-    analysis = await analyze_document(
-        file_bytes=await storage.read_bytes(db, stored["file_id"], storage.DOCUMENTS_BUCKET),
-        mime_type=file.content_type or "application/octet-stream",
-        document_name=doc["name"],
-        context=f"{doc.get('category')} document for request {doc.get('request_id')}",
-    )
-
+    # Client upload: Update status to WITH_CONSULTANT (Under Review)
     await db.documents.update_one(
         {"_id": oid(document_id)},
-        {"$set": {"file": file_meta, "ai_analysis": analysis,
+        {"$set": {"file": file_meta,
                   "status": DocumentStatus.WITH_CONSULTANT.value,
                   "consultant_id": consultant_id,
                   "consultant_feedback": None, "updated_at": now}},
@@ -96,12 +90,24 @@ async def upload(db, user: CurrentUser, document_id: str,
 
     await notify(db, user_ids=[consultant_id], type=NotificationType.DOCUMENT_UPLOADED,
                  title=f"{user.raw.get('full_name')} uploaded {doc['name']}",
-                 body=f"AI confidence {analysis.get('confidence', 0)}%",
+                 body=f"Document uploaded: {file.filename or doc['name']}",
                  data={"document_id": document_id, "request_id": doc.get("request_id")})
     await log_activity(db, actor_id=user.id, actor_name=user.raw.get("full_name", ""),
                        action="uploaded", subject=file.filename or doc["name"],
                        request_id=doc.get("request_id"), case_id=doc.get("case_id"))
-    return serialize(await _get(db, document_id))
+
+    updated_doc = serialize(await _get(db, document_id))
+    # Pop-up modal details for mobile app ("Submit to Consultant")
+    updated_doc["popup_modal"] = {
+        "title": "Upload document",
+        "document_name": doc["name"],
+        "file_name": file.filename or doc["name"],
+        "status_label": "ready",
+        "cta_label": "Submit to Consultant",
+        "message": f"{file.filename or doc['name']} is ready to be submitted to your consultant.",
+    }
+    return updated_doc
+
 
 
 async def _consultant_for(db, doc: Dict[str, Any]) -> Optional[str]:

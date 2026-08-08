@@ -24,6 +24,12 @@ class CurrentUser:
     raw: dict
 
     @property
+    def consultant_id(self) -> Optional[str]:
+        if self.role in CONSULTANT_ROLES:
+            return self.id
+        return self.raw.get("consultant_id")
+
+    @property
     def is_consultant(self) -> bool:
         return self.role in CONSULTANT_ROLES
 

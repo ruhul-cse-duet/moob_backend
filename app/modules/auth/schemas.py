@@ -19,19 +19,13 @@ class PasswordMixin(BaseModel):
         return v
 
 
-# ---------- Step 1 of 5 - Personal ----------
-class SignupPersonal(PasswordMixin):
+# ---------- Step 1 of 6 - Personal ----------
+class SignupPersonal(BaseModel):
     full_name: str = Field(min_length=2, max_length=120)
     email: EmailStr
     mobile: str = Field(min_length=6, max_length=32)
-    confirm_password: str
-
-    @field_validator("confirm_password")
-    @classmethod
-    def match(cls, v: str, info):
-        if info.data.get("password") and v != info.data["password"]:
-            raise ValueError("Passwords do not match")
-        return v
+    dob: Optional[str] = Field(None, description="Date of birth (optional)")
+    profile_photo_url: Optional[str] = Field(None, description="Profile photo URL (optional)")
 
 
 class OnboardingToken(BaseModel):
@@ -40,31 +34,21 @@ class OnboardingToken(BaseModel):
     next_step: str
 
 
-# ---------- Step 2 of 5 - Organization ----------
+# ---------- Step 2 of 6 - Organization / Professional Credentials ----------
 class SignupOrganization(BaseModel):
     organization_name: str = Field(min_length=2, max_length=160)
-    business_type: str = "immigration"
+    business_type: str = Field(default="Immigration Consultancy")
     country: str
     office_address: str
-    accept_terms: bool
-    accept_privacy: bool
 
     @field_validator("business_type")
     @classmethod
-    def immigration_only(cls, v: str) -> str:
-        if v.lower() != "immigration":
-            raise ValueError("WebImove supports immigration practices only")
-        return v.lower()
-
-    @field_validator("accept_terms", "accept_privacy")
-    @classmethod
-    def must_accept(cls, v: bool) -> bool:
+    def normalize_business_type(cls, v: str) -> str:
         if not v:
-            raise ValueError("You must accept the Terms and the Privacy Policy")
+            return "Immigration Consultancy"
         return v
 
-
-# ---------- Step 3 of 5 - Verify email ----------
+# ---------- Step 3 of 6 - Verify Email OTP ----------
 class OtpRequest(BaseModel):
     email: EmailStr
 
@@ -79,6 +63,19 @@ class OtpIssued(BaseModel):
     expires_in: int
     resend_in: int
     debug_code: Optional[str] = None
+
+
+# ---------- Step 4 of 6 - Create Password ----------
+class SignupPassword(PasswordMixin):
+    confirm_password: str
+
+    @field_validator("confirm_password")
+    @classmethod
+    def match(cls, v: str, info):
+        if info.data.get("password") and v != info.data["password"]:
+            raise ValueError("Passwords do not match")
+        return v
+
 
 
 # ---------- Step 4 of 5 - Plan ----------
@@ -146,6 +143,7 @@ class TokenPair(BaseModel):
     expires_in: int
     role: Role
     tenant_id: Optional[str] = None
+    consultant_id: Optional[str] = None
     user: dict
 
 
@@ -225,7 +223,10 @@ class ClientRegister(PasswordMixin):
     email: EmailStr
     mobile: str
     confirm_password: Optional[str] = None
+    passport_number: Optional[str] = None
     nationality: Optional[str] = None
+    destination_country: Optional[str] = None
+    preferred_immigration_type: Optional[str] = None
     language: Optional[str] = None
     country_of_residence: Optional[str] = None
 
@@ -235,6 +236,97 @@ class ClientRegister(PasswordMixin):
         if v is not None and info.data.get("password") and v != info.data["password"]:
             raise ValueError("Passwords do not match")
         return v
+
+
+# ---------- Client Step-by-Step Sign Up (7 Steps) ----------
+class ClientOnboardingToken(BaseModel):
+    client_onboarding_token: str
+    step: str
+    next_step: str
+
+
+# Step 1: Account
+class ClientSignupStep1(BaseModel):
+    full_name: str = Field(min_length=2, max_length=120)
+    email: EmailStr
+    mobile: str = Field(min_length=6, max_length=32)
+    dob: Optional[str] = Field(None, description="Date of birth (YYYY-MM-DD or MM/DD/YYYY)")
+    accept_terms: bool = Field(..., description="Accept terms and privacy policy")
+    profile_photo_url: Optional[str] = Field(None, description="Optional profile photo URL")
+
+    @field_validator("accept_terms")
+    @classmethod
+    def must_accept(cls, v: bool) -> bool:
+        if not v:
+            raise ValueError("I agree to the WebImove Terms of Service and Privacy Policy")
+        return v
+
+
+# Step 2: Verification
+class ClientSignupVerify(BaseModel):
+    code: str = Field(min_length=4, max_length=8)
+
+
+# Step 3: Create Password
+class ClientSignupPassword(PasswordMixin):
+    confirm_password: str
+
+    @field_validator("confirm_password")
+    @classmethod
+    def match(cls, v: str, info):
+        if info.data.get("password") and v != info.data["password"]:
+            raise ValueError("Passwords do not match")
+        return v
+
+
+# Step 4: Immigration Profile
+class ClientSignupImmigration(BaseModel):
+    passport_number: Optional[str] = Field(None, description="Passport number")
+    nationality: Optional[str] = Field(None, description="Nationality (e.g., Spanish)")
+    destination_country: Optional[str] = Field(None, description="Destination country (e.g., USA)")
+    preferred_immigration_type: Optional[str] = Field(None, description="Preferred immigration/visa type (e.g., Student Visa)")
+    country_of_residence: Optional[str] = Field(None, description="Current country of residence")
+
+
+# Step 5: Consultant Selection
+class ClientSignupConsultant(BaseModel):
+    consultant_id: Optional[str] = Field(None, description="Chosen consultant ID")
+    organization_id: Optional[str] = Field(None, description="Chosen organization ID")
+
+
+# Step 6: Confirmation & Submit
+class ClientSignupConfirm(BaseModel):
+    gdpr_consent: bool = Field(..., description="Consent to process personal data under GDPR")
+    accept_terms_conditions: bool = Field(..., description="Accept WebImove Terms & Conditions")
+
+    @field_validator("gdpr_consent", "accept_terms_conditions")
+    @classmethod
+    def must_accept(cls, v: bool) -> bool:
+        if not v:
+            raise ValueError("You must check both consents to submit registration")
+        return v
+
+
+# Step 7: Agreements & Finalize
+class ClientSignupAgreements(BaseModel):
+    terms_and_conditions: bool = True
+    privacy_policy: bool = True
+    gdpr_data_processing: bool = True
+    immigration_case: bool = True
+    sensitive_data_processing: bool = True
+    whatsapp_notifications: bool = False
+    email_notifications: bool = False
+    ai_ocr_processing: bool = False
+    ai_legal_assistant: bool = False
+    partner_data_sharing: bool = False
+    marketing_messages: bool = False
+
+
+class ClientSignupCompleteResponse(BaseModel):
+    token_pair: TokenPair
+    request_summary: dict
+
+
 
 
 class InvitePreview(BaseModel):

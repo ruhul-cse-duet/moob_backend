@@ -16,9 +16,12 @@ class DocumentOut(BaseModel):
     request_id: Optional[str] = None
     case_id: Optional[str] = None
     client_id: str
+    consultant_id: Optional[str] = None
+    partner_id: Optional[str] = None
     file: Optional[Dict[str, Any]] = None
     ai_analysis: Optional[Dict[str, Any]] = None
     consultant_feedback: Optional[str] = None
+    popup_modal: Optional[Dict[str, Any]] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

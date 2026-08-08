@@ -52,11 +52,12 @@ async def create_request(db, user: CurrentUser, data) -> Dict[str, Any]:
         "client_notes": data.client_notes,
         "preferred_appointment": data.preferred_appointment,
         "review_notes": None,
-        "status": RequestStatus.NEW.value,
+        "status": RequestStatus.NEW.value if not data.is_draft else "draft",
         "client_id": user.id,
         "client_name": user.raw.get("full_name"),
         "consultant_id": consultant_id,
-        "attached_files": [],
+        "attached_files": data.attached_files or [],
+        "is_draft": data.is_draft,
         "case_id": None,
         "created_at": now,
         "updated_at": now,
@@ -64,14 +65,112 @@ async def create_request(db, user: CurrentUser, data) -> Dict[str, Any]:
     result = await db.requests.insert_one(doc)
     request_id = str(result.inserted_id)
 
-    await notify(db, user_ids=[consultant_id], type=NotificationType.REQUEST_SUBMITTED,
-                 title=f"{doc['client_name']} submitted a request",
-                 body=f"{doc['visa_type']} · {doc['reference']}",
-                 data={"request_id": request_id})
-    await log_activity(db, actor_id=user.id, actor_name=doc["client_name"] or "Client",
-                       action="submitted a request", subject=doc["reference"],
-                       request_id=request_id)
+    if not data.is_draft:
+        await notify(db, user_ids=[consultant_id], type=NotificationType.REQUEST_SUBMITTED,
+                     title=f"{doc['client_name']} submitted a request",
+                     body=f"{doc['visa_type']} · {doc['reference']}",
+                     data={"request_id": request_id})
+        await log_activity(db, actor_id=user.id, actor_name=doc["client_name"] or "Client",
+                           action="submitted a request", subject=doc["reference"],
+                           request_id=request_id)
     return serialize({**doc, "_id": result.inserted_id})
+
+
+async def get_client_dashboard(db, user: CurrentUser) -> Dict[str, Any]:
+    if user.role != Role.CLIENT:
+        raise Forbidden("Only client users can access client dashboard")
+
+    client_id = user.id
+    client_name = user.raw.get("full_name", "Client").split(" ")[0]
+
+    # Unread notifications count
+    unread_notifications = await db.notifications.count_documents(
+        {"user_id": client_id, "read": False}
+    ) if "notifications" in await db.list_collection_names() else 0
+
+    # My requests
+    requests_cursor = db.requests.find({"client_id": client_id}).sort("created_at", -1)
+    req_list = [serialize(r) async for r in requests_cursor]
+    for r in req_list:
+        await _attach_document_counts(db, r)
+
+    # Active hero request
+    hero_req = req_list[0] if req_list else None
+    active_hero = None
+    action_next = None
+
+    if hero_req:
+        total = hero_req.get("documents_total", 0)
+        approved = hero_req.get("documents_approved", 0)
+        progress = int((approved / total * 100)) if total > 0 else 45
+        active_hero = {
+            "request_id": hero_req["id"],
+            "reference": hero_req["reference"],
+            "visa_type": hero_req["visa_type"],
+            "status": hero_req["status"],
+            "overall_progress": progress,
+        }
+
+        needed = total - approved
+        action_next = {
+            "type": "upload_documents",
+            "title": f"Upload {needed if needed > 0 else 5} requested document",
+            "action_url": f"/documents?request_id={hero_req['id']}",
+        }
+
+    # Format list for home screen cards
+    formatted_requests = []
+    for r in req_list[:5]:
+        formatted_requests.append({
+            "id": r["id"],
+            "reference": r["reference"],
+            "visa_type": r["visa_type"],
+            "status": r["status"],
+            "status_label": r["status"].replace("_", " ").title(),
+            "destination_country": r.get("destination_country", ""),
+            "created_at": r.get("created_at"),
+            "purpose": r.get("purpose", ""),
+        })
+
+    # Recent activities
+    recent_activities = []
+    if "activity_logs" in await db.list_collection_names():
+        act_cursor = db.activity_logs.find({"actor_id": client_id}).sort("created_at", -1).limit(5)
+        async for act in act_cursor:
+            recent_activities.append({
+                "message": f"Your {act.get('action')} {act.get('subject', '')}".strip(),
+                "time": "Just now",
+            })
+
+    if not recent_activities:
+        recent_activities = [
+            {"message": "Your consent and authorization have been recorded.", "time": "Just now"},
+            {"message": "Your profile is ready. You can now start an immigration request.", "time": "Yesterday"},
+        ]
+
+    return {
+        "client_name": client_name,
+        "unread_notifications_count": unread_notifications,
+        "active_hero_request": active_hero,
+        "action_next_step": action_next,
+        "my_requests": formatted_requests,
+        "recent_activities": recent_activities,
+    }
+
+
+async def get_client_categories() -> List[Dict[str, Any]]:
+    return [
+        {"id": "student_visa", "name": "Student Visa", "icon": "academic_cap", "description": "Study abroad visas"},
+        {"id": "work_permit", "name": "Work Permit", "icon": "briefcase", "description": "Employment & work visas"},
+        {"id": "family_reunification", "name": "Family Reunification", "icon": "heart", "description": "Spouse & family visas"},
+        {"id": "residency", "name": "Residency", "icon": "home", "description": "Permanent & temporary residence"},
+        {"id": "citizenship", "name": "Citizenship", "icon": "user_check", "description": "Naturalization & citizenship"},
+        {"id": "digital_nomad_visa", "name": "Digital Nomad Visa", "icon": "airplane", "description": "Remote work visas"},
+        {"id": "business_visa", "name": "Business Visa", "icon": "building", "description": "Business & investor visas"},
+        {"id": "investor_visa", "name": "Investor Visa", "icon": "bank", "description": "Golden visa & investment"},
+        {"id": "others", "name": "Others", "icon": "document", "description": "Other visa types"},
+    ]
+
 
 
 async def list_requests(db, user: CurrentUser, params: PageParams,
@@ -105,6 +204,9 @@ async def _attach_document_counts(db, item: Dict[str, Any]) -> None:
     item["documents_awaiting_review"] = await db.documents.count_documents(
         {"request_id": rid, "status": DocumentStatus.WITH_CONSULTANT.value}
     )
+    item["documents_action_required"] = await db.documents.count_documents(
+        {"request_id": rid, "status": {"$in": [DocumentStatus.UPLOAD_NEEDED.value, DocumentStatus.NEEDS_REUPLOAD.value]}}
+    )
 
 
 async def counts(db, user: CurrentUser) -> Dict[str, int]:
@@ -121,17 +223,68 @@ async def get_request(db, user: CurrentUser, request_id: str) -> Dict[str, Any]:
         raise Forbidden("This request is not yours")
     out = serialize(doc)
     await _attach_document_counts(db, out)
+
     if user.role == Role.CLIENT:
         out.pop("review_notes", None)   # private working notes stay with the consultant
-    out["documents"] = [
+
+    # Step progress tracking (Image 1 & Image 2 top status banner)
+    st = out.get("status", "new")
+    total = out.get("documents_total", 0)
+    approved = out.get("documents_approved", 0)
+    under_review = out.get("documents_awaiting_review", 0)
+    action_req = out.get("documents_action_required", 0)
+
+    is_requested = total > 0
+    is_reviewed = total > 0 and (approved + under_review) == total
+    is_complete = st == RequestStatus.COMPLETED.value
+
+    out["status_label"] = "Under Review" if st in [RequestStatus.NEW.value, RequestStatus.UNDER_REVIEW.value] else st.replace("_", " ").title()
+    out["header_status_label"] = "With your consultant"
+    out["status_steps"] = [
+        {"key": "submitted", "label": "Request submitted", "completed": True},
+        {"key": "documents_requested", "label": "Documents requested", "completed": is_requested},
+        {"key": "documents_reviewed", "label": "Documents reviewed", "completed": is_reviewed},
+        {"key": "consultation_complete", "label": "Consultation complete", "completed": is_complete},
+    ]
+
+    # Document stats section (Image 2)
+    progress_pct = int((approved / total * 100)) if total > 0 else 0
+    out["progress_percentage"] = progress_pct
+    out["document_stats"] = {
+        "summary_text": f"{approved} of {total} approved" if total > 0 else "No document requests yet",
+        "total": total,
+        "approved": approved,
+        "under_review": under_review,
+        "action_required": action_req,
+        "overall_progress_percentage": progress_pct,
+    }
+
+    raw_docs = [
         serialize(d) async for d in db.documents.find({"request_id": request_id}).sort("created_at", 1)
     ]
+    formatted_docs = []
+    for d in raw_docs:
+        d_st = d.get("status", "upload_needed")
+        d_badge = "Approved" if d_st == DocumentStatus.APPROVED.value else ("Under Review" if d_st == DocumentStatus.WITH_CONSULTANT.value else "Action Required")
+        formatted_docs.append({
+            "id": d["id"],
+            "name": d.get("name", ""),
+            "status": d_st,
+            "status_badge": d_badge,
+            "description": d.get("why") or d.get("description") or f"Your {d.get('name', 'document').lower()} requirement.",
+            "due_date": d.get("due_date") or "Nov 15, 2026",
+            "submitted_at": d.get("updated_at") or d.get("created_at"),
+            "allow_upload": d_st in [DocumentStatus.UPLOAD_NEEDED.value, DocumentStatus.NEEDS_REUPLOAD.value],
+        })
+    out["documents"] = formatted_docs
+
     client = await db.users.find_one({"_id": oid(doc["client_id"])})
     if client:
         out["client_profile"] = serialize(
             {k: v for k, v in client.items() if k != "password_hash"}
         )
     return out
+
 
 
 async def update_request(db, user: CurrentUser, request_id: str, data) -> Dict[str, Any]:
@@ -256,3 +409,62 @@ async def complete_consultation(db, user: CurrentUser, request_id: str,
                        action="completed the consultation for", subject=doc["reference"],
                        request_id=request_id, case_id=case_id)
     return serialize({**case, "_id": oid(case_id)})
+
+
+async def get_consultant_dashboard(db, user: CurrentUser) -> Dict[str, Any]:
+    cid = user.id if user.role in [Role.CONSULTANT, Role.CONSULTANT_OWNER] else None
+    query = {"consultant_id": cid} if cid else {}
+
+    unread = await db.notifications.count_documents({"user_id": user.id, "read": False})
+    
+    # Counts
+    new_reqs = await db.requests.count_documents({**query, "status": RequestStatus.NEW.value})
+    under_review = await db.requests.count_documents({**query, "status": RequestStatus.UNDER_REVIEW.value})
+    waiting = await db.requests.count_documents({**query, "status": RequestStatus.WAITING_FOR_CLIENT.value})
+    docs_received = await db.requests.count_documents({**query, "status": RequestStatus.DOCUMENTS_RECEIVED.value})
+
+    todays_count = new_reqs + under_review
+    to_review_count = docs_received + under_review
+    waiting_count = waiting
+
+    banner = {
+        "title": "Client request queue",
+        "subtitle": f"{to_review_count} client-submitted requests ready for review.",
+        "cta_label": "Review requests",
+        "action_route": "/requests/queue",
+    }
+
+    # Open requests list
+    cursor = db.requests.find(query).sort("updated_at", -1).limit(5)
+    open_reqs = []
+    async for req in cursor:
+        client_name = req.get("client_name") or "Client"
+        status_val = req.get("status", "new")
+        badge_label = "Under Review" if status_val == "under_review" else "Waiting for documents"
+        open_reqs.append({
+            "id": str(req["_id"]),
+            "reference": req.get("reference", ""),
+            "client_name": client_name,
+            "visa_type": req.get("visa_type", ""),
+            "status": status_val,
+            "status_label": badge_label,
+            "updated_at": req.get("updated_at"),
+        })
+
+    # Recent activities
+    act_cursor = db.activity.find({}).sort("created_at", -1).limit(5)
+    activities = []
+    async for act in act_cursor:
+        activities.append(serialize(act))
+
+    return {
+        "consultant_name": user.raw.get("full_name", "Consultant"),
+        "unread_notifications_count": unread,
+        "todays_count": todays_count,
+        "to_review_count": to_review_count,
+        "waiting_count": waiting_count,
+        "client_request_queue_banner": banner,
+        "open_requests": open_reqs,
+        "recent_activity": activities,
+    }
+

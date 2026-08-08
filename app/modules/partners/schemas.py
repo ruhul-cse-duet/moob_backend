@@ -20,6 +20,7 @@ class PartnerOut(BaseModel):
     mobile: Optional[str] = None
     partner_role: Optional[str] = None
     status: UserStatus
+    consultant_id: Optional[str] = None
     joined_at: Optional[datetime] = None
     invited_at: Optional[datetime] = None
     open_tasks: int = 0

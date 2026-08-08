@@ -17,11 +17,13 @@ class RequestCreate(BaseModel):
     """Submitted by the client from the mobile app."""
     visa_type: str = Field(min_length=2, max_length=80)
     destination_country: str
-    purpose: str = Field(min_length=5, max_length=2000)
+    purpose: str = Field(min_length=2, max_length=2000)
     additional_information: Optional[str] = None
     client_notes: Optional[str] = None
     preferred_appointment: Optional[str] = None
     consultant_id: Optional[str] = None
+    attached_files: Optional[List[dict]] = Field(default_factory=list)
+    is_draft: bool = False
 
 
 class RequestUpdate(BaseModel):
@@ -31,6 +33,8 @@ class RequestUpdate(BaseModel):
     additional_information: Optional[str] = None
     client_notes: Optional[str] = None
     preferred_appointment: Optional[str] = None
+    attached_files: Optional[List[dict]] = None
+    is_draft: Optional[bool] = None
 
 
 class RequestDocumentsRequest(BaseModel):
@@ -50,20 +54,30 @@ class RequestOut(BaseModel):
     origin_country: Optional[str] = None
     purpose: str
     status: RequestStatus
+    status_label: Optional[str] = None
+    header_status_label: Optional[str] = "With your consultant"
+    status_steps: List[dict] = []
     client_id: str
     client_name: Optional[str] = None
     consultant_id: Optional[str] = None
+    partner_id: Optional[str] = None
     additional_information: Optional[str] = None
     client_notes: Optional[str] = None
     review_notes: Optional[str] = None
-    preferred_appointment: Optional[str] = None
+    preferred_appointment: Optional[str] = "Flexible"
     attached_files: List[dict] = []
     documents_total: int = 0
     documents_approved: int = 0
     documents_awaiting_review: int = 0
+    documents_action_required: int = 0
+    is_draft: bool = False
+    progress_percentage: int = 0
+    document_stats: Optional[dict] = None
+    documents: List[dict] = []
     case_id: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
 
 
 class RequestCounts(BaseModel):
@@ -72,3 +86,32 @@ class RequestCounts(BaseModel):
     documents_received: int = 0
     under_review: int = 0
     completed: int = 0
+
+
+class ClientDashboardSummary(BaseModel):
+    client_name: str
+    unread_notifications_count: int = 0
+    active_hero_request: Optional[dict] = None
+    action_next_step: Optional[dict] = None
+    my_requests: List[dict] = []
+    recent_activities: List[dict] = []
+
+
+class ClientRequestCategory(BaseModel):
+    id: str
+    name: str
+    icon: str
+    description: Optional[str] = None
+
+
+class ConsultantDashboardSummary(BaseModel):
+    consultant_name: str
+    unread_notifications_count: int = 0
+    todays_count: int = 0
+    to_review_count: int = 0
+    waiting_count: int = 0
+    client_request_queue_banner: dict
+    open_requests: List[dict] = []
+    recent_activity: List[dict] = []
+
+

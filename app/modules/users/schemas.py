@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -42,4 +42,66 @@ class UserOut(BaseModel):
     status: UserStatus
     avatar_url: Optional[str] = None
     language: Optional[str] = None
+    consultant_id: Optional[str] = None
+    consultant_info: Optional[dict] = None
+    organization_info: Optional[dict] = None
     created_at: Optional[datetime] = None
+
+
+class ClientProfileOverview(BaseModel):
+    user: UserOut
+    menu_workspace: list
+    menu_account: list
+    menu_support: list
+
+
+class ConsultantProfileOverview(BaseModel):
+    user: UserOut
+    menu_workspace: list
+    menu_account: list
+    menu_support: list
+
+
+class ClientDetailView(BaseModel):
+    id: str
+    full_name: str
+    status: str = "Active"
+    email: EmailStr
+    mobile: Optional[str] = None
+    country: Optional[str] = None
+    consultant_id: str
+    partner_id: Optional[str] = None
+    gdpr_consent_status: str = "Consent recorded"
+    immigration_cases: List[dict] = []
+    banner_notice: str = "New immigration cases are created after the client submits a request and a consultant approves the recommended process."
+
+
+
+class NotificationSettings(BaseModel):
+    push_notifications: bool = True
+    case_updates: bool = True
+
+
+class ResetPasswordPayload(BaseModel):
+    current_password: str = Field(min_length=8)
+    password: str = Field(min_length=8)
+    confirm_password: str = Field(min_length=8)
+
+
+class GdprConsentView(BaseModel):
+    title: str = "Data Processing Consent"
+    description: str
+    items: List[str]
+    status: str = "Consent Provided"
+    badge_status: str = "Active"
+    is_active: bool = True
+    granted_at: Optional[datetime] = None
+
+
+class LegalDocumentView(BaseModel):
+    title: str
+    last_updated: str
+    sections: List[str]
+    contact_email: Optional[str] = None
+
+

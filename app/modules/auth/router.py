@@ -16,23 +16,29 @@ def _bearer(authorization: Optional[str] = Header(None)) -> str:
     return authorization.split(" ", 1)[1] if authorization and " " in authorization else ""
 
 
-# ------------------------- consultant signup (5 steps) -------------------------
+# ------------------------- consultant signup (6 steps) -------------------------
 @router.post("/signup/personal", response_model=s.OnboardingToken,
              status_code=status.HTTP_201_CREATED,
-             summary="Step 1 of 5 · Personal")
+             summary="Step 1 of 6 · Personal Info")
 async def signup_personal(payload: s.SignupPersonal):
     return await service.start_signup(payload)
 
 
-@router.post("/signup/organization", summary="Step 2 of 5 · Organization")
+@router.post("/signup/organization", summary="Step 2 of 6 · Organization / Professional Credentials")
 async def signup_organization(payload: s.SignupOrganization, token: str = Depends(_bearer)):
     return await service.set_organization(token, payload)
 
 
 @router.post("/signup/verify", response_model=s.OnboardingToken,
-             summary="Step 3 of 5 · Verify email")
+             summary="Step 3 of 6 · Verify email")
 async def signup_verify(code: str = Body(embed=True), token: str = Depends(_bearer)):
     return await service.verify_signup_email(token, code)
+
+
+@router.post("/signup/password", response_model=s.OnboardingToken,
+             summary="Step 4 of 6 · Protect your workspace (Password)")
+async def signup_password(payload: s.SignupPassword, token: str = Depends(_bearer)):
+    return await service.set_password(token, payload)
 
 
 @router.post("/signup/verify/resend", response_model=s.OtpIssued,
@@ -42,7 +48,7 @@ async def signup_resend(token: str = Depends(_bearer)):
     return {"detail": "A new code is on its way", **issued}
 
 
-@router.get("/plans", response_model=List[s.PlanOut], summary="Step 4 of 5 · Plan catalogue")
+@router.get("/plans", response_model=List[s.PlanOut], summary="Step 5 of 6 · Plan catalogue")
 async def list_plans():
     return list(PLANS.values())
 
@@ -68,7 +74,57 @@ async def signup_payment(payload: s.SignupPayment, token: str = Depends(_bearer)
     return await service.complete_payment(token, payload)
 
 
-# ------------------------- client self-registration -------------------------
+# ------------------------- client self-registration (7-Step Flow) -------------------------
+@router.post("/client/signup/step1", response_model=s.ClientOnboardingToken,
+             status_code=status.HTTP_201_CREATED,
+             summary="Step 1 of 7 (Client) · Account")
+async def client_signup_step1(payload: s.ClientSignupStep1):
+    return await service.start_client_signup(payload)
+
+
+@router.post("/client/signup/verify", response_model=s.ClientOnboardingToken,
+             summary="Step 2 of 7 (Client) · Verification")
+async def client_signup_verify(payload: s.ClientSignupVerify, token: str = Depends(_bearer)):
+    return await service.verify_client_signup_email(token, payload.code)
+
+
+@router.post("/client/signup/verify/resend", response_model=s.OtpIssued,
+             summary="Resend verification code for client signup")
+async def client_signup_resend(token: str = Depends(_bearer)):
+    issued = await service.resend_client_signup_otp(token)
+    return {"detail": "A new verification code has been sent to your email", **issued}
+
+
+@router.post("/client/signup/password", response_model=s.ClientOnboardingToken,
+             summary="Step 3 of 7 (Client) · Create Password")
+async def client_signup_password(payload: s.ClientSignupPassword, token: str = Depends(_bearer)):
+    return await service.set_client_password(token, payload)
+
+
+@router.post("/client/signup/immigration", response_model=s.ClientOnboardingToken,
+             summary="Step 4 of 7 (Client) · Immigration Profile")
+async def client_signup_immigration(payload: s.ClientSignupImmigration, token: str = Depends(_bearer)):
+    return await service.set_client_immigration(token, payload)
+
+
+@router.post("/client/signup/consultant", response_model=s.ClientOnboardingToken,
+             summary="Step 5 of 7 (Client) · Consultant Selection")
+async def client_signup_consultant(payload: s.ClientSignupConsultant, token: str = Depends(_bearer)):
+    return await service.set_client_consultant(token, payload)
+
+
+@router.post("/client/signup/confirm", response_model=s.ClientOnboardingToken,
+             summary="Step 6 of 7 (Client) · Confirm and Submit")
+async def client_signup_confirm(payload: s.ClientSignupConfirm, token: str = Depends(_bearer)):
+    return await service.confirm_client_signup(token, payload)
+
+
+@router.post("/client/signup/agreements", response_model=s.ClientSignupCompleteResponse,
+             summary="Step 7 of 7 (Client) · Agreements & Complete Account")
+async def client_signup_agreements(payload: s.ClientSignupAgreements, request: Request, token: str = Depends(_bearer)):
+    return await service.finalize_client_signup(token, payload, _session(request))
+
+
 @router.get("/consultants", response_model=List[s.ConsultantPublic],
             summary="Consultants a client can sign up under (public)")
 async def public_consultants(search: Optional[str] = Query(None),
@@ -84,14 +140,14 @@ async def organizations(search: Optional[str] = Query(None)):
 
 
 @router.post("/register/client", status_code=status.HTTP_201_CREATED,
-             summary="Step 2 of client signup: create the account under that consultant")
+             summary="Legacy client registration endpoint")
 async def register_client(payload: s.ClientRegister):
     """Sends an email OTP. The account cannot sign in until it is verified."""
     return await service.register_client(payload)
 
 
 @router.post("/verify-email", response_model=s.TokenPair,
-             summary="Step 3 of client signup: verify the code and sign in")
+             summary="Legacy client verify email endpoint")
 async def verify_email(payload: s.OtpVerify):
     return await service.verify_account_email(payload.email, payload.code)
 
@@ -101,6 +157,7 @@ async def verify_email(payload: s.OtpVerify):
 async def resend_verification(payload: s.OtpRequest):
     issued = await service.resend_verification(payload.email)
     return {"detail": "If that account exists, a new code has been sent", **issued}
+
 
 
 @router.get("/invite/{token}", response_model=s.InvitePreview,

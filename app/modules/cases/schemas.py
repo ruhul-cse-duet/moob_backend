@@ -37,6 +37,7 @@ class CaseOut(BaseModel):
     client_id: str
     client_name: Optional[str] = None
     consultant_id: Optional[str] = None
+    partner_id: Optional[str] = None
     consultant: Optional[Dict[str, Any]] = None
     case_type: str
     destination_country: Optional[str] = None

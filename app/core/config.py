@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     MONGO_LOG_LEVEL: str = "WARNING"
     HTTP_LOG_LEVEL: str = "WARNING"
     ACCESS_LOG: bool = True
+    STRIPE_SECRET_KEY: str = "sk_test_51MockupKeyHereForSafety"
 
 
 @lru_cache
