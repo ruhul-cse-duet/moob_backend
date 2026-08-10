@@ -11,6 +11,7 @@ from app.core.deps import (
     page_params,
     require_active_tenant,
     require_consultant,
+    require_partner,
 )
 from app.core.enums import TaskAssigneeType, TaskStatus
 from app.modules.tasks import schemas as s
@@ -22,6 +23,14 @@ router = APIRouter(prefix="/tasks", tags=["Tasks (Partner & Client)"],
                    dependencies=[Depends(require_active_tenant)])
 
 
+# ─── Partner Home Dashboard ────────────────────────────────────────────
+@router.get("/partner/dashboard", summary="Partner home dashboard with task summary")
+async def partner_dashboard(user: CurrentUser = Depends(require_partner),
+                            db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+    return await service.get_partner_dashboard(db, user)
+
+
+# ─── Task CRUD ─────────────────────────────────────────────────────────
 @router.post("", response_model=s.TaskOut, status_code=status.HTTP_201_CREATED,
              summary="Assign a partner (or client) task")
 async def create_task(payload: s.TaskCreate,
@@ -65,6 +74,17 @@ async def set_status(task_id: str, payload: s.TaskStatusUpdate,
     return await service.set_status(db, user, task_id, payload)
 
 
+# ─── Partner: Mark as Completed ───────────────────────────────────────
+@router.post("/{task_id}/complete", response_model=s.TaskOut,
+             summary="Partner marks task as completed with delivery notes")
+async def mark_completed(task_id: str,
+                         payload: s.TaskComplete,
+                         user: CurrentUser = Depends(require_partner),
+                         db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+    return await service.mark_completed(db, user, task_id, payload)
+
+
+# ─── Deliverables ─────────────────────────────────────────────────────
 @router.post("/{task_id}/deliverables", response_model=s.TaskOut,
              summary="Partner uploads the finished deliverable")
 async def add_deliverable(task_id: str, file: UploadFile = File(...),
@@ -86,3 +106,4 @@ async def download_deliverable(task_id: str, file_id: str,
         media_type=meta.get("mime_type") or "application/octet-stream",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+

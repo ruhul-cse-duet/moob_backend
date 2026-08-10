@@ -30,6 +30,7 @@ async def create_task(db, user: CurrentUser, data) -> Dict[str, Any]:
 
     now = utcnow()
     consultant_id = case.get("consultant_id") or user.id
+    partner_id = data.assignee_id if data.assignee_type == TaskAssigneeType.PARTNER else None
     doc = {
         "title": data.title,
         "description": data.description,
@@ -38,6 +39,7 @@ async def create_task(db, user: CurrentUser, data) -> Dict[str, Any]:
         "client_id": case["client_id"],
         "client_name": case.get("client_name"),
         "consultant_id": consultant_id,
+        "partner_id": partner_id,
         "assignee_id": data.assignee_id,
         "assignee_name": assignee.get("full_name"),
         "assignee_type": data.assignee_type.value,
@@ -45,7 +47,9 @@ async def create_task(db, user: CurrentUser, data) -> Dict[str, Any]:
         "status": TaskStatus.PENDING.value,
         "auto_created": False,
         "due_date": data.due_date,
+        "reference_files": [rf.model_dump() for rf in data.reference_files],
         "deliverables": [],
+        "delivery_notes": None,
         "created_at": now,
         "updated_at": now,
     }
@@ -141,6 +145,36 @@ async def add_deliverable(db, user: CurrentUser, task_id: str,
     return serialize(await _get(db, task_id))
 
 
+async def mark_completed(db, user: CurrentUser, task_id: str,
+                         data) -> Dict[str, Any]:
+    """Partner marks a task as completed with optional delivery notes."""
+    doc = await _get(db, task_id)
+    if doc["assignee_id"] != user.id:
+        raise Forbidden("This task is not assigned to you")
+    now = utcnow()
+    update: Dict[str, Any] = {
+        "status": TaskStatus.COMPLETED.value,
+        "completed_at": now,
+        "updated_at": now,
+    }
+    if data.delivery_notes:
+        update["delivery_notes"] = data.delivery_notes
+    await db.tasks.update_one(
+        {"_id": oid(task_id)},
+        {"$set": update,
+         "$push": {"history": {"status": TaskStatus.COMPLETED.value, "at": now,
+                               "by": user.id, "note": data.delivery_notes}}},
+    )
+    # Notify the consultant who assigned this task
+    if doc.get("assigned_by"):
+        await notify(db, user_ids=[doc["assigned_by"]],
+                     type=NotificationType.TASK_COMPLETED,
+                     title=f"{doc['assignee_name']} completed '{doc['title']}'",
+                     body=doc.get("case_reference", ""),
+                     data={"task_id": task_id, "case_id": doc.get("case_id")})
+    return serialize(await _get(db, task_id))
+
+
 async def get_deliverable(db, user: CurrentUser, task_id: str,
                           file_id: str) -> Dict[str, Any]:
     doc = await _get(db, task_id)
@@ -150,3 +184,37 @@ async def get_deliverable(db, user: CurrentUser, task_id: str,
         if entry.get("file_id") == file_id:
             return entry
     raise NotFound("Deliverable not found on this task")
+
+
+async def get_partner_dashboard(db, user: CurrentUser) -> Dict[str, Any]:
+    """Partner home dashboard with task summary counts."""
+    partner_id = user.id
+    total = await db.tasks.count_documents({"assignee_id": partner_id})
+    pending = await db.tasks.count_documents(
+        {"assignee_id": partner_id, "status": TaskStatus.PENDING.value})
+    in_progress = await db.tasks.count_documents(
+        {"assignee_id": partner_id, "status": TaskStatus.IN_PROGRESS.value})
+    completed = await db.tasks.count_documents(
+        {"assignee_id": partner_id, "status": TaskStatus.COMPLETED.value})
+    submitted = await db.tasks.count_documents(
+        {"assignee_id": partner_id, "status": TaskStatus.SUBMITTED.value})
+
+    # Recent tasks for the home screen list
+    cursor = db.tasks.find(
+        {"assignee_id": partner_id, "status": {"$in": [
+            TaskStatus.PENDING.value, TaskStatus.IN_PROGRESS.value]}}
+    ).sort("due_date", 1).limit(10)
+    active_tasks = [serialize(t) async for t in cursor]
+
+    return {
+        "partner_id": partner_id,
+        "consultant_id": user.raw.get("consultant_id"),
+        "summary": {
+            "total": total,
+            "pending": pending,
+            "in_progress": in_progress,
+            "submitted": submitted,
+            "completed": completed,
+        },
+        "active_tasks": active_tasks,
+    }
