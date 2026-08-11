@@ -18,6 +18,8 @@ router = APIRouter(prefix="/oversight", tags=["Super Admin · Oversight"])
 async def audit_log(action: Optional[AuditAction] = Query(None),
                     tenant_id: Optional[str] = Query(None),
                     actor_email: Optional[str] = Query(None),
+                    severity: Optional[str] = Query(
+                        None, description="critical | warning | info"),
                     days: int = Query(30, ge=1, le=365),
                     params: PageParams = Depends(page_params),
                     user: CurrentUser = Depends(require_super_admin)):
@@ -28,8 +30,32 @@ async def audit_log(action: Optional[AuditAction] = Query(None),
         query["tenant_id"] = tenant_id
     if actor_email:
         query["actor_email"] = {"$regex": actor_email, "$options": "i"}
-    return await paginate(platform_db(), "audit_log", query, params,
+    page = await paginate(platform_db(), "audit_log", query, params,
                           sort=[("created_at", -1)])
+
+    critical = {
+        AuditAction.TENANT_STATUS_CHANGED.value,
+        AuditAction.DATA_DELETION_REQUESTED.value,
+        AuditAction.USER_SUSPENDED.value,
+    }
+    warning = {
+        AuditAction.LOGIN_FAILED.value,
+        AuditAction.PLAN_CHANGED.value,
+        AuditAction.DATA_EXPORT_REQUESTED.value,
+    }
+
+    filtered = []
+    for item in page["items"]:
+        act = item.get("action", "")
+        sev = "critical" if act in critical else "warning" if act in warning else "info"
+        item["severity"] = sev
+        if severity and sev != severity:
+            continue
+        filtered.append(item)
+    if severity:
+        page["items"] = filtered
+        page["total"] = len(filtered)
+    return page
 
 
 @router.get("/health", summary="Platform health")

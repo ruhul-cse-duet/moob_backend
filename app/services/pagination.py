@@ -42,6 +42,8 @@ async def paginate(
 
     pages = (total + params.page_size - 1) // params.page_size
     return {
+        "success": True,
+        "message": "OK",
         "items": items,
         "total": total,
         "page": params.page,

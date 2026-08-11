@@ -1,4 +1,8 @@
-"""support/HelpSupport.tsx — the customer-facing side of the helpdesk. [INFERRED]"""
+"""support/HelpSupport.tsx — the customer-facing side of the helpdesk. [INFERRED]
+
+Partners and clients (and other workspace users) raise tickets here. Creating a
+ticket emails the super admin with Reply-To set to the requester's signup email.
+"""
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, status as http
@@ -12,7 +16,11 @@ from app.schemas.common import PageParams
 router = APIRouter(prefix="/support", tags=["Help & Support"])
 
 
-@router.post("/tickets", status_code=http.HTTP_201_CREATED, summary="Raise a support ticket")
+@router.post(
+    "/tickets",
+    status_code=http.HTTP_201_CREATED,
+    summary="Email Us — raise a Help & Support ticket (notifies super admin)",
+)
 async def create_ticket(payload: s.TicketCreate,
                         user: CurrentUser = Depends(get_current_user)):
     return await service.create_ticket(user, payload)

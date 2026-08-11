@@ -159,7 +159,7 @@
       "name": "Auth & Onboarding",
       "item": [
         {
-          "name": "Step 1 of 5 \u00b7 Personal",
+          "name": "Step 1 of 6 \u00b7 Personal Info",
           "request": {
             "method": "POST",
             "header": [
@@ -181,10 +181,10 @@
                 "personal"
               ]
             },
-            "description": "Step 1 of 5 \u00b7 Personal",
+            "description": "Step 1 of 6 \u00b7 Personal Info",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"password\": \"Str0ng!Pass1\",\n  \"full_name\": \"Sarah Jenkins\",\n  \"email\": \"sarah.jenkins@jenkinslaw.com\",\n  \"mobile\": \"+15550142042\",\n  \"confirm_password\": \"Str0ng!Pass1\"\n}",
+              "raw": "{\n  \"full_name\": \"Sarah Jenkins\",\n  \"email\": \"sarah.jenkins@jenkinslaw.com\",\n  \"mobile\": \"+15550142042\",\n  \"dob\": \"<dob>\",\n  \"profile_photo_url\": \"<profile_photo_url>\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -215,7 +215,7 @@
           ]
         },
         {
-          "name": "Step 2 of 5 \u00b7 Organization",
+          "name": "Step 2 of 6 \u00b7 Organization / Professional Credentials",
           "request": {
             "method": "POST",
             "header": [
@@ -237,10 +237,10 @@
                 "organization"
               ]
             },
-            "description": "Step 2 of 5 \u00b7 Organization",
+            "description": "Step 2 of 6 \u00b7 Organization / Professional Credentials",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"organization_name\": \"Jenkins Immigration Law\",\n  \"business_type\": \"immigration\",\n  \"country\": \"United Kingdom\",\n  \"office_address\": \"12 King Street, London, EC2V 8AS\",\n  \"accept_terms\": true,\n  \"accept_privacy\": true\n}",
+              "raw": "{\n  \"organization_name\": \"Jenkins Immigration Law\",\n  \"business_type\": \"Immigration Consultancy\",\n  \"country\": \"United Kingdom\",\n  \"city\": \"<city>\",\n  \"office_address\": \"12 King Street, London, EC2V 8AS\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -279,7 +279,7 @@
           ]
         },
         {
-          "name": "Step 3 of 5 \u00b7 Verify email",
+          "name": "Step 3 of 6 \u00b7 Verify email",
           "request": {
             "method": "POST",
             "header": [
@@ -301,7 +301,7 @@
                 "verify"
               ]
             },
-            "description": "Step 3 of 5 \u00b7 Verify email",
+            "description": "Step 3 of 6 \u00b7 Verify email",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"code\": \"{{otp_code}}\"\n}",
@@ -340,6 +340,42 @@
               }
             }
           ]
+        },
+        {
+          "name": "Step 4 of 6 \u00b7 Protect your workspace (Password)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/signup/password",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "signup",
+                "password"
+              ]
+            },
+            "description": "Step 4 of 6 \u00b7 Protect your workspace (Password)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"Str0ng!Pass1\",\n  \"confirm_password\": \"Str0ng!Pass1\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
         },
         {
           "name": "Resend the six-digit code",
@@ -392,7 +428,7 @@
           ]
         },
         {
-          "name": "Step 4 of 5 \u00b7 Plan catalogue",
+          "name": "Step 5 of 6 \u00b7 Plan catalogue",
           "request": {
             "method": "GET",
             "header": [],
@@ -408,7 +444,7 @@
                 "plans"
               ]
             },
-            "description": "Step 4 of 5 \u00b7 Plan catalogue",
+            "description": "Step 5 of 6 \u00b7 Plan catalogue",
             "auth": {
               "type": "noauth"
             }
@@ -575,6 +611,289 @@
           ]
         },
         {
+          "name": "Step 1 of 7 (Client) \u00b7 Account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/client/signup/step1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "client",
+                "signup",
+                "step1"
+              ]
+            },
+            "description": "Step 1 of 7 (Client) \u00b7 Account",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"Sarah Jenkins\",\n  \"email\": \"sarah.jenkins@jenkinslaw.com\",\n  \"mobile\": \"+15550142042\",\n  \"dob\": \"<dob>\",\n  \"accept_terms\": true,\n  \"profile_photo_url\": \"<profile_photo_url>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Step 2 of 7 (Client) \u00b7 Verification",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/client/signup/verify",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "client",
+                "signup",
+                "verify"
+              ]
+            },
+            "description": "Step 2 of 7 (Client) \u00b7 Verification",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"{{otp_code}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Resend verification code for client signup",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/client/signup/verify/resend",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "client",
+                "signup",
+                "verify",
+                "resend"
+              ]
+            },
+            "description": "Resend verification code for client signup"
+          },
+          "response": []
+        },
+        {
+          "name": "Step 3 of 7 (Client) \u00b7 Create Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/client/signup/password",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "client",
+                "signup",
+                "password"
+              ]
+            },
+            "description": "Step 3 of 7 (Client) \u00b7 Create Password",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"Str0ng!Pass1\",\n  \"confirm_password\": \"Str0ng!Pass1\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Step 4 of 7 (Client) \u00b7 Immigration Profile",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/client/signup/immigration",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "client",
+                "signup",
+                "immigration"
+              ]
+            },
+            "description": "Step 4 of 7 (Client) \u00b7 Immigration Profile",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"passport_number\": \"<passport_number>\",\n  \"nationality\": \"<nationality>\",\n  \"destination_country\": \"Canada\",\n  \"preferred_immigration_type\": \"<preferred_immigration_type>\",\n  \"country_of_residence\": \"United Kingdom\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Step 5 of 7 (Client) \u00b7 Consultant Selection",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/client/signup/consultant",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "client",
+                "signup",
+                "consultant"
+              ]
+            },
+            "description": "Step 5 of 7 (Client) \u00b7 Consultant Selection",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"consultant_id\": \"<consultant_id>\",\n  \"organization_id\": \"{{organization_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Step 6 of 7 (Client) \u00b7 Confirm and Submit",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/client/signup/confirm",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "client",
+                "signup",
+                "confirm"
+              ]
+            },
+            "description": "Step 6 of 7 (Client) \u00b7 Confirm and Submit",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"gdpr_consent\": true,\n  \"accept_terms_conditions\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Step 7 of 7 (Client) \u00b7 Agreements & Complete Account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/client/signup/agreements",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "client",
+                "signup",
+                "agreements"
+              ]
+            },
+            "description": "Step 7 of 7 (Client) \u00b7 Agreements & Complete Account",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"terms_and_conditions\": true,\n  \"privacy_policy\": true,\n  \"gdpr_data_processing\": true,\n  \"immigration_case\": true,\n  \"sensitive_data_processing\": true,\n  \"whatsapp_notifications\": false,\n  \"email_notifications\": false,\n  \"ai_ocr_processing\": false,\n  \"ai_legal_assistant\": false,\n  \"partner_data_sharing\": false,\n  \"marketing_messages\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
           "name": "Consultants a client can sign up under (public)",
           "request": {
             "method": "GET",
@@ -645,7 +964,7 @@
           "response": []
         },
         {
-          "name": "Step 2 of client signup: create the account under that consultant",
+          "name": "Legacy client registration endpoint",
           "request": {
             "method": "POST",
             "header": [
@@ -667,10 +986,10 @@
                 "client"
               ]
             },
-            "description": "Step 2 of client signup: create the account under that consultant",
+            "description": "Legacy client registration endpoint",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"password\": \"Str0ng!Pass1\",\n  \"consultant_id\": \"<consultant_id>\",\n  \"organization_id\": \"{{organization_id}}\",\n  \"full_name\": \"Sarah Jenkins\",\n  \"email\": \"sarah.jenkins@jenkinslaw.com\",\n  \"mobile\": \"+15550142042\",\n  \"confirm_password\": \"Str0ng!Pass1\",\n  \"nationality\": \"<nationality>\",\n  \"language\": \"<language>\",\n  \"country_of_residence\": \"United Kingdom\"\n}",
+              "raw": "{\n  \"password\": \"Str0ng!Pass1\",\n  \"consultant_id\": \"<consultant_id>\",\n  \"organization_id\": \"{{organization_id}}\",\n  \"full_name\": \"Sarah Jenkins\",\n  \"email\": \"sarah.jenkins@jenkinslaw.com\",\n  \"mobile\": \"+15550142042\",\n  \"confirm_password\": \"Str0ng!Pass1\",\n  \"passport_number\": \"<passport_number>\",\n  \"nationality\": \"<nationality>\",\n  \"destination_country\": \"Canada\",\n  \"preferred_immigration_type\": \"<preferred_immigration_type>\",\n  \"language\": \"<language>\",\n  \"country_of_residence\": \"United Kingdom\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -704,7 +1023,7 @@
           ]
         },
         {
-          "name": "Step 3 of client signup: verify the code and sign in",
+          "name": "Legacy client verify email endpoint",
           "request": {
             "method": "POST",
             "header": [
@@ -725,7 +1044,7 @@
                 "verify-email"
               ]
             },
-            "description": "Step 3 of client signup: verify the code and sign in",
+            "description": "Legacy client verify email endpoint",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"email\": \"sarah.jenkins@jenkinslaw.com\",\n  \"code\": \"{{otp_code}}\"\n}",
@@ -887,7 +1206,65 @@
           ]
         },
         {
-          "name": "Sign in (all roles). Returns a 2FA challenge when 2FA is on.",
+          "name": "Select Your Role \u2014 options before sign-in",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login/roles",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login",
+                "roles"
+              ]
+            },
+            "description": "Select Your Role \u2014 options before sign-in"
+          },
+          "response": []
+        },
+        {
+          "name": "Platform administration sign-in (super admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/platform/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "platform",
+                "login"
+              ]
+            },
+            "description": "Platform administration sign-in (super admin)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"sarah.jenkins@jenkinslaw.com\",\n  \"password\": \"Str0ng!Pass1\",\n  \"trust_device\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Sign in after selecting a role (consultant / partner / client)",
           "request": {
             "method": "POST",
             "header": [
@@ -908,10 +1285,10 @@
                 "login"
               ]
             },
-            "description": "Sign in (all roles). Returns a 2FA challenge when 2FA is on.",
+            "description": "Sign in after selecting a role (consultant / partner / client)",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"sarah.jenkins@jenkinslaw.com\",\n  \"password\": \"Str0ng!Pass1\",\n  \"trust_device\": false\n}",
+              "raw": "{\n  \"email\": \"sarah.jenkins@jenkinslaw.com\",\n  \"password\": \"Str0ng!Pass1\",\n  \"role\": \"consultant\",\n  \"trust_device\": false\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -947,7 +1324,7 @@
           ]
         },
         {
-          "name": "Second leg of a two-factor sign-in",
+          "name": "Second leg of a two-factor sign-in (same role as step 1)",
           "request": {
             "method": "POST",
             "header": [
@@ -969,10 +1346,10 @@
                 "2fa"
               ]
             },
-            "description": "Second leg of a two-factor sign-in",
+            "description": "Second leg of a two-factor sign-in (same role as step 1)",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"sarah.jenkins@jenkinslaw.com\",\n  \"code\": \"{{otp_code}}\"\n}",
+              "raw": "{\n  \"email\": \"sarah.jenkins@jenkinslaw.com\",\n  \"code\": \"{{otp_code}}\",\n  \"role\": \"consultant\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1303,7 +1680,7 @@
       "name": "AI Assistant",
       "item": [
         {
-          "name": "Ask the AI assistant",
+          "name": "Ask the AI assistant (Consultant only)",
           "request": {
             "method": "POST",
             "header": [
@@ -1324,10 +1701,10 @@
                 "chat"
               ]
             },
-            "description": "Ask the AI assistant",
+            "description": "Ask the AI assistant (Consultant only)",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"message\": \"The upload fails at 90% on the mobile app.\",\n  \"conversation_id\": \"<conversation_id>\",\n  \"case_id\": \"{{case_id}}\"\n}",
+              "raw": "{\n  \"message\": \"The upload fails at 90% on the mobile app.\",\n  \"conversation_id\": \"<conversation_id>\",\n  \"case_id\": \"{{case_id}}\",\n  \"client_id\": \"{{user_id}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1355,7 +1732,7 @@
           ]
         },
         {
-          "name": "Assistant history",
+          "name": "Assistant history (Consultant only)",
           "request": {
             "method": "GET",
             "header": [],
@@ -1385,12 +1762,12 @@
                 }
               ]
             },
-            "description": "Assistant history"
+            "description": "Assistant history (Consultant only)"
           },
           "response": []
         },
         {
-          "name": "Conversation",
+          "name": "Get conversation messages (Consultant only)",
           "request": {
             "method": "GET",
             "header": [],
@@ -1407,12 +1784,12 @@
                 "{{conversation_id}}"
               ]
             },
-            "description": "Conversation"
+            "description": "Get conversation messages (Consultant only)"
           },
           "response": []
         },
         {
-          "name": "Delete Conversation",
+          "name": "Delete AI conversation",
           "request": {
             "method": "DELETE",
             "header": [],
@@ -1429,7 +1806,7 @@
                 "{{conversation_id}}"
               ]
             },
-            "description": "Delete Conversation"
+            "description": "Delete AI conversation"
           },
           "response": []
         }
@@ -2602,7 +2979,7 @@
       "name": "Help & Support",
       "item": [
         {
-          "name": "Raise a support ticket",
+          "name": "Email Us \u2014 raise a Help & Support ticket (notifies super admin)",
           "request": {
             "method": "POST",
             "header": [
@@ -2623,7 +3000,7 @@
                 "tickets"
               ]
             },
-            "description": "Raise a support ticket",
+            "description": "Email Us \u2014 raise a Help & Support ticket (notifies super admin)",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"subject\": \"Cannot upload a document\",\n  \"message\": \"The upload fails at 90% on the mobile app.\",\n  \"category\": \"billing\",\n  \"priority\": \"low\",\n  \"case_reference\": \"PAY-2026-0001\"\n}",
@@ -3040,6 +3417,72 @@
       "name": "Immigration Requests",
       "item": [
         {
+          "name": "Get Client Home Dashboard overview",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/requests/client/dashboard",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "requests",
+                "client",
+                "dashboard"
+              ]
+            },
+            "description": "Get Client Home Dashboard overview"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Consultant Home Dashboard overview",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/requests/consultant/dashboard",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "requests",
+                "consultant",
+                "dashboard"
+              ]
+            },
+            "description": "Get Consultant Home Dashboard overview"
+          },
+          "response": []
+        },
+        {
+          "name": "Get list of available immigration request types",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/requests/client/categories",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "requests",
+                "client",
+                "categories"
+              ]
+            },
+            "description": "Get list of available immigration request types"
+          },
+          "response": []
+        },
+        {
           "name": "Client submits a request",
           "request": {
             "method": "POST",
@@ -3063,7 +3506,7 @@
             "description": "Client submits a request",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"visa_type\": \"Student Visa\",\n  \"destination_country\": \"Canada\",\n  \"purpose\": \"<purpose>\",\n  \"additional_information\": \"<additional_information>\",\n  \"client_notes\": \"Eligibility confirmed; awaiting bank statement.\",\n  \"preferred_appointment\": \"<preferred_appointment>\",\n  \"consultant_id\": \"<consultant_id>\"\n}",
+              "raw": "{\n  \"visa_type\": \"Student Visa\",\n  \"destination_country\": \"Canada\",\n  \"purpose\": \"<purpose>\",\n  \"additional_information\": \"<additional_information>\",\n  \"client_notes\": \"Eligibility confirmed; awaiting bank statement.\",\n  \"preferred_appointment\": \"<preferred_appointment>\",\n  \"consultant_id\": \"<consultant_id>\",\n  \"attached_files\": [\n    {}\n  ],\n  \"is_draft\": false\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3209,7 +3652,7 @@
             "description": "Update Request",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"visa_type\": \"Student Visa\",\n  \"destination_country\": \"Canada\",\n  \"purpose\": \"<purpose>\",\n  \"additional_information\": \"<additional_information>\",\n  \"client_notes\": \"Eligibility confirmed; awaiting bank statement.\",\n  \"preferred_appointment\": \"<preferred_appointment>\"\n}",
+              "raw": "{\n  \"visa_type\": \"Student Visa\",\n  \"destination_country\": \"Canada\",\n  \"purpose\": \"<purpose>\",\n  \"additional_information\": \"<additional_information>\",\n  \"client_notes\": \"Eligibility confirmed; awaiting bank statement.\",\n  \"preferred_appointment\": \"<preferred_appointment>\",\n  \"attached_files\": [\n    {}\n  ],\n  \"is_draft\": true\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3604,7 +4047,7 @@
       "name": "Messages",
       "item": [
         {
-          "name": "Create Thread",
+          "name": "Create or reuse a conversation thread",
           "request": {
             "method": "POST",
             "header": [
@@ -3625,7 +4068,7 @@
                 "threads"
               ]
             },
-            "description": "Create Thread",
+            "description": "Create or reuse a conversation thread",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"participant_ids\": [\n    \"<participant_ids>\"\n  ],\n  \"case_id\": \"{{case_id}}\",\n  \"subject\": \"Cannot upload a document\"\n}",
@@ -3656,7 +4099,7 @@
           ]
         },
         {
-          "name": "List Threads",
+          "name": "List all conversation threads for the current user",
           "request": {
             "method": "GET",
             "header": [],
@@ -3686,12 +4129,12 @@
                 }
               ]
             },
-            "description": "List Threads"
+            "description": "List all conversation threads for the current user"
           },
           "response": []
         },
         {
-          "name": "Thread Messages",
+          "name": "Get messages in a conversation thread",
           "request": {
             "method": "GET",
             "header": [],
@@ -3722,12 +4165,12 @@
                 }
               ]
             },
-            "description": "Thread Messages"
+            "description": "Get messages in a conversation thread"
           },
           "response": []
         },
         {
-          "name": "Send Message",
+          "name": "Send a message in a conversation",
           "request": {
             "method": "POST",
             "header": [
@@ -3749,16 +4192,39 @@
                 "{{thread_id}}"
               ]
             },
-            "description": "Send Message",
+            "description": "Send a message in a conversation",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"body\": \"Adding more detail here.\"\n}",
+              "raw": "{\n  \"body\": \"Adding more detail here.\",\n  \"attachment_url\": \"<attachment_url>\",\n  \"attachment_type\": \"<attachment_type>\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
                 }
               }
             }
+          },
+          "response": []
+        },
+        {
+          "name": "Mark all messages in a thread as read",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages/threads/{{thread_id}}/read",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "threads",
+                "{{thread_id}}",
+                "read"
+              ]
+            },
+            "description": "Mark all messages in a thread as read"
           },
           "response": []
         }
@@ -4716,6 +5182,28 @@
       "name": "Tasks (Partner & Client)",
       "item": [
         {
+          "name": "Partner home dashboard with task summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tasks/partner/dashboard",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tasks",
+                "partner",
+                "dashboard"
+              ]
+            },
+            "description": "Partner home dashboard with task summary"
+          },
+          "response": []
+        },
+        {
           "name": "Assign a partner (or client) task",
           "request": {
             "method": "POST",
@@ -4739,7 +5227,7 @@
             "description": "Assign a partner (or client) task",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"title\": \"Translate Employment Contract (ES to EN)\",\n  \"description\": \"<description>\",\n  \"case_id\": \"{{case_id}}\",\n  \"assignee_id\": \"{{partner_id}}\",\n  \"assignee_type\": \"partner\",\n  \"due_date\": \"2026-09-01T10:00:00Z\"\n}",
+              "raw": "{\n  \"title\": \"Translate Employment Contract (ES to EN)\",\n  \"description\": \"<description>\",\n  \"case_id\": \"{{case_id}}\",\n  \"assignee_id\": \"{{partner_id}}\",\n  \"assignee_type\": \"partner\",\n  \"due_date\": \"2026-09-01T10:00:00Z\",\n  \"reference_files\": []\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -4923,6 +5411,42 @@
           "response": []
         },
         {
+          "name": "Partner marks task as completed with delivery notes",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tasks/{{task_id}}/complete",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tasks",
+                "{{task_id}}",
+                "complete"
+              ]
+            },
+            "description": "Partner marks task as completed with delivery notes",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"delivery_notes\": \"Eligibility confirmed; awaiting bank statement.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
           "name": "Partner uploads the finished deliverable",
           "request": {
             "method": "POST",
@@ -4983,6 +5507,167 @@
     {
       "name": "Users, Team & Clients",
       "item": [
+        {
+          "name": "Client User Profile Menu Overview",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/client/profile-overview",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "client",
+                "profile-overview"
+              ]
+            },
+            "description": "Client User Profile Menu Overview"
+          },
+          "response": []
+        },
+        {
+          "name": "Consultant User Profile Menu Overview",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/consultant/profile-overview",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "consultant",
+                "profile-overview"
+              ]
+            },
+            "description": "Consultant User Profile Menu Overview"
+          },
+          "response": []
+        },
+        {
+          "name": "Get client settings toggle states",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/client/settings",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "client",
+                "settings"
+              ]
+            },
+            "description": "Get client settings toggle states"
+          },
+          "response": []
+        },
+        {
+          "name": "Update client settings toggle states",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/client/settings",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "client",
+                "settings"
+              ]
+            },
+            "description": "Update client settings toggle states",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"push_notifications\": true,\n  \"case_updates\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get GDPR Data Processing Consent Details",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/client/gdpr-consent",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "client",
+                "gdpr-consent"
+              ]
+            },
+            "description": "Get GDPR Data Processing Consent Details"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Privacy Policy",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/client/privacy-policy",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "client",
+                "privacy-policy"
+              ]
+            },
+            "description": "Get Privacy Policy"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Terms of Service",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/client/terms-of-service",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "client",
+                "terms-of-service"
+              ]
+            },
+            "description": "Get Terms of Service"
+          },
+          "response": []
+        },
         {
           "name": "My profile",
           "request": {
@@ -5195,6 +5880,299 @@
               }
             }
           ]
+        },
+        {
+          "name": "Get Client profile detail for consultant view",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clients/{{client_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clients",
+                "{{client_id}}"
+              ]
+            },
+            "description": "Get Client profile detail for consultant view"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Super Admin \u00b7 Announcements & Notifications",
+      "item": [
+        {
+          "name": "Platform announcements",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/announcements",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "announcements"
+              ],
+              "query": [
+                {
+                  "key": "published",
+                  "value": "True",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Platform announcements"
+          },
+          "response": []
+        },
+        {
+          "name": "Publish a platform announcement",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/announcements",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "announcements"
+              ]
+            },
+            "description": "Publish a platform announcement",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Translate Employment Contract (ES to EN)\",\n  \"body\": \"Adding more detail here.\",\n  \"audience\": \"all\",\n  \"severity\": \"info\",\n  \"published\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update an announcement",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/announcements/:announcement_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "announcements",
+                ":announcement_id"
+              ],
+              "variable": [
+                {
+                  "key": "announcement_id",
+                  "value": "<announcement_id>"
+                }
+              ]
+            },
+            "description": "Update an announcement",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Translate Employment Contract (ES to EN)\",\n  \"body\": \"Adding more detail here.\",\n  \"audience\": \"<audience>\",\n  \"severity\": \"<severity>\",\n  \"published\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Announcement",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/announcements/:announcement_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "announcements",
+                ":announcement_id"
+              ],
+              "variable": [
+                {
+                  "key": "announcement_id",
+                  "value": "<announcement_id>"
+                }
+              ]
+            },
+            "description": "Delete Announcement"
+          },
+          "response": []
+        },
+        {
+          "name": "Platform admin notification inbox",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/notifications",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "notifications"
+              ],
+              "query": [
+                {
+                  "key": "unread_only",
+                  "value": "False",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Platform admin notification inbox"
+          },
+          "response": []
+        },
+        {
+          "name": "Create a notification for platform staff (or self)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/notifications",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "notifications"
+              ]
+            },
+            "description": "Create a notification for platform staff (or self)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Translate Employment Contract (ES to EN)\",\n  \"body\": \"Adding more detail here.\",\n  \"link\": \"<link>\",\n  \"severity\": \"info\",\n  \"admin_ids\": [\n    \"<admin_ids>\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Mark All Notifications Read",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/notifications/read-all",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "notifications",
+                "read-all"
+              ]
+            },
+            "description": "Mark All Notifications Read"
+          },
+          "response": []
+        },
+        {
+          "name": "Mark Notification Read",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/notifications/{{notification_id}}/read",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "notifications",
+                "{{notification_id}}",
+                "read"
+              ]
+            },
+            "description": "Mark Notification Read"
+          },
+          "response": []
         }
       ]
     },
@@ -5307,7 +6285,7 @@
       "name": "Super Admin \u00b7 Dashboard",
       "item": [
         {
-          "name": "AdminDashboard.tsx \u2014 platform overview",
+          "name": "Platform Overview \u2014 metrics, attention, revenue, queues",
           "request": {
             "method": "GET",
             "header": [],
@@ -5323,12 +6301,12 @@
                 "dashboard"
               ]
             },
-            "description": "AdminDashboard.tsx \u2014 platform overview"
+            "description": "Platform Overview \u2014 metrics, attention, revenue, queues"
           },
           "response": []
         },
         {
-          "name": "Compact platform counters",
+          "name": "Compact counters for header badges",
           "request": {
             "method": "GET",
             "header": [],
@@ -5344,7 +6322,63 @@
                 "stats"
               ]
             },
-            "description": "Compact platform counters"
+            "description": "Compact counters for header badges"
+          },
+          "response": []
+        },
+        {
+          "name": "Signed-in platform administrator profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "me"
+              ]
+            },
+            "description": "Signed-in platform administrator profile"
+          },
+          "response": []
+        },
+        {
+          "name": "Global search \u2014 organizations, clients, cases, documents",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/search?q=<q>",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "<q>",
+                  "description": "",
+                  "disabled": false
+                },
+                {
+                  "key": "limit",
+                  "value": "8",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Global search \u2014 organizations, clients, cases, documents"
           },
           "response": []
         }
@@ -5584,7 +6618,29 @@
       "name": "Super Admin \u00b7 Organizations",
       "item": [
         {
-          "name": "All organizations on the platform",
+          "name": "Organization list tab counts (All / Approval / \u2026)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/organizations/tabs",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "organizations",
+                "tabs"
+              ]
+            },
+            "description": "Organization list tab counts (All / Approval / \u2026)"
+          },
+          "response": []
+        },
+        {
+          "name": "Organizations list \u2014 search, status tabs, card metrics",
           "request": {
             "method": "GET",
             "header": [],
@@ -5601,9 +6657,15 @@
               ],
               "query": [
                 {
+                  "key": "tab",
+                  "value": "all",
+                  "description": "all | approval | active | suspended | expired",
+                  "disabled": true
+                },
+                {
                   "key": "status",
                   "value": "pending_verification",
-                  "description": "",
+                  "description": "Exact status override",
                   "disabled": true
                 },
                 {
@@ -5615,7 +6677,7 @@
                 {
                   "key": "search",
                   "value": "<search>",
-                  "description": "",
+                  "description": "Search organization, owner or country",
                   "disabled": true
                 },
                 {
@@ -5632,7 +6694,7 @@
                 }
               ]
             },
-            "description": "All organizations on the platform"
+            "description": "Organizations list \u2014 search, status tabs, card metrics"
           },
           "response": []
         },
@@ -5659,7 +6721,30 @@
           "response": []
         },
         {
-          "name": "Suspend, reactivate or cancel an organization",
+          "name": "Approve an organization awaiting platform verification",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/organizations/{{tenant_id}}/approve",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "organizations",
+                "{{tenant_id}}",
+                "approve"
+              ]
+            },
+            "description": "Approve an organization awaiting platform verification"
+          },
+          "response": []
+        },
+        {
+          "name": "Suspend, reactivate, expire or cancel an organization",
           "request": {
             "method": "POST",
             "header": [
@@ -5682,7 +6767,7 @@
                 "status"
               ]
             },
-            "description": "Suspend, reactivate or cancel an organization",
+            "description": "Suspend, reactivate, expire or cancel an organization",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"status\": \"pending_verification\",\n  \"reason\": \"No longer using the service.\"\n}",
@@ -5771,6 +6856,12 @@
                   "key": "actor_email",
                   "value": "sarah.jenkins@jenkinslaw.com",
                   "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "severity",
+                  "value": "<severity>",
+                  "description": "critical | warning | info",
                   "disabled": true
                 },
                 {

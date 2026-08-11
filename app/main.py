@@ -1,12 +1,12 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 
 from app.api import api_router
 from app.core.config import settings
+from app.core.errors import register_exception_handlers
 from app.core.logging import setup_logging
 from app.db.indexes import ensure_platform_indexes
 from app.db.mongo import close, connect
@@ -44,7 +44,9 @@ app = FastAPI(
         "separate API per surface.\n\n"
         "Tenancy: **database per organization**. The platform database holds the tenant "
         "registry, the global email directory, OTP codes and subscriptions; every "
-        "organization gets its own Mongo database for cases, documents and people."
+        "organization gets its own Mongo database for cases, documents and people.\n\n"
+        "**Errors** always return "
+        "`{success, message, detail, code, errors, status_code}`."
     ),
     lifespan=lifespan,
     docs_url="/docs",
@@ -60,17 +62,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+register_exception_handlers(app)
+
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
-
-
-@app.exception_handler(ValueError)
-async def value_error_handler(request: Request, exc: ValueError):
-    return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 
 @app.get("/", tags=["Health"])
 async def root():
-    return {"name": settings.APP_NAME, "status": "ok", "docs": "/docs"}
+    return {
+        "success": True,
+        "message": "WebImove API is running",
+        "name": settings.APP_NAME,
+        "status": "ok",
+        "docs": "/docs",
+    }
 
 
 @app.get("/health", tags=["Health"])
@@ -81,5 +86,10 @@ async def health():
         db_ok = True
     except Exception:  # noqa: BLE001
         db_ok = False
-    return {"status": "ok" if db_ok else "degraded", "database": db_ok,
-            "environment": settings.ENVIRONMENT}
+    return {
+        "success": db_ok,
+        "message": "Healthy" if db_ok else "Database unreachable",
+        "status": "ok" if db_ok else "degraded",
+        "database": db_ok,
+        "environment": settings.ENVIRONMENT,
+    }

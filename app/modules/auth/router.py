@@ -6,7 +6,7 @@ from app.core.deps import CurrentUser, get_current_user
 from app.core.enums import BillingCycle, PlanCode
 from app.modules.auth import schemas as s
 from app.modules.auth import service
-from app.modules.subscriptions.plans import PLANS, order_summary
+from app.modules.subscriptions.plans import order_summary, plan_catalogue
 from app.schemas.common import Message
 
 router = APIRouter(prefix="/auth", tags=["Auth & Onboarding"])
@@ -50,7 +50,7 @@ async def signup_resend(token: str = Depends(_bearer)):
 
 @router.get("/plans", response_model=List[s.PlanOut], summary="Step 5 of 6 · Plan catalogue")
 async def list_plans():
-    return list(PLANS.values())
+    return list((await plan_catalogue()).values())
 
 
 @router.get("/plans/{plan_code}/summary", response_model=s.OrderSummary,
@@ -60,7 +60,7 @@ async def plan_summary(plan_code: PlanCode, billing_cycle: BillingCycle = Query(
     from app.core.utils import utcnow
     renews = utcnow() + (timedelta(days=365) if billing_cycle == BillingCycle.ANNUAL else timedelta(days=30))
     return {"plan_code": plan_code, "billing_cycle": billing_cycle,
-            "renews_on": renews, **order_summary(plan_code, billing_cycle)}
+            "renews_on": renews, **(await order_summary(plan_code, billing_cycle))}
 
 
 @router.post("/signup/plan", summary="Step 4 of 5 · Choose a plan")
@@ -184,16 +184,52 @@ def _session(request: Request) -> dict:
     }
 
 
+@router.get("/login/roles", summary="Select Your Role — options before sign-in")
+async def login_roles():
+    """Static chips for the app/website role picker (Consultant / Partner / Client)."""
+    return {
+        "success": True,
+        "message": "Select your role to continue",
+        "roles": [
+            {
+                "id": "consultant",
+                "label": "Consultant",
+                "description": "Manage clients, cases, partners and your firm workspace",
+            },
+            {
+                "id": "partner",
+                "label": "Partner",
+                "description": "Complete assigned partner tasks and collaborate on cases",
+            },
+            {
+                "id": "client",
+                "label": "Client",
+                "description": "Track your immigration request, documents and messages",
+            },
+        ],
+    }
+
+
+@router.post("/platform/login", response_model=s.LoginResponse,
+             summary="Platform administration sign-in (super admin)")
+async def platform_login(payload: s.PlatformLoginRequest, request: Request):
+    return await service.platform_login(
+        payload.email, payload.password, payload.trust_device, _session(request)
+    )
+
+
 @router.post("/login", response_model=s.LoginResponse,
-             summary="Sign in (all roles). Returns a 2FA challenge when 2FA is on.")
+             summary="Sign in after selecting a role (consultant / partner / client)")
 async def login(payload: s.LoginRequest, request: Request):
-    return await service.login(payload.email, payload.password, _session(request))
+    return await service.login(payload.email, payload.password, payload.role, _session(request))
 
 
 @router.post("/login/2fa", response_model=s.TokenPair,
-             summary="Second leg of a two-factor sign-in")
+             summary="Second leg of a two-factor sign-in (same role as step 1)")
 async def login_2fa(payload: s.TwoFactorVerify, request: Request):
-    return await service.verify_login_2fa(payload.email, payload.code, _session(request))
+    return await service.verify_login_2fa(
+        payload.email, payload.code, payload.role, _session(request)
+    )
 
 
 @router.post("/refresh", response_model=s.TokenPair)

@@ -4,6 +4,8 @@ from typing import Any, Dict, Optional
 from app.core.enums import (
     AuditAction,
     BillingCycle,
+    LOGIN_PORTAL_ROLE_MAP,
+    LoginPortalRole,
     OtpPurpose,
     PlanCode,
     Role,
@@ -87,6 +89,7 @@ async def set_organization(token: str, data) -> Dict[str, Any]:
                 "slug": slug,
                 "business_type": data.business_type,
                 "country": data.country,
+                "city": data.city,
                 "office_address": data.office_address,
             },
             "step": "verify",
@@ -150,7 +153,7 @@ async def choose_plan(token: str, data) -> Dict[str, Any]:
     if not signup.get("email_verified"):
         raise BadRequest("Verify your email before choosing a plan")
 
-    summary = order_summary(data.plan_code, data.billing_cycle)
+    summary = await order_summary(data.plan_code, data.billing_cycle)
     renews_on = utcnow() + (
         timedelta(days=365) if data.billing_cycle == BillingCycle.ANNUAL else timedelta(days=30)
     )
@@ -203,14 +206,18 @@ async def complete_payment(token: str, data) -> Dict[str, Any]:
         "slug": org["slug"],
         "business_type": org["business_type"],
         "country": org["country"],
+        "city": org.get("city"),
         "office_address": org["office_address"],
         "owner_email": signup["email"],
         "owner_name": signup["full_name"],
-        "status": TenantStatus.ACTIVE.value,
+        # Workspace stays locked until a platform admin clicks Approve.
+        "status": TenantStatus.AWAITING_APPROVAL.value,
+        "verified": False,
         "plan_code": plan["code"],
         "billing_cycle": plan["billing_cycle"],
         "referral_code": random_token(8).upper(),
-        "activated_at": now,
+        "activated_at": None,
+        "signed_up_at": now,
         "renews_on": plan["renews_on"],
         "created_at": now,
         "updated_at": now,
@@ -266,11 +273,16 @@ async def complete_payment(token: str, data) -> Dict[str, Any]:
                        detail=f"{plan['code']} / {plan['billing_cycle']}")
 
     return {
+        "success": True,
+        "message": "Payment received. Your organization is awaiting platform approval.",
         "tenant_id": tenant_id,
         "organization_name": org["name"],
         "plan_code": PlanCode(plan["code"]),
         "renews_on": plan["renews_on"],
         "referral_code": tenant_doc["referral_code"],
+        "status": TenantStatus.AWAITING_APPROVAL.value,
+        "awaiting_approval": True,
+        "workspace_ready": False,
         "access_token": create_access_token(
             user_id=user_id, role=Role.CONSULTANT_OWNER.value,
             tenant_id=tenant_id, email=signup["email"],
@@ -338,29 +350,40 @@ async def _store_refresh(user_id: str, tenant_id: Optional[str],
     return token
 
 
-async def login(email: str, password: str,
+async def login(email: str, password: str, role: LoginPortalRole,
                 session: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Sign in after Select Your Role (consultant / partner / client).
+
+    Platform super admins use ``POST /auth/platform/login`` instead — this
+    endpoint rejects platform staff so the role picker flow stays clean.
+    """
     db = platform_db()
     email = email.lower().strip()
 
-    async def _fail() -> None:
+    async def _fail(detail: str = "Email or password is incorrect") -> None:
         await audit.record(action=AuditAction.LOGIN_FAILED, actor_email=email,
                            ip=(session or {}).get("ip"),
-                           user_agent=(session or {}).get("user_agent"))
-        raise Unauthorized("Email or password is incorrect")
+                           user_agent=(session or {}).get("user_agent"),
+                           meta={"role": role.value})
+        raise Unauthorized(detail)
 
-    admin = await db.platform_admins.find_one({"email": email})
-    if admin:
-        if not verify_password(password, admin["password_hash"]):
-            await _fail()
-        await audit.record(action=AuditAction.LOGIN, actor_id=str(admin["_id"]),
-                           actor_email=email, actor_role="super_admin",
-                           ip=(session or {}).get("ip"))
-        return await _token_response(admin, Role.SUPER_ADMIN, None, session=session)
+    if await db.platform_admins.find_one({"email": email}):
+        raise Unauthorized(
+            "Use the Platform administration sign-in for this account"
+        )
 
     entry = await db.user_directory.find_one({"email": email})
     if not entry:
         await _fail()
+
+    allowed_roles = LOGIN_PORTAL_ROLE_MAP[role]
+    try:
+        entry_role = Role(entry["role"])
+    except (KeyError, ValueError):
+        await _fail()
+    if entry_role not in allowed_roles:
+        label = role.value.replace("_", " ")
+        await _fail(f"This account is not registered as a {label}")
 
     tenant = await db.tenants.find_one({"_id": oid(entry["tenant_id"])})
     if not tenant:
@@ -370,49 +393,99 @@ async def login(email: str, password: str,
     user = await tdb.users.find_one({"_id": oid(entry["user_id"])})
     if not user or not verify_password(password, user.get("password_hash") or ""):
         await _fail()
+
+    user_role = Role(user["role"])
+    if user_role not in allowed_roles:
+        label = role.value.replace("_", " ")
+        await _fail(f"This account is not registered as a {label}")
+
     if user["status"] == UserStatus.INVITED.value:
         raise Unauthorized("Accept your invitation email before signing in")
     if user["status"] == UserStatus.SUSPENDED.value:
         raise Unauthorized("This account is suspended")
     if (user["status"] == UserStatus.PENDING_VERIFICATION.value
             or not user.get("email_verified", True)):
-        # Previously missing: an unverified self-registered client could sign in.
         raise Unauthorized(
             "Verify your email before signing in. "
             "Use /auth/verify-email/resend to get a new code."
         )
+
+    tenant_status = tenant.get("status")
+    if tenant_status == TenantStatus.AWAITING_APPROVAL.value:
+        raise Unauthorized(
+            "Your organization is awaiting platform approval. "
+            "You can sign in once a platform administrator verifies it."
+        )
+    if tenant_status == TenantStatus.SUSPENDED.value:
+        raise Unauthorized("This organization has been suspended")
+    if tenant_status == TenantStatus.EXPIRED.value:
+        raise Unauthorized("This organization's subscription has expired")
+    if tenant_status == TenantStatus.CANCELLED.value:
+        raise Unauthorized("This organization has been cancelled")
 
     await tdb.login_history.insert_one({
         "user_id": str(user["_id"]),
         "ip": (session or {}).get("ip"),
         "user_agent": (session or {}).get("user_agent"),
         "successful": True,
+        "portal_role": role.value,
         "created_at": utcnow(),
     })
     await audit.record(action=AuditAction.LOGIN, actor_id=str(user["_id"]),
                        actor_email=email, actor_role=user["role"],
-                       tenant_id=entry["tenant_id"], ip=(session or {}).get("ip"))
+                       tenant_id=entry["tenant_id"], ip=(session or {}).get("ip"),
+                       meta={"portal_role": role.value})
 
-    # 2FA gate: hand back a short-lived challenge instead of tokens. [INFERRED]
     if user.get("two_factor_enabled"):
         await otp_service.issue_otp(email=email, purpose=OtpPurpose.LOGIN,
                                     tenant_id=entry["tenant_id"])
         return {
+            "success": True,
+            "message": "Two-factor authentication required",
             "two_factor_required": True,
             "challenge_token": create_onboarding_token(signup_id=str(user["_id"]),
                                                        step="two_factor"),
             "method": user.get("two_factor_method", "email"),
+            "role": user_role,
         }
 
     await tdb.users.update_one({"_id": user["_id"]},
                                {"$set": {"last_login_at": utcnow()}})
-    return await _token_response(user, Role(user["role"]), entry["tenant_id"], tenant,
+    return await _token_response(user, user_role, entry["tenant_id"], tenant,
                                  session=session)
 
 
-async def verify_login_2fa(email: str, code: str,
+async def platform_login(email: str, password: str, trust_device: bool = True,
+                         session: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Platform administration sign-in — only ``platform_admins``."""
+    db = platform_db()
+    email = email.lower().strip()
+
+    admin = await db.platform_admins.find_one({"email": email})
+    if not admin or not verify_password(password, admin.get("password_hash") or ""):
+        await audit.record(action=AuditAction.LOGIN_FAILED, actor_email=email,
+                           ip=(session or {}).get("ip"),
+                           user_agent=(session or {}).get("user_agent"),
+                           meta={"portal": "platform"})
+        raise Unauthorized("Administrator email or password is incorrect")
+
+    if admin.get("status") == UserStatus.SUSPENDED.value:
+        raise Unauthorized("This administrator account is suspended")
+
+    await audit.record(action=AuditAction.LOGIN, actor_id=str(admin["_id"]),
+                       actor_email=email, actor_role="super_admin",
+                       ip=(session or {}).get("ip"),
+                       meta={"portal": "platform", "trust_device": trust_device})
+    tokens = await _token_response(admin, Role.SUPER_ADMIN, None, session=session)
+    tokens["message"] = "Signed in to Platform administration"
+    tokens["admin_role"] = admin.get("admin_role", "super_admin")
+    tokens["trust_device"] = trust_device
+    return tokens
+
+
+async def verify_login_2fa(email: str, code: str, role: LoginPortalRole,
                            session: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Second leg of a 2FA sign-in. [INFERRED]"""
+    """Second leg of a 2FA sign-in. Re-checks the selected portal role. [INFERRED]"""
     db = platform_db()
     email = email.lower().strip()
     await otp_service.verify_otp(email=email, purpose=OtpPurpose.LOGIN, code=code)
@@ -420,11 +493,26 @@ async def verify_login_2fa(email: str, code: str,
     entry = await db.user_directory.find_one({"email": email})
     if not entry:
         raise Unauthorized("Account not found")
+    allowed_roles = LOGIN_PORTAL_ROLE_MAP[role]
+    try:
+        if Role(entry["role"]) not in allowed_roles:
+            raise Unauthorized(f"This account is not registered as a {role.value}")
+    except (KeyError, ValueError) as exc:
+        raise Unauthorized("Account not found") from exc
+
     tdb = tenant_db(entry["tenant_id"])
     user = await tdb.users.find_one({"_id": oid(entry["user_id"])})
+    if not user:
+        raise Unauthorized("Account not found")
+    try:
+        user_role = Role(user["role"])
+    except (KeyError, ValueError) as exc:
+        raise Unauthorized("Account not found") from exc
+    if user_role not in allowed_roles:
+        raise Unauthorized(f"This account is not registered as a {role.value}")
     tenant = await db.tenants.find_one({"_id": oid(entry["tenant_id"])})
     await tdb.users.update_one({"_id": user["_id"]}, {"$set": {"last_login_at": utcnow()}})
-    return await _token_response(user, Role(user["role"]), entry["tenant_id"], tenant,
+    return await _token_response(user, user_role, entry["tenant_id"], tenant,
                                  session=session)
 
 
@@ -446,10 +534,14 @@ async def _token_response(user: dict, role: Role, tenant_id: Optional[str],
         lookup = await consultant_map(tenant_db(tenant_id), [consultant_id])
         profile["consultant"] = lookup.get(consultant_id)
     return {
+        "success": True,
+        "message": "Signed in successfully",
+        "two_factor_required": False,
         "access_token": create_access_token(
             user_id=user_id, role=role.value, tenant_id=tenant_id, email=user["email"]
         ),
         "refresh_token": await _store_refresh(user_id, tenant_id, session),
+        "token_type": "bearer",
         "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         "role": role,
         "tenant_id": tenant_id,

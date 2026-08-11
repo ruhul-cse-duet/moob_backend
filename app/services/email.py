@@ -1,5 +1,7 @@
+import html
 import logging
 from email.message import EmailMessage
+from typing import Optional, Sequence
 
 import aiosmtplib
 
@@ -8,16 +10,41 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
-async def send_email(*, to: str, subject: str, html: str, text: str | None = None) -> bool:
+async def send_email(
+    *,
+    to: str | Sequence[str],
+    subject: str,
+    html: str,
+    text: str | None = None,
+    reply_to: str | None = None,
+    from_name: str | None = None,
+) -> bool:
+    """Send mail via SMTP.
+
+    SMTP always authenticates as our mailbox, so ``From`` stays on
+    ``SMTP_FROM_EMAIL``. Pass ``reply_to`` (e.g. the user's signup email) so
+    the recipient can reply straight to them.
+    """
+    recipients = [to] if isinstance(to, str) else [addr for addr in to if addr]
+    if not recipients:
+        logger.warning("send_email called with no recipients: %s", subject)
+        return False
+
+    display_name = from_name or settings.SMTP_FROM_NAME
     message = EmailMessage()
-    message["From"] = f"{settings.SMTP_FROM_NAME} <{settings.SMTP_FROM_EMAIL}>"
-    message["To"] = to
+    message["From"] = f"{display_name} <{settings.SMTP_FROM_EMAIL}>"
+    message["To"] = ", ".join(recipients)
     message["Subject"] = subject
+    if reply_to:
+        message["Reply-To"] = reply_to
     message.set_content(text or "Please view this email in an HTML capable client.")
     message.add_alternative(html, subtype="html")
 
     if not settings.SMTP_HOST or settings.ENVIRONMENT == "test":
-        logger.info("SMTP disabled - would send to %s: %s", to, subject)
+        logger.info(
+            "SMTP disabled - would send to %s (reply-to=%s): %s",
+            recipients, reply_to, subject,
+        )
         return False
 
     try:
@@ -31,13 +58,13 @@ async def send_email(*, to: str, subject: str, html: str, text: str | None = Non
         )
         return True
     except Exception:  # noqa: BLE001 - never let mail failure break a request
-        logger.exception("Failed to send email to %s", to)
+        logger.exception("Failed to send email to %s", recipients)
         return False
 
 
 def _wrap(body: str) -> str:
     return f"""
-<div style="font-family:Inter,Arial,sans-serif;background:#f5f7f8;padding:32px">
+    <div style="font-family:Inter,Arial,sans-serif;background:#f5f7f8;padding:32px">
   <div style="max-width:520px;margin:auto;background:#fff;border-radius:12px;padding:32px">
     <div style="font-weight:700;letter-spacing:.08em;color:#0f9fa8;margin-bottom:24px">WEB IMOVE</div>
     {body}
@@ -46,6 +73,64 @@ def _wrap(body: str) -> str:
     </p>
   </div>
 </div>"""
+
+
+async def send_support_request_email(
+    *,
+    to: str | Sequence[str],
+    requester_email: str,
+    requester_name: Optional[str],
+    requester_role: str,
+    reference: str,
+    subject: str,
+    message: str,
+    category: str,
+    priority: str,
+) -> bool:
+    """Notify super admin(s) of a Help & Support message from a partner/client."""
+    name = html.escape(requester_name or "Unknown")
+    email = html.escape(requester_email)
+    role = html.escape(requester_role.replace("_", " ").title())
+    safe_subject = html.escape(subject)
+    safe_body = html.escape(message).replace("\n", "<br>")
+    body = f"""
+    <h2 style="margin:0 0 8px">Help &amp; Support request</h2>
+    <p style="color:#5b686c;margin:0 0 16px">
+      A <strong>{role}</strong> submitted a support message from the app.
+    </p>
+    <table style="width:100%;border-collapse:collapse;font-size:14px;margin:0 0 20px">
+      <tr><td style="padding:6px 0;color:#98a2a6;width:120px">Ticket</td>
+          <td style="padding:6px 0"><strong>{html.escape(reference)}</strong></td></tr>
+      <tr><td style="padding:6px 0;color:#98a2a6">From</td>
+          <td style="padding:6px 0"><strong>{name}</strong> &lt;{email}&gt;</td></tr>
+      <tr><td style="padding:6px 0;color:#98a2a6">Role</td>
+          <td style="padding:6px 0">{role}</td></tr>
+      <tr><td style="padding:6px 0;color:#98a2a6">Category</td>
+          <td style="padding:6px 0">{html.escape(category)}</td></tr>
+      <tr><td style="padding:6px 0;color:#98a2a6">Priority</td>
+          <td style="padding:6px 0">{html.escape(priority)}</td></tr>
+      <tr><td style="padding:6px 0;color:#98a2a6">Subject</td>
+          <td style="padding:6px 0">{safe_subject}</td></tr>
+    </table>
+    <div style="background:#f5f7f8;border-radius:8px;padding:16px;color:#0d1b1e;line-height:1.5">
+      {safe_body}
+    </div>
+    <p style="color:#98a2a6;font-size:13px;margin-top:20px">
+      Reply to this email to respond directly to {email}.
+    </p>"""
+    display = requester_name or requester_email
+    return await send_email(
+        to=to,
+        subject=f"[{reference}] {subject}",
+        html=_wrap(body),
+        text=(
+            f"Help & Support request [{reference}]\n"
+            f"From: {requester_name or 'Unknown'} <{requester_email}> ({requester_role})\n"
+            f"Subject: {subject}\n\n{message}"
+        ),
+        reply_to=requester_email,
+        from_name=f"{display} via WebImove",
+    )
 
 
 async def send_otp_email(*, to: str, code: str, purpose: str) -> bool:

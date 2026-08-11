@@ -13,6 +13,21 @@ class Role(str, Enum):
 CONSULTANT_ROLES = {Role.CONSULTANT_OWNER, Role.CONSULTANT}
 
 
+class LoginPortalRole(str, Enum):
+    """App/website 'Select Your Role' options before sign-in."""
+    CONSULTANT = "consultant"
+    PARTNER = "partner"
+    CLIENT = "client"
+
+
+# Maps the UI role chip to the account roles that may sign in under it.
+LOGIN_PORTAL_ROLE_MAP = {
+    LoginPortalRole.CONSULTANT: CONSULTANT_ROLES,
+    LoginPortalRole.PARTNER: {Role.PARTNER},
+    LoginPortalRole.CLIENT: {Role.CLIENT},
+}
+
+
 class UserStatus(str, Enum):
     PENDING_VERIFICATION = "pending_verification"
     INVITED = "invited"
@@ -21,12 +36,25 @@ class UserStatus(str, Enum):
 
 
 class TenantStatus(str, Enum):
-    PENDING_VERIFICATION = "pending_verification"   # step 3 - email OTP not confirmed
-    PENDING_PAYMENT = "pending_payment"             # step 4/5 - plan chosen, not paid
-    ACTIVE = "active"                               # paid, workspace live
-    PAST_DUE = "past_due"
+    """Organization lifecycle on the Super Admin Organizations screen."""
+    PENDING_VERIFICATION = "pending_verification"   # signup OTP not confirmed
+    PENDING_PAYMENT = "pending_payment"             # plan chosen, not paid
+    AWAITING_APPROVAL = "awaiting_approval"         # paid — waiting for platform admin
+    ACTIVE = "active"                               # approved, workspace live
+    PAST_DUE = "past_due"                           # failed payment
+    SUSPENDED = "suspended"                         # admin suspended
+    EXPIRED = "expired"                             # subscription expired
     CANCELLED = "cancelled"
 
+
+# Organizations list filter tabs (UI: All | Approval | Active | Suspended | Expired)
+ORG_LIST_TAB_STATUSES = {
+    "approval": {TenantStatus.AWAITING_APPROVAL, TenantStatus.PENDING_VERIFICATION,
+                 TenantStatus.PENDING_PAYMENT},
+    "active": {TenantStatus.ACTIVE},
+    "suspended": {TenantStatus.SUSPENDED},
+    "expired": {TenantStatus.EXPIRED, TenantStatus.CANCELLED, TenantStatus.PAST_DUE},
+}
 
 class PlanCode(str, Enum):
     STARTER = "starter"

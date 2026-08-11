@@ -11,14 +11,26 @@ class ORMBase(BaseModel):
 
 
 class Message(BaseModel):
+    """Simple action result — always includes success for mobile clients."""
+    success: bool = True
+    message: str | None = None
     detail: str
+
+    def model_post_init(self, __context) -> None:
+        # Keep message and detail in sync when only one is provided.
+        if self.message is None:
+            object.__setattr__(self, "message", self.detail)
 
 
 class IdResponse(BaseModel):
+    success: bool = True
+    message: str = "Created"
     id: str
 
 
 class Page(BaseModel, Generic[T]):
+    success: bool = True
+    message: str = "OK"
     items: List[T]
     total: int
     page: int

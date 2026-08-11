@@ -3,7 +3,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
-from app.core.enums import BillingCycle, PlanCode, Role
+from app.core.enums import BillingCycle, LoginPortalRole, PlanCode, Role
 
 
 class PasswordMixin(BaseModel):
@@ -29,6 +29,8 @@ class SignupPersonal(BaseModel):
 
 
 class OnboardingToken(BaseModel):
+    success: bool = True
+    message: str = "Continue to the next step"
     onboarding_token: str
     step: str
     next_step: str
@@ -39,6 +41,7 @@ class SignupOrganization(BaseModel):
     organization_name: str = Field(min_length=2, max_length=160)
     business_type: str = Field(default="Immigration Consultancy")
     country: str
+    city: Optional[str] = None
     office_address: str
 
     @field_validator("business_type")
@@ -59,10 +62,16 @@ class OtpVerify(BaseModel):
 
 
 class OtpIssued(BaseModel):
+    success: bool = True
+    message: Optional[str] = None
     detail: str
     expires_in: int
     resend_in: int
     debug_code: Optional[str] = None
+
+    def model_post_init(self, __context) -> None:
+        if self.message is None:
+            object.__setattr__(self, "message", self.detail)
 
 
 # ---------- Step 4 of 6 - Create Password ----------
@@ -119,24 +128,40 @@ class SignupPayment(BaseModel):
 
 
 class TenantActivated(BaseModel):
+    success: bool = True
+    message: str = "Payment received"
     tenant_id: str
     organization_name: str
     plan_code: PlanCode
     renews_on: datetime
     referral_code: str
+    status: Optional[str] = None
+    awaiting_approval: bool = True
+    workspace_ready: bool = False
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
 
 
 # ---------- Login ----------
-class LoginRequest(BaseModel):
+class PlatformLoginRequest(BaseModel):
+    """Platform administration sign-in (no role picker)."""
     email: EmailStr
     password: str
+    trust_device: bool = True
+
+
+class LoginRequest(BaseModel):
+    """Sign-in after the Select Your Role screen (consultant / partner / client)."""
+    email: EmailStr
+    password: str
+    role: LoginPortalRole
     trust_device: bool = False
 
 
 class TokenPair(BaseModel):
+    success: bool = True
+    message: str = "Signed in successfully"
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
@@ -145,10 +170,13 @@ class TokenPair(BaseModel):
     tenant_id: Optional[str] = None
     consultant_id: Optional[str] = None
     user: dict
+    two_factor_required: bool = False
 
 
 class LoginResponse(BaseModel):
     """Either a token pair, or a 2FA challenge. [INFERRED - Security.tsx]"""
+    success: bool = True
+    message: str = "Signed in successfully"
     two_factor_required: bool = False
     challenge_token: Optional[str] = None
     method: Optional[str] = None
@@ -157,13 +185,17 @@ class LoginResponse(BaseModel):
     token_type: str = "bearer"
     expires_in: Optional[int] = None
     role: Optional[Role] = None
+    admin_role: Optional[str] = None
+    trust_device: Optional[bool] = None
     tenant_id: Optional[str] = None
+    consultant_id: Optional[str] = None
     user: Optional[dict] = None
 
 
 class TwoFactorVerify(BaseModel):
     email: EmailStr
     code: str = Field(min_length=4, max_length=8)
+    role: LoginPortalRole
 
 
 class RefreshRequest(BaseModel):

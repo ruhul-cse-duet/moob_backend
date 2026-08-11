@@ -1,11 +1,17 @@
 from functools import lru_cache
 from typing import List
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        populate_by_name=True,
+    )
 
     # App
     APP_NAME: str = "WebImove API"
@@ -37,9 +43,16 @@ class Settings(BaseSettings):
     OTP_MAX_ATTEMPTS: int = 5
     SMTP_HOST: str = "localhost"
     SMTP_PORT: int = 587
-    SMTP_USER: str = ""
+    # Accept SMTP_USERNAME / SMTP_FROM as common .env aliases.
+    SMTP_USER: str = Field(
+        default="",
+        validation_alias=AliasChoices("SMTP_USER", "SMTP_USERNAME"),
+    )
     SMTP_PASSWORD: str = ""
-    SMTP_FROM_EMAIL: str = "no-reply@webimove.com"
+    SMTP_FROM_EMAIL: str = Field(
+        default="no-reply@webimove.com",
+        validation_alias=AliasChoices("SMTP_FROM_EMAIL", "SMTP_FROM"),
+    )
     SMTP_FROM_NAME: str = "WebImove"
     SMTP_STARTTLS: bool = True
 
@@ -60,7 +73,11 @@ class Settings(BaseSettings):
     MONGO_LOG_LEVEL: str = "WARNING"
     HTTP_LOG_LEVEL: str = "WARNING"
     ACCESS_LOG: bool = True
+
+    # Stripe — platform subscriptions, invoices, refunds
     STRIPE_SECRET_KEY: str = "sk_test_51MockupKeyHereForSafety"
+    STRIPE_WEBHOOK_SECRET: str = ""
+    STRIPE_CURRENCY: str = "usd"
 
 
 @lru_cache

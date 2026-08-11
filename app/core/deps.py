@@ -93,12 +93,23 @@ async def get_tenant_db(user: CurrentUser = Depends(get_current_user)) -> AsyncI
 
 
 async def require_active_tenant(user: CurrentUser = Depends(get_current_user)) -> dict:
-    """Blocks the whole workspace when the subscription is not paid."""
+    """Blocks the whole workspace when the subscription is not paid / approved."""
     tenant = await platform_db().tenants.find_one({"_id": oid(user.tenant_id)})
     if not tenant:
         raise Unauthorized("Workspace not found")
-    if tenant["status"] != TenantStatus.ACTIVE.value:
-        raise PaymentRequired("This workspace is not active. Complete the subscription payment.")
+    status = tenant["status"]
+    if status == TenantStatus.AWAITING_APPROVAL.value:
+        raise PaymentRequired(
+            "Your organization is awaiting platform approval before the workspace opens."
+        )
+    if status == TenantStatus.SUSPENDED.value:
+        raise Forbidden("This organization has been suspended")
+    if status == TenantStatus.EXPIRED.value:
+        raise PaymentRequired("This organization's subscription has expired")
+    if status != TenantStatus.ACTIVE.value:
+        raise PaymentRequired(
+            "This workspace is not active. Complete the subscription payment."
+        )
     return tenant
 
 

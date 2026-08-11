@@ -6,7 +6,7 @@ from app.core.enums import BillingCycle, PlanCode, TenantStatus
 from app.core.exceptions import NotFound
 from app.core.utils import oid, serialize, utcnow
 from app.db.mongo import platform_db
-from app.modules.subscriptions.plans import PLANS, order_summary
+from app.modules.subscriptions.plans import order_summary, plan_by_code
 from app.schemas.common import Message
 
 router = APIRouter(prefix="/subscription", tags=["Subscription & Billing"])
@@ -19,7 +19,7 @@ async def current(user: CurrentUser = Depends(require_owner)):
     sub = await db.subscriptions.find_one({"tenant_id": user.tenant_id, "status": "active"})
     if not tenant:
         raise NotFound("Workspace not found")
-    plan = PLANS[PlanCode(tenant["plan_code"])]
+    plan = await plan_by_code(PlanCode(tenant["plan_code"]))
     return {
         "tenant": serialize(tenant),
         "subscription": serialize(sub),
@@ -40,7 +40,7 @@ async def change_plan(plan_code: PlanCode = Body(embed=True),
                       billing_cycle: BillingCycle = Body(BillingCycle.MONTHLY, embed=True),
                       user: CurrentUser = Depends(require_owner)):
     db = platform_db()
-    summary = order_summary(plan_code, billing_cycle)
+    summary = await order_summary(plan_code, billing_cycle)
     renews = utcnow() + (timedelta(days=365) if billing_cycle == BillingCycle.ANNUAL
                          else timedelta(days=30))
     await db.tenants.update_one(
