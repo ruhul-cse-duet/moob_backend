@@ -97,6 +97,9 @@ async def require_active_tenant(user: CurrentUser = Depends(get_current_user)) -
     tenant = await platform_db().tenants.find_one({"_id": oid(user.tenant_id)})
     if not tenant:
         raise Unauthorized("Workspace not found")
+    maintenance = await platform_db().platform_settings.find_one({"key": "maintenance_mode"})
+    if maintenance and bool(maintenance.get("value")):
+        raise Forbidden("Platform is in maintenance mode")
     status = tenant["status"]
     if status == TenantStatus.AWAITING_APPROVAL.value:
         raise PaymentRequired(

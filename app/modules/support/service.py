@@ -6,9 +6,8 @@ database. A super admin needs one queue across every organization; with
 database-per-tenant, a tenant-local collection would force a fan-out query over
 every organization database on every helpdesk page load.
 
-When a partner or client (or any workspace user) raises a ticket from Help &
-Support, we also email the super admin(s). Reply-To is the requester's signup
-email so the admin can respond directly.
+Partners and clients (and other workspace users) raise tickets here. Creating a
+ticket sends an in-app notification to the super admin(s). No email is sent.
 """
 from typing import Any, Dict, List, Optional
 
@@ -16,9 +15,7 @@ from app.core.enums import TicketActor, TicketPriority, TicketStatus
 from app.core.exceptions import Forbidden, NotFound
 from app.core.utils import build_reference, oid, serialize, utcnow
 from app.db.mongo import platform_db
-from app.modules.admin.settings import get_setting
 from app.schemas.common import PageParams
-from app.services.email import send_email, send_support_request_email
 from app.services.pagination import paginate
 
 
@@ -28,28 +25,14 @@ async def _next_reference() -> str:
     return build_reference("TKT", 1000 + doc.get("value", 1))
 
 
-async def _super_admin_emails() -> List[str]:
-    """Recipients for Help & Support emails.
-
-    Prefer live platform admin accounts (super admin). If an explicit
-    ``support_email`` override is stored in platform settings, include that
-    too. Fall back to the default setting only when no admins exist yet.
-    """
-    emails: set[str] = set()
+async def _super_admin_ids() -> List[str]:
+    """Return the user IDs of active super admin(s) for in-app notifications."""
+    ids: List[str] = []
     async for admin in platform_db().platform_admins.find(
-        {"status": {"$ne": "suspended"}}, {"email": 1}
+        {"status": {"$ne": "suspended"}}, {"_id": 1}
     ):
-        if admin.get("email"):
-            emails.add(admin["email"].lower())
-
-    override = await platform_db().platform_settings.find_one({"key": "support_email"})
-    if override and isinstance(override.get("value"), str) and override["value"].strip():
-        emails.add(override["value"].strip().lower())
-    elif not emails:
-        configured = await get_setting("support_email")
-        if isinstance(configured, str) and configured.strip():
-            emails.add(configured.strip().lower())
-    return sorted(emails)
+        ids.append(str(admin["_id"]))
+    return ids
 
 
 async def create_ticket(user, data) -> Dict[str, Any]:
@@ -85,20 +68,21 @@ async def create_ticket(user, data) -> Dict[str, Any]:
         "created_at": now,
     })
 
-    # Email super admin from the requester's signup address (via Reply-To).
-    recipients = await _super_admin_emails()
-    if recipients:
-        await send_support_request_email(
-            to=recipients,
-            requester_email=user.email,
-            requester_name=user.raw.get("full_name"),
-            requester_role=user.role.value,
-            reference=reference,
-            subject=data.subject,
-            message=data.message,
-            category=data.category.value,
-            priority=data.priority.value,
-        )
+    # Notify super admin(s) via in-app notification (no email).
+    admin_ids = await _super_admin_ids()
+    for admin_id in admin_ids:
+        await db.platform_notifications.insert_one({
+            "user_id": admin_id,
+            "type": "support_ticket",
+            "title": f"New support ticket: {data.subject}",
+            "body": data.message[:200],
+            "ticket_id": ticket_id,
+            "reference": reference,
+            "requester_name": user.raw.get("full_name"),
+            "requester_role": user.role.value,
+            "read": False,
+            "created_at": now,
+        })
 
     return serialize({**doc, "_id": oid(ticket_id)})
 
@@ -164,12 +148,34 @@ async def reply(ticket_id: str, body: str, *, user, admin: bool = False) -> Dict
         {"_id": oid(ticket_id)},
         {"$set": {"last_reply_at": now, "status": new_status, "updated_at": now}})
 
-    if admin and ticket.get("requester_email"):
-        await send_email(
-            to=ticket["requester_email"],
-            subject=f"Re: [{ticket['reference']}] {ticket['subject']}",
-            html=f"<p>{body}</p><p style='color:#98a2a6'>Reply to this ticket in WebImove "
-                 f"under Help &amp; Support.</p>")
+    # In-app notification instead of email.
+    if admin:
+        # Admin replied → notify the requester.
+        await db.platform_notifications.insert_one({
+            "user_id": ticket["requester_id"],
+            "type": "support_reply",
+            "title": f"Reply on [{ticket['reference']}] {ticket['subject']}",
+            "body": body[:200],
+            "ticket_id": ticket_id,
+            "reference": ticket.get("reference"),
+            "read": False,
+            "created_at": now,
+        })
+    else:
+        # Customer replied → notify admin(s).
+        admin_ids = await _super_admin_ids()
+        for admin_id in admin_ids:
+            await db.platform_notifications.insert_one({
+                "user_id": admin_id,
+                "type": "support_reply",
+                "title": f"Reply on [{ticket['reference']}] {ticket['subject']}",
+                "body": body[:200],
+                "ticket_id": ticket_id,
+                "reference": ticket.get("reference"),
+                "requester_name": user.raw.get("full_name"),
+                "read": False,
+                "created_at": now,
+            })
     return await get_ticket(ticket_id, user=user, admin=admin)
 
 

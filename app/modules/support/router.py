@@ -1,7 +1,7 @@
 """support/HelpSupport.tsx — the customer-facing side of the helpdesk. [INFERRED]
 
 Partners and clients (and other workspace users) raise tickets here. Creating a
-ticket emails the super admin with Reply-To set to the requester's signup email.
+ticket sends an in-app notification to the super admin(s) for direct messaging.
 """
 from typing import Optional
 
@@ -19,7 +19,7 @@ router = APIRouter(prefix="/support", tags=["Help & Support"])
 @router.post(
     "/tickets",
     status_code=http.HTTP_201_CREATED,
-    summary="Email Us — raise a Help & Support ticket (notifies super admin)",
+    summary="Send Message — raise a Help & Support ticket (notifies super admin)",
 )
 async def create_ticket(payload: s.TicketCreate,
                         user: CurrentUser = Depends(get_current_user)):

@@ -75,62 +75,6 @@ def _wrap(body: str) -> str:
 </div>"""
 
 
-async def send_support_request_email(
-    *,
-    to: str | Sequence[str],
-    requester_email: str,
-    requester_name: Optional[str],
-    requester_role: str,
-    reference: str,
-    subject: str,
-    message: str,
-    category: str,
-    priority: str,
-) -> bool:
-    """Notify super admin(s) of a Help & Support message from a partner/client."""
-    name = html.escape(requester_name or "Unknown")
-    email = html.escape(requester_email)
-    role = html.escape(requester_role.replace("_", " ").title())
-    safe_subject = html.escape(subject)
-    safe_body = html.escape(message).replace("\n", "<br>")
-    body = f"""
-    <h2 style="margin:0 0 8px">Help &amp; Support request</h2>
-    <p style="color:#5b686c;margin:0 0 16px">
-      A <strong>{role}</strong> submitted a support message from the app.
-    </p>
-    <table style="width:100%;border-collapse:collapse;font-size:14px;margin:0 0 20px">
-      <tr><td style="padding:6px 0;color:#98a2a6;width:120px">Ticket</td>
-          <td style="padding:6px 0"><strong>{html.escape(reference)}</strong></td></tr>
-      <tr><td style="padding:6px 0;color:#98a2a6">From</td>
-          <td style="padding:6px 0"><strong>{name}</strong> &lt;{email}&gt;</td></tr>
-      <tr><td style="padding:6px 0;color:#98a2a6">Role</td>
-          <td style="padding:6px 0">{role}</td></tr>
-      <tr><td style="padding:6px 0;color:#98a2a6">Category</td>
-          <td style="padding:6px 0">{html.escape(category)}</td></tr>
-      <tr><td style="padding:6px 0;color:#98a2a6">Priority</td>
-          <td style="padding:6px 0">{html.escape(priority)}</td></tr>
-      <tr><td style="padding:6px 0;color:#98a2a6">Subject</td>
-          <td style="padding:6px 0">{safe_subject}</td></tr>
-    </table>
-    <div style="background:#f5f7f8;border-radius:8px;padding:16px;color:#0d1b1e;line-height:1.5">
-      {safe_body}
-    </div>
-    <p style="color:#98a2a6;font-size:13px;margin-top:20px">
-      Reply to this email to respond directly to {email}.
-    </p>"""
-    display = requester_name or requester_email
-    return await send_email(
-        to=to,
-        subject=f"[{reference}] {subject}",
-        html=_wrap(body),
-        text=(
-            f"Help & Support request [{reference}]\n"
-            f"From: {requester_name or 'Unknown'} <{requester_email}> ({requester_role})\n"
-            f"Subject: {subject}\n\n{message}"
-        ),
-        reply_to=requester_email,
-        from_name=f"{display} via WebImove",
-    )
 
 
 async def send_otp_email(*, to: str, code: str, purpose: str) -> bool:
