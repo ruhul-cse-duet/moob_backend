@@ -1813,129 +1813,6 @@
       ]
     },
     {
-      "name": "Agenda & Appointments",
-      "item": [
-        {
-          "name": "Create Appointment",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/agenda",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "agenda"
-              ]
-            },
-            "description": "Create Appointment",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"title\": \"Translate Employment Contract (ES to EN)\",\n  \"client_id\": \"{{user_id}}\",\n  \"request_id\": \"{{request_id}}\",\n  \"case_id\": \"{{case_id}}\",\n  \"starts_at\": \"2026-09-01T10:00:00Z\",\n  \"duration_minutes\": 30,\n  \"location\": \"<location>\",\n  \"notes\": \"Eligibility confirmed; awaiting bank statement.\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": [],
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "const ok = pm.response.code >= 200 && pm.response.code < 300;",
-                  "pm.test('2xx', function () { pm.expect(ok).to.be.true; });",
-                  "if (ok) {",
-                  "  let body = {};",
-                  "  try { body = pm.response.json(); } catch (e) { body = {}; }",
-                  "  if (body?.id !== undefined && body?.id !== null) { pm.collectionVariables.set('appointment_id', body?.id); console.log('saved appointment_id'); }",
-                  "}"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Agenda for a date range",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/agenda",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "agenda"
-              ],
-              "query": [
-                {
-                  "key": "date_from",
-                  "value": "2026-09-01T10:00:00Z",
-                  "description": "",
-                  "disabled": true
-                },
-                {
-                  "key": "date_to",
-                  "value": "2026-09-01T10:00:00Z",
-                  "description": "",
-                  "disabled": true
-                },
-                {
-                  "key": "page",
-                  "value": "1",
-                  "description": "",
-                  "disabled": true
-                },
-                {
-                  "key": "page_size",
-                  "value": "20",
-                  "description": "",
-                  "disabled": true
-                }
-              ]
-            },
-            "description": "Agenda for a date range"
-          },
-          "response": []
-        },
-        {
-          "name": "Cancel",
-          "request": {
-            "method": "DELETE",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/agenda/{{appointment_id}}",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "agenda",
-                "{{appointment_id}}"
-              ]
-            },
-            "description": "Cancel"
-          },
-          "response": []
-        }
-      ]
-    },
-    {
       "name": "Client Billing",
       "item": [
         {
@@ -2979,7 +2856,7 @@
       "name": "Help & Support",
       "item": [
         {
-          "name": "Email Us \u2014 raise a Help & Support ticket (notifies super admin)",
+          "name": "Send Message \u2014 raise a Help & Support ticket (notifies super admin)",
           "request": {
             "method": "POST",
             "header": [
@@ -3000,7 +2877,7 @@
                 "tickets"
               ]
             },
-            "description": "Email Us \u2014 raise a Help & Support ticket (notifies super admin)",
+            "description": "Send Message \u2014 raise a Help & Support ticket (notifies super admin)",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"subject\": \"Cannot upload a document\",\n  \"message\": \"The upload fails at 90% on the mobile app.\",\n  \"category\": \"billing\",\n  \"priority\": \"low\",\n  \"case_reference\": \"PAY-2026-0001\"\n}",
@@ -4818,6 +4695,47 @@
       ]
     },
     {
+      "name": "Platform setup",
+      "item": [
+        {
+          "name": "Create initial platform super admin (one-time)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/setup/super-admin",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "setup",
+                "super-admin"
+              ]
+            },
+            "description": "Create initial platform super admin (one-time)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"sarah.jenkins@jenkinslaw.com\",\n  \"password\": \"Str0ng!Pass1\",\n  \"full_name\": \"Platform Admin\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
       "name": "Search",
       "item": [
         {
@@ -6054,47 +5972,6 @@
           "response": []
         },
         {
-          "name": "Platform admin notification inbox",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/admin/notifications",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "admin",
-                "notifications"
-              ],
-              "query": [
-                {
-                  "key": "unread_only",
-                  "value": "False",
-                  "description": "",
-                  "disabled": true
-                },
-                {
-                  "key": "page",
-                  "value": "1",
-                  "description": "",
-                  "disabled": true
-                },
-                {
-                  "key": "page_size",
-                  "value": "20",
-                  "description": "",
-                  "disabled": true
-                }
-              ]
-            },
-            "description": "Platform admin notification inbox"
-          },
-          "response": []
-        },
-        {
           "name": "Create a notification for platform staff (or self)",
           "request": {
             "method": "POST",
@@ -6128,57 +6005,156 @@
             }
           },
           "response": []
-        },
-        {
-          "name": "Mark All Notifications Read",
-          "request": {
-            "method": "POST",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/admin/notifications/read-all",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "admin",
-                "notifications",
-                "read-all"
-              ]
-            },
-            "description": "Mark All Notifications Read"
-          },
-          "response": []
-        },
-        {
-          "name": "Mark Notification Read",
-          "request": {
-            "method": "POST",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/admin/notifications/{{notification_id}}/read",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "admin",
-                "notifications",
-                "{{notification_id}}",
-                "read"
-              ]
-            },
-            "description": "Mark Notification Read"
-          },
-          "response": []
         }
       ]
     },
     {
       "name": "Super Admin \u00b7 Billing",
       "item": [
+        {
+          "name": "List editable subscription plans",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/billing/plans",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "billing",
+                "plans"
+              ]
+            },
+            "description": "List editable subscription plans"
+          },
+          "response": []
+        },
+        {
+          "name": "Get one editable subscription plan",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/billing/plans/{{plan_code}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "billing",
+                "plans",
+                "{{plan_code}}"
+              ]
+            },
+            "description": "Get one editable subscription plan"
+          },
+          "response": []
+        },
+        {
+          "name": "Update a subscription plan",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/billing/plans/{{plan_code}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "billing",
+                "plans",
+                "{{plan_code}}"
+              ]
+            },
+            "description": "Update a subscription plan",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"<name>\",\n  \"tagline\": \"<tagline>\",\n  \"monthly_price\": 100.0,\n  \"annual_price\": 100.0,\n  \"recommended\": true,\n  \"consultant_seats\": 0.0,\n  \"partner_seats\": 0.0,\n  \"active_case_limit\": 0.0,\n  \"features\": [\n    \"<features>\"\n  ],\n  \"flags\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get one editable subscription plan price",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/billing/plans/{{plan_code}}/price",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "billing",
+                "plans",
+                "{{plan_code}}",
+                "price"
+              ]
+            },
+            "description": "Get one editable subscription plan price"
+          },
+          "response": []
+        },
+        {
+          "name": "Update a subscription plan price",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/billing/plans/{{plan_code}}/price",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "billing",
+                "plans",
+                "{{plan_code}}",
+                "price"
+              ]
+            },
+            "description": "Update a subscription plan price",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"monthly_price\": 100.0,\n  \"annual_price\": 100.0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
         {
           "name": "MRR, ARR, plan mix and churn",
           "request": {
@@ -6276,6 +6252,96 @@
               ]
             },
             "description": "Collected revenue grouped by month"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Super Admin \u00b7 Consultant Management",
+      "item": [
+        {
+          "name": "List consultants across the platform",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/users",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "tab",
+                  "value": "all",
+                  "description": "all | active | disabled",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "<search>",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "List consultants across the platform"
+          },
+          "response": []
+        },
+        {
+          "name": "Disable or enable a consultant account",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/users/{{tenant_id}}/{{user_id}}/status",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "users",
+                "{{tenant_id}}",
+                "{{user_id}}",
+                "status"
+              ]
+            },
+            "description": "Disable or enable a consultant account",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"<status>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
           },
           "response": []
         }
@@ -6615,6 +6681,125 @@
       ]
     },
     {
+      "name": "Super Admin \u00b7 Notifications",
+      "item": [
+        {
+          "name": "Platform notification feed",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/notifications",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "notifications"
+              ],
+              "query": [
+                {
+                  "key": "unread_only",
+                  "value": "False",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "tab",
+                  "value": "<tab>",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Platform notification feed"
+          },
+          "response": []
+        },
+        {
+          "name": "Mark all platform notifications read",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/notifications/read-all",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "notifications",
+                "read-all"
+              ]
+            },
+            "description": "Mark all platform notifications read"
+          },
+          "response": []
+        },
+        {
+          "name": "Mark platform notification read",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/notifications/{{notification_id}}/read",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "notifications",
+                "{{notification_id}}",
+                "read"
+              ]
+            },
+            "description": "Mark platform notification read"
+          },
+          "response": []
+        },
+        {
+          "name": "Count unread platform notifications",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/notifications/unread-count",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "notifications",
+                "unread-count"
+              ]
+            },
+            "description": "Count unread platform notifications"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
       "name": "Super Admin \u00b7 Organizations",
       "item": [
         {
@@ -6807,7 +6992,7 @@
             "description": "Override an organization's plan (comps, migrations, enterprise deals)",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"plan_code\": \"starter\",\n  \"note\": \"<note>\"\n}",
+              "raw": "{\n  \"plan_code\": \"starter\",\n  \"billing_cycle\": \"monthly\",\n  \"note\": \"<note>\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -6970,7 +7155,7 @@
       "name": "Super Admin \u00b7 Platform settings",
       "item": [
         {
-          "name": "All platform settings (defaults merged with overrides)",
+          "name": "All platform settings (grouped UI sections and defaults)",
           "request": {
             "method": "GET",
             "header": [],
@@ -6986,7 +7171,7 @@
                 "settings"
               ]
             },
-            "description": "All platform settings (defaults merged with overrides)"
+            "description": "All platform settings (grouped UI sections and defaults)"
           },
           "response": []
         },
@@ -7059,7 +7244,7 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/admin/users",
+              "raw": "{{base_url}}/api/v1/admin/platform-staff",
               "host": [
                 "{{base_url}}"
               ],
@@ -7067,7 +7252,7 @@
                 "api",
                 "v1",
                 "admin",
-                "users"
+                "platform-staff"
               ],
               "query": [
                 {
@@ -7111,7 +7296,7 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/admin/users",
+              "raw": "{{base_url}}/api/v1/admin/platform-staff",
               "host": [
                 "{{base_url}}"
               ],
@@ -7119,7 +7304,7 @@
                 "api",
                 "v1",
                 "admin",
-                "users"
+                "platform-staff"
               ]
             },
             "description": "Invite a platform staff member",
@@ -7133,24 +7318,7 @@
               }
             }
           },
-          "response": [],
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "const ok = pm.response.code >= 200 && pm.response.code < 300;",
-                  "pm.test('2xx', function () { pm.expect(ok).to.be.true; });",
-                  "if (ok) {",
-                  "  let body = {};",
-                  "  try { body = pm.response.json(); } catch (e) { body = {}; }",
-                  "  if (body?.id !== undefined && body?.id !== null) { pm.collectionVariables.set('admin_id', body?.id); console.log('saved admin_id'); }",
-                  "}"
-                ]
-              }
-            }
-          ]
+          "response": []
         },
         {
           "name": "Change a staff member's role or status",
@@ -7163,7 +7331,7 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/admin/users/{{admin_id}}",
+              "raw": "{{base_url}}/api/v1/admin/platform-staff/{{admin_id}}",
               "host": [
                 "{{base_url}}"
               ],
@@ -7171,7 +7339,7 @@
                 "api",
                 "v1",
                 "admin",
-                "users",
+                "platform-staff",
                 "{{admin_id}}"
               ]
             },
@@ -7194,7 +7362,7 @@
             "method": "DELETE",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/admin/users/{{admin_id}}",
+              "raw": "{{base_url}}/api/v1/admin/platform-staff/{{admin_id}}",
               "host": [
                 "{{base_url}}"
               ],
@@ -7202,7 +7370,7 @@
                 "api",
                 "v1",
                 "admin",
-                "users",
+                "platform-staff",
                 "{{admin_id}}"
               ]
             },

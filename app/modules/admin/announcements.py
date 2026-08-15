@@ -73,6 +73,38 @@ async def create_announcement(payload: AnnouncementCreate,
     await audit.record(action=AuditAction.ADMIN_ACTION, actor_id=user.id,
                        actor_email=user.email, subject="announcement",
                        detail=payload.title)
+
+    if payload.published:
+        from app.db.mongo import tenant_db
+        from app.core.enums import Role
+        
+        target_roles = []
+        if payload.audience == "consultants":
+            target_roles = [Role.CONSULTANT.value, Role.CONSULTANT_OWNER.value]
+        elif payload.audience == "partners":
+            target_roles = [Role.PARTNER.value]
+        elif payload.audience == "clients":
+            target_roles = [Role.CLIENT.value]
+            
+        async for tenant in platform_db().tenants.find({}, {"_id": 1}):
+            tdb = tenant_db(str(tenant["_id"]))
+            query = {}
+            if target_roles:
+                query["role"] = {"$in": target_roles}
+                
+            users = await tdb.users.find(query, {"_id": 1}).to_list(None)
+            if users:
+                notifications = [{
+                    "user_id": str(u["_id"]),
+                    "type": "announcement",
+                    "title": payload.title,
+                    "body": payload.body[:200],
+                    "announcement_id": ann_id,
+                    "read": False,
+                    "created_at": now
+                } for u in users]
+                await tdb.notifications.insert_many(notifications)
+
     return serialize({**doc, "_id": oid(ann_id)})
 
 

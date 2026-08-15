@@ -8,6 +8,7 @@ from app.core.deps import CurrentUser, page_params, require_super_admin
 from app.core.enums import (
     ORG_LIST_TAB_STATUSES,
     AuditAction,
+    BillingCycle,
     PlanCode,
     Role,
     TenantStatus,
@@ -178,6 +179,10 @@ async def organization_detail(tenant_id: str,
             plan = None
     since = utcnow() - timedelta(days=30)
     card = await _enrich_org_card(serialize(tenant))
+    
+    owner = await tdb.users.find_one({"role": Role.CONSULTANT_OWNER.value})
+    if owner:
+        card["owner_phone"] = owner.get("mobile")
 
     return {
         "success": True,
@@ -307,19 +312,32 @@ async def set_status(tenant_id: str, status: TenantStatus = Body(embed=True),
 @router.post("/{tenant_id}/plan", response_model=Message,
              summary="Override an organization's plan (comps, migrations, enterprise deals)")
 async def override_plan(tenant_id: str, plan_code: PlanCode = Body(embed=True),
+                        billing_cycle: BillingCycle = Body(embed=True),
                         note: Optional[str] = Body(None, embed=True),
                         user: CurrentUser = Depends(require_super_admin)):
-    result = await platform_db().tenants.update_one(
+    db = platform_db()
+    result = await db.tenants.update_one(
         {"_id": oid(tenant_id)},
         {"$set": {"plan_code": plan_code.value, "plan_override_note": note,
                   "updated_at": utcnow()}})
     if not result.matched_count:
         raise NotFound("Organization not found")
+        
+    # Also update the active subscription's plan and billing cycle
+    await db.subscriptions.update_one(
+        {"tenant_id": tenant_id, "status": "active"},
+        {"$set": {
+            "plan_code": plan_code.value, 
+            "billing_cycle": billing_cycle.value,
+            "updated_at": utcnow()
+        }}
+    )
+    
     await audit.record(action=AuditAction.PLAN_CHANGED, actor_id=user.id,
                        actor_email=user.email, tenant_id=tenant_id,
-                       subject=plan_code.value, detail=note)
+                       subject=f"{plan_code.value} ({billing_cycle.value})", detail=note)
     return {
         "success": True,
-        "message": f"Plan set to {plan_code.value}",
-        "detail": f"Plan set to {plan_code.value}",
+        "message": f"Plan set to {plan_code.value} ({billing_cycle.value})",
+        "detail": f"Plan set to {plan_code.value} ({billing_cycle.value})",
     }
