@@ -15,7 +15,7 @@ from app.services import audit
 from app.services.email import send_email
 from app.services.pagination import paginate
 
-router = APIRouter(prefix="/users", tags=["Super Admin · Platform staff"])
+router = APIRouter(prefix="/platform-staff", tags=["Super Admin · Platform staff"])
 
 
 class AdminUserCreate(BaseModel):

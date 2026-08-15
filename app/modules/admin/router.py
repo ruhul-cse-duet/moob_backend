@@ -25,6 +25,7 @@ from app.core.utils import oid, serialize, utcnow
 from app.db.mongo import platform_db, tenant_db
 from app.modules.admin.billing import _monthly_value
 from app.modules.admin.admin_users import router as admin_users_router
+from app.modules.admin.consultants import router as consultants_router
 from app.modules.admin.announcements import router as announcements_router
 from app.modules.admin.billing import router as billing_router
 from app.modules.admin.helpdesk import router as helpdesk_router
@@ -32,6 +33,7 @@ from app.modules.admin.organizations import router as organizations_router
 from app.modules.admin.setup import router as setup_router
 from app.modules.admin.oversight import router as oversight_router
 from app.modules.admin.settings import router as settings_router
+from app.modules.admin.notifications import router as notifications_router
 from app.modules.subscriptions.plans import PLANS
 
 router = APIRouter(prefix="/admin")
@@ -447,6 +449,7 @@ async def admin_search(q: str = Query(min_length=2),
 
 
 router.include_router(organizations_router)
+router.include_router(consultants_router)
 router.include_router(admin_users_router)
 router.include_router(billing_router)
 router.include_router(helpdesk_router)
@@ -454,3 +457,4 @@ router.include_router(announcements_router)
 router.include_router(setup_router)
 router.include_router(oversight_router)
 router.include_router(settings_router)
+router.include_router(notifications_router)

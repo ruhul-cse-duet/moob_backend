@@ -151,16 +151,18 @@ async def reply(ticket_id: str, body: str, *, user, admin: bool = False) -> Dict
     # In-app notification instead of email.
     if admin:
         # Admin replied → notify the requester.
-        await db.platform_notifications.insert_one({
-            "user_id": ticket["requester_id"],
-            "type": "support_reply",
-            "title": f"Reply on [{ticket['reference']}] {ticket['subject']}",
-            "body": body[:200],
-            "ticket_id": ticket_id,
-            "reference": ticket.get("reference"),
-            "read": False,
-            "created_at": now,
-        })
+        from app.db.mongo import tenant_db
+        if ticket.get("tenant_id"):
+            await tenant_db(ticket["tenant_id"]).notifications.insert_one({
+                "user_id": ticket["requester_id"],
+                "type": "support_reply",
+                "title": f"Reply on [{ticket['reference']}] {ticket['subject']}",
+                "body": body[:200],
+                "ticket_id": ticket_id,
+                "reference": ticket.get("reference"),
+                "read": False,
+                "created_at": now,
+            })
     else:
         # Customer replied → notify admin(s).
         admin_ids = await _super_admin_ids()

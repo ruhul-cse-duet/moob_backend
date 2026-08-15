@@ -1,7 +1,6 @@
 from fastapi import APIRouter
 
 from app.modules.admin.router import router as admin_router
-from app.modules.agenda.router import router as agenda_router
 from app.modules.ai.router import router as ai_router
 from app.modules.auth.router import router as auth_router
 from app.modules.billing.router import router as invoices_router
@@ -40,7 +39,6 @@ api_router.include_router(cases_router)
 api_router.include_router(analysis_router)
 api_router.include_router(tasks_router)
 api_router.include_router(ai_router)
-api_router.include_router(agenda_router)
 api_router.include_router(messages_router)
 api_router.include_router(notifications_router)
 api_router.include_router(earnings_router)

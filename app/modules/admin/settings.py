@@ -131,7 +131,6 @@ SECTION_DEFINITIONS = [
         "title": "Features & operations",
         "settings": [
             "ai_assistant_enabled",
-            "document_checks_enabled",
             "maintenance_mode",
         ],
     },
@@ -141,7 +140,6 @@ SECTION_DEFINITIONS = [
         "settings": [
             "max_document_size_mb",
             "document_retention_months",
-            "support_email",
         ],
     },
 ]
