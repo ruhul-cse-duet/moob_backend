@@ -61,13 +61,23 @@ async def chat(payload: ChatRequest,
         })
         history, convo_id = [], str(result.inserted_id)
 
-    context = None
+    # Inject consultant and multi-tenant context for the AI
+    context = {
+        "consultant_name": user.raw.get("full_name", "Consultant"),
+        "consultant_id": consultant_id,
+        "role": user.role,
+        "tenant_context": "isolated workspace for this consultant's company",
+    }
+    
     if payload.case_id:
         case = await db.cases.find_one({"_id": oid(payload.case_id)})
         if case:
-            context = {"reference": case["reference"], "case_type": case["case_type"],
-                       "stage": case["stage"],
-                       "destination_country": case.get("destination_country")}
+            context.update({
+                "case_reference": case["reference"],
+                "case_type": case["case_type"],
+                "case_stage": case["stage"],
+                "destination_country": case.get("destination_country")
+            })
 
     reply = await assistant_reply(
         history=[{"role": m["role"], "content": m["content"]} for m in history],

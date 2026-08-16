@@ -74,6 +74,7 @@ class RequestOut(BaseModel):
     progress_percentage: int = 0
     document_stats: Optional[dict] = None
     documents: List[dict] = []
+    client_profile: Optional[dict] = None
     case_id: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

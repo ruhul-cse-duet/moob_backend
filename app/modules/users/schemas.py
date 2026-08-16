@@ -8,6 +8,7 @@ from app.core.enums import Role, UserStatus
 
 class ProfileUpdate(BaseModel):
     full_name: Optional[str] = Field(None, min_length=2, max_length=120)
+    email: Optional[EmailStr] = None
     mobile: Optional[str] = None
     title: Optional[str] = None
     language: Optional[str] = None

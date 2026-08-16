@@ -275,6 +275,8 @@ async def get_request(db, user: CurrentUser, request_id: str) -> Dict[str, Any]:
             "due_date": d.get("due_date") or "Nov 15, 2026",
             "submitted_at": d.get("updated_at") or d.get("created_at"),
             "allow_upload": d_st in [DocumentStatus.UPLOAD_NEEDED.value, DocumentStatus.NEEDS_REUPLOAD.value],
+            "file": d.get("file"),
+            "ai_analysis": d.get("ai_analysis"),
         })
     out["documents"] = formatted_docs
 
@@ -452,7 +454,7 @@ async def get_consultant_dashboard(db, user: CurrentUser) -> Dict[str, Any]:
         })
 
     # Recent activities
-    act_cursor = db.activity.find({}).sort("created_at", -1).limit(5)
+    act_cursor = db.activities.find({}).sort("created_at", -1).limit(5)
     activities = []
     async for act in act_cursor:
         activities.append(serialize(act))
