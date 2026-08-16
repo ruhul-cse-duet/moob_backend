@@ -145,6 +145,45 @@ async def add_deliverable(db, user: CurrentUser, task_id: str,
     return serialize(await _get(db, task_id))
 
 
+async def delete_deliverable(db, user: CurrentUser, task_id: str,
+                             file_id: str) -> Dict[str, Any]:
+    """Partner removes a wrongly uploaded deliverable."""
+    doc = await _get(db, task_id)
+    if doc["assignee_id"] != user.id:
+        raise Forbidden("This task is not assigned to you")
+    if doc["status"] == TaskStatus.COMPLETED.value:
+        raise Forbidden("Cannot modify deliverables on a completed task")
+
+    found = None
+    for entry in doc.get("deliverables", []):
+        if entry.get("file_id") == file_id:
+            found = entry
+            break
+    if not found:
+        raise NotFound("Deliverable not found on this task")
+
+    # Remove the blob from GridFS
+    await storage.delete_file(db, file_id,
+                              found.get("bucket", storage.DELIVERABLES_BUCKET))
+
+    # Pull the entry from the deliverables array
+    await db.tasks.update_one(
+        {"_id": oid(task_id)},
+        {"$pull": {"deliverables": {"file_id": file_id}},
+         "$set": {"updated_at": utcnow()}},
+    )
+
+    # If no deliverables remain, revert status to in_progress
+    remaining = len(doc.get("deliverables", [])) - 1
+    if remaining <= 0:
+        await db.tasks.update_one(
+            {"_id": oid(task_id)},
+            {"$set": {"status": TaskStatus.IN_PROGRESS.value}},
+        )
+
+    return serialize(await _get(db, task_id))
+
+
 async def mark_completed(db, user: CurrentUser, task_id: str,
                          data) -> Dict[str, Any]:
     """Partner marks a task as completed with optional delivery notes."""

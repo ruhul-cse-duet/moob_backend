@@ -24,7 +24,7 @@ router = APIRouter(prefix="/tasks", tags=["Tasks (Partner & Client)"],
 
 
 # ─── Partner Home Dashboard ────────────────────────────────────────────
-@router.get("/partner/dashboard", summary="Partner home dashboard with task summary")
+@router.get("/partner/dashboard", response_model=s.PartnerDashboardOut, summary="Partner home dashboard with task summary")
 async def partner_dashboard(user: CurrentUser = Depends(require_partner),
                             db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
     return await service.get_partner_dashboard(db, user)
@@ -107,3 +107,10 @@ async def download_deliverable(task_id: str, file_id: str,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
+
+@router.delete("/{task_id}/deliverables/{file_id}", response_model=s.TaskOut,
+               summary="Partner removes a wrongly uploaded deliverable")
+async def delete_deliverable(task_id: str, file_id: str,
+                             user: CurrentUser = Depends(require_partner),
+                             db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+    return await service.delete_deliverable(db, user, task_id, file_id)

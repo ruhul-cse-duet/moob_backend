@@ -62,3 +62,17 @@ class TaskOut(BaseModel):
     updated_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
 
+
+class TaskSummary(BaseModel):
+    total: int
+    pending: int
+    in_progress: int
+    submitted: int
+    completed: int
+
+
+class PartnerDashboardOut(BaseModel):
+    partner_id: str
+    consultant_id: Optional[str] = None
+    summary: TaskSummary
+    active_tasks: List[TaskOut]

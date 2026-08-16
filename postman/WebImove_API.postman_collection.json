@@ -2500,7 +2500,7 @@
           "response": []
         },
         {
-          "name": "Reporting: pipeline and throughput",
+          "name": "Reporting: performance & case analytics",
           "request": {
             "method": "GET",
             "header": [],
@@ -2524,7 +2524,7 @@
                 }
               ]
             },
-            "description": "Reporting: pipeline and throughput"
+            "description": "Reporting: performance & case analytics"
           },
           "response": []
         },
@@ -5419,6 +5419,29 @@
             "description": "Download a deliverable from GridFS"
           },
           "response": []
+        },
+        {
+          "name": "Partner removes a wrongly uploaded deliverable",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tasks/{{task_id}}/deliverables/{{file_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tasks",
+                "{{task_id}}",
+                "deliverables",
+                "{{file_id}}"
+              ]
+            },
+            "description": "Partner removes a wrongly uploaded deliverable"
+          },
+          "response": []
         }
       ]
     },
@@ -5630,7 +5653,7 @@
             "description": "Update Me",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"full_name\": \"Sarah Jenkins\",\n  \"mobile\": \"+15550142042\",\n  \"title\": \"Translate Employment Contract (ES to EN)\",\n  \"language\": \"<language>\",\n  \"nationality\": \"<nationality>\",\n  \"country_of_residence\": \"United Kingdom\",\n  \"avatar_url\": \"<avatar_url>\"\n}",
+              "raw": "{\n  \"full_name\": \"Sarah Jenkins\",\n  \"email\": \"sarah.jenkins@jenkinslaw.com\",\n  \"mobile\": \"+15550142042\",\n  \"title\": \"Translate Employment Contract (ES to EN)\",\n  \"language\": \"<language>\",\n  \"nationality\": \"<nationality>\",\n  \"country_of_residence\": \"United Kingdom\",\n  \"avatar_url\": \"<avatar_url>\"\n}",
               "options": {
                 "raw": {
                   "language": "json"

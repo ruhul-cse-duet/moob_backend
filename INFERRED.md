@@ -42,7 +42,7 @@ per-task rate stored on the partner record. If your design does either of those,
 `amount` field moves and `POST /earnings` changes shape.
 
 ### `client/ClientBilling.tsx` → `/invoices`
-Consultant→client invoicing, with line items, tax rate, and `draft → sent → paid/overdue/void`.
+Consultant→client invoicing, with line items, tax rate, and `draft → sent → paid/overdue/void`
 Deliberately separate from `/subscription` (consultant→WebImove).
 
 *Check:* whether clients pay through the platform (needs a payment intent endpoint) or
