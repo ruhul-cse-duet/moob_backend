@@ -15,7 +15,7 @@ from app.db.indexes import next_sequence
 from app.schemas.common import PageParams
 from app.services.events import log_activity, notify
 from app.services.openai_service import case_guidance
-from app.services.ownership import attach_consultant
+from app.services.ownership import assert_case_access, assigned_client_ids, attach_consultant
 from app.services.pagination import paginate
 
 
@@ -68,23 +68,43 @@ async def list_cases(db, user: CurrentUser, params: PageParams,
     if user.role == Role.CLIENT:
         query["client_id"] = user.id
     elif user.role == Role.PARTNER:
-        case_ids = await db.tasks.distinct("case_id", {"assignee_id": user.id})
-        query["_id"] = {"$in": [oid(c) for c in case_ids if c]}
+        # A partner sees cases from two sources: clients bulk-assigned to them
+        # ("process this client like a consultant") and any case they still have
+        # an individual delegated task on (the older, per-case delegation model).
+        client_ids = await assigned_client_ids(db, user.id)
+        task_case_ids = await db.tasks.distinct("case_id", {"assignee_id": user.id})
+        query["$or"] = [
+            {"client_id": {"$in": client_ids}},
+            {"_id": {"$in": [oid(c) for c in task_case_ids if c]}},
+        ]
     if stage:
         query["stage"] = stage.value
     if search:
-        query["$or"] = [
+        search_or = [
             {"reference": {"$regex": search, "$options": "i"}},
             {"client_name": {"$regex": search, "$options": "i"}},
             {"case_type": {"$regex": search, "$options": "i"}},
         ]
+        if "$or" in query:
+            query["$and"] = [{"$or": query.pop("$or")}, {"$or": search_or}]
+        else:
+            query["$or"] = search_or
     return await paginate(db, "cases", query, params,
                           sort=[("deadline", 1), ("created_at", -1)])
 
 
 async def stage_counts(db, user: CurrentUser,
                        consultant_id: Optional[str] = None) -> Dict[str, int]:
-    base: Dict[str, Any] = {"client_id": user.id} if user.role == Role.CLIENT else {}
+    base: Dict[str, Any] = {}
+    if user.role == Role.CLIENT:
+        base["client_id"] = user.id
+    elif user.role == Role.PARTNER:
+        client_ids = await assigned_client_ids(db, user.id)
+        task_case_ids = await db.tasks.distinct("case_id", {"assignee_id": user.id})
+        base["$or"] = [
+            {"client_id": {"$in": client_ids}},
+            {"_id": {"$in": [oid(c) for c in task_case_ids if c]}},
+        ]
     if consultant_id:
         base["consultant_id"] = consultant_id
     out = {"all": await db.cases.count_documents(base)}
@@ -97,6 +117,12 @@ async def get_case(db, user: CurrentUser, case_id: str) -> Dict[str, Any]:
     doc = await _get(db, case_id)
     if user.role == Role.CLIENT and doc["client_id"] != user.id:
         raise Forbidden("This case is not yours")
+    if user.role == Role.PARTNER:
+        # Allow either a bulk client assignment or an individual delegated task.
+        has_task = await db.tasks.find_one(
+            {"case_id": case_id, "assignee_id": user.id}, {"_id": 1})
+        if not has_task:
+            await assert_case_access(db, user, doc)
     out = await attach_consultant(db, serialize(doc))
     out["documents"] = [
         serialize(d) async for d in db.documents.find({"case_id": case_id}).sort("created_at", 1)
@@ -115,8 +141,9 @@ async def get_case(db, user: CurrentUser, case_id: str) -> Dict[str, Any]:
     return out
 
 
-async def update_case(db, case_id: str, data) -> Dict[str, Any]:
-    await _get(db, case_id)
+async def update_case(db, user: CurrentUser, case_id: str, data) -> Dict[str, Any]:
+    doc = await _get(db, case_id)
+    await assert_case_access(db, user, doc)
     payload = {k: v for k, v in data.model_dump(exclude_unset=True).items() if v is not None}
     payload["updated_at"] = utcnow()
     await db.cases.update_one({"_id": oid(case_id)}, {"$set": payload})
@@ -125,6 +152,7 @@ async def update_case(db, case_id: str, data) -> Dict[str, Any]:
 
 async def advance_stage(db, user: CurrentUser, case_id: str, data) -> Dict[str, Any]:
     doc = await _get(db, case_id)
+    await assert_case_access(db, user, doc)
     current = CaseStage(doc["stage"])
     if data.stage:
         target = data.stage
@@ -150,8 +178,9 @@ async def advance_stage(db, user: CurrentUser, case_id: str, data) -> Dict[str, 
     return await attach_consultant(db, serialize(await _get(db, case_id)))
 
 
-async def generate_guidance(db, case_id: str, create_tasks: bool = True) -> Dict[str, Any]:
+async def generate_guidance(db, user: CurrentUser, case_id: str, create_tasks: bool = True) -> Dict[str, Any]:
     doc = await _get(db, case_id)
+    await assert_case_access(db, user, doc)
     documents = [
         {"name": d["name"], "status": d["status"], "category": d.get("category")}
         async for d in db.documents.find({"case_id": case_id})

@@ -15,6 +15,7 @@ from typing import Any, Dict, Iterable, List, Optional
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.core.enums import CONSULTANT_ROLES, Role
+from app.core.exceptions import Forbidden
 from app.core.utils import oid, utcnow
 
 # Collections that carry a single owning consultant.
@@ -66,6 +67,53 @@ async def link_partner_to_consultant(db: AsyncIOMotorDatabase, partner_id: str,
         {"$addToSet": {"consultant_ids": consultant_id},
          "$set": {"updated_at": utcnow()}},
     )
+
+
+async def assert_client_access(db: AsyncIOMotorDatabase, user, client_id: str) -> None:
+    """
+    Gate for anything scoped to one client (their cases, documents, requests).
+
+    Consultants always pass (tenant-wide access). A partner only passes if a
+    consultant has bulk-assigned this whole client to them — the "process this
+    client's cases like a consultant" delegation — via `assign_partner_to_client`.
+    Everyone else is refused.
+    """
+    if getattr(user, "role", None) in CONSULTANT_ROLES:
+        return
+    if getattr(user, "role", None) == Role.PARTNER:
+        client = await db.users.find_one({"_id": oid(client_id)}, {"partner_id": 1})
+        if client and client.get("partner_id") == user.id:
+            return
+    raise Forbidden("You do not have access to this client's records")
+
+
+async def assert_case_access(db: AsyncIOMotorDatabase, user, case_doc: Dict[str, Any]) -> None:
+    """Same rule as `assert_client_access`, resolved from an already-fetched case."""
+    await assert_client_access(db, user, case_doc["client_id"])
+
+
+async def assigned_client_ids(db: AsyncIOMotorDatabase, partner_id: str) -> List[str]:
+    """Every client a consultant has bulk-assigned to this partner."""
+    ids = await db.users.distinct("_id", {"role": Role.CLIENT.value, "partner_id": partner_id})
+    return [str(_id) for _id in ids]
+
+
+async def assign_partner_to_client(db: AsyncIOMotorDatabase, client_id: str,
+                                   partner_id: Optional[str]) -> None:
+    """
+    Bulk-assign (or unassign, when partner_id is None) a client to one partner.
+    From this point the partner can process every one of that client's cases,
+    documents and requests as if they were the consultant — the consultant still
+    sees everything and can track completion or reassign at any time.
+    """
+    await db.users.update_one(
+        {"_id": oid(client_id), "role": Role.CLIENT.value},
+        {"$set": {"partner_id": partner_id, "updated_at": utcnow()}},
+    )
+    if partner_id:
+        client = await db.users.find_one({"_id": oid(client_id)}, {"consultant_id": 1})
+        if client:
+            await link_partner_to_consultant(db, partner_id, client.get("consultant_id"))
 
 
 async def consultant_map(db: AsyncIOMotorDatabase,

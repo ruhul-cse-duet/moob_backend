@@ -193,3 +193,21 @@ async def get_client_profile_detail(client_id: str,
                                     user: CurrentUser = Depends(require_consultant),
                                     db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
     return await service.get_client_profile_detail(db, user, client_id)
+
+
+@router.post("/clients/{client_id}/partner", response_model=s.ClientDetailView,
+             summary="Bulk-assign this client to a partner — the partner then "
+                     "processes all of the client's cases like a consultant")
+async def assign_partner(client_id: str, payload: s.AssignPartnerPayload,
+                         user: CurrentUser = Depends(require_consultant),
+                         db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+    return await service.assign_partner(db, user, client_id, payload.partner_id)
+
+
+@router.delete("/clients/{client_id}/partner", response_model=s.ClientDetailView,
+               summary="Unassign the partner from this client — hands the client back "
+                       "to the consultant only")
+async def unassign_partner(client_id: str,
+                          user: CurrentUser = Depends(require_consultant),
+                          db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+    return await service.unassign_partner(db, user, client_id)

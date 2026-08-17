@@ -10,7 +10,7 @@ from app.schemas.common import PageParams
 from app.services import storage
 from app.services.events import log_activity, notify
 from app.services.openai_service import analyze_document
-from app.services.ownership import resolve_consultant_id
+from app.services.ownership import assert_client_access, assigned_client_ids, resolve_consultant_id
 from app.services.pagination import paginate
 
 
@@ -28,6 +28,9 @@ async def list_documents(db, user: CurrentUser, params: PageParams,
     query: Dict[str, Any] = {}
     if user.role == Role.CLIENT:
         query["client_id"] = user.id
+    elif user.role == Role.PARTNER:
+        client_ids = await assigned_client_ids(db, user.id)
+        query["client_id"] = {"$in": client_ids}
     if request_id:
         query["request_id"] = request_id
     if case_id:
@@ -41,6 +44,8 @@ async def get_document(db, user: CurrentUser, document_id: str) -> Dict[str, Any
     doc = await _get(db, document_id)
     if user.role == Role.CLIENT and doc["client_id"] != user.id:
         raise Forbidden("This document is not yours")
+    if user.role == Role.PARTNER:
+        await assert_client_access(db, user, doc["client_id"])
     return serialize(doc)
 
 
@@ -125,6 +130,8 @@ async def _consultant_for(db, doc: Dict[str, Any]) -> Optional[str]:
 
 async def approve(db, user: CurrentUser, document_id: str) -> Dict[str, Any]:
     doc = await _get(db, document_id)
+    if user.role == Role.PARTNER:
+        await assert_client_access(db, user, doc["client_id"])
     if not doc.get("file"):
         raise BadRequest("Nothing has been uploaded for this document yet")
     now = utcnow()
@@ -145,6 +152,8 @@ async def approve(db, user: CurrentUser, document_id: str) -> Dict[str, Any]:
 
 async def reject(db, user: CurrentUser, document_id: str, feedback: str) -> Dict[str, Any]:
     doc = await _get(db, document_id)
+    if user.role == Role.PARTNER:
+        await assert_client_access(db, user, doc["client_id"])
     now = utcnow()
     await db.documents.update_one(
         {"_id": oid(document_id)},
@@ -172,8 +181,10 @@ async def comment(db, user: CurrentUser, document_id: str, text: str) -> Dict[st
     return serialize(await _get(db, document_id))
 
 
-async def reanalyze(db, document_id: str) -> Dict[str, Any]:
+async def reanalyze(db, user: CurrentUser, document_id: str) -> Dict[str, Any]:
     doc = await _get(db, document_id)
+    if user.role == Role.PARTNER:
+        await assert_client_access(db, user, doc["client_id"])
     if not doc.get("file"):
         raise BadRequest("Nothing has been uploaded for this document yet")
     analysis = await analyze_document(
