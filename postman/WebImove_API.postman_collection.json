@@ -2500,12 +2500,12 @@
           "response": []
         },
         {
-          "name": "Reporting: performance & case analytics",
+          "name": "Reporting: KPI cards for the Reports screen (Cases resolved, Avg resolution, Approval rate, Overdue tasks, Cases by process type)",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/reporting/overview",
+              "raw": "{{base_url}}/api/v1/reporting/summary",
               "host": [
                 "{{base_url}}"
               ],
@@ -2513,18 +2513,18 @@
                 "api",
                 "v1",
                 "reporting",
-                "overview"
+                "summary"
               ],
               "query": [
                 {
-                  "key": "days",
-                  "value": "30",
-                  "description": "",
+                  "key": "period",
+                  "value": "90d",
+                  "description": "30d | 90d | 12m \u2014 matches the Reports screen filter chips",
                   "disabled": true
                 }
               ]
             },
-            "description": "Reporting: performance & case analytics"
+            "description": "Reporting: KPI cards for the Reports screen (Cases resolved, Avg resolution, Approval rate, Overdue tasks, Cases by process type)"
           },
           "response": []
         },
@@ -5653,7 +5653,7 @@
             "description": "Update Me",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"full_name\": \"Sarah Jenkins\",\n  \"email\": \"sarah.jenkins@jenkinslaw.com\",\n  \"mobile\": \"+15550142042\",\n  \"title\": \"Translate Employment Contract (ES to EN)\",\n  \"language\": \"<language>\",\n  \"nationality\": \"<nationality>\",\n  \"country_of_residence\": \"United Kingdom\",\n  \"avatar_url\": \"<avatar_url>\"\n}",
+              "raw": "{\n  \"full_name\": \"Sarah Jenkins\",\n  \"mobile\": \"+15550142042\",\n  \"title\": \"Translate Employment Contract (ES to EN)\",\n  \"language\": \"<language>\",\n  \"nationality\": \"<nationality>\",\n  \"country_of_residence\": \"United Kingdom\",\n  \"avatar_url\": \"<avatar_url>\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -5840,6 +5840,64 @@
               ]
             },
             "description": "Get Client profile detail for consultant view"
+          },
+          "response": []
+        },
+        {
+          "name": "Bulk-assign this client to a partner \u2014 the partner then processes all of the client's cases like a consultant",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clients/{{client_id}}/partner",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clients",
+                "{{client_id}}",
+                "partner"
+              ]
+            },
+            "description": "Bulk-assign this client to a partner \u2014 the partner then processes all of the client's cases like a consultant",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"partner_id\": \"{{partner_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Unassign the partner from this client \u2014 hands the client back to the consultant only",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/clients/{{client_id}}/partner",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "clients",
+                "{{client_id}}",
+                "partner"
+              ]
+            },
+            "description": "Unassign the partner from this client \u2014 hands the client back to the consultant only"
           },
           "response": []
         }

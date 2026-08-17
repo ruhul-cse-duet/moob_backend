@@ -10,6 +10,7 @@ from app.core.deps import (
     page_params,
     require_active_tenant,
     require_consultant,
+    require_consultant_or_partner,
 )
 from app.core.enums import CaseStage
 from app.modules.cases import schemas as s
@@ -54,9 +55,9 @@ async def get_case(case_id: str,
 
 @router.patch("/{case_id}", response_model=s.CaseOut)
 async def update_case(case_id: str, payload: s.CaseUpdate,
-                      user: CurrentUser = Depends(require_consultant),
+                      user: CurrentUser = Depends(require_consultant_or_partner),
                       db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
-    return await service.update_case(db, case_id, payload)
+    return await service.update_case(db, user, case_id, payload)
 
 
 @router.get("/{case_id}/timeline", summary="Immigration timeline with completion state")
@@ -68,7 +69,7 @@ async def case_timeline(case_id: str,
 
 @router.post("/{case_id}/advance", response_model=s.CaseOut, summary="Advance stage")
 async def advance_stage(case_id: str, payload: s.AdvanceStage,
-                        user: CurrentUser = Depends(require_consultant),
+                        user: CurrentUser = Depends(require_consultant_or_partner),
                         db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
     return await service.advance_stage(db, user, case_id, payload)
 
@@ -76,6 +77,6 @@ async def advance_stage(case_id: str, payload: s.AdvanceStage,
 @router.post("/{case_id}/ai-guidance",
              summary="Generate AI guidance and auto-create client tasks")
 async def ai_guidance(case_id: str, create_tasks: bool = Query(True),
-                      user: CurrentUser = Depends(require_consultant),
+                      user: CurrentUser = Depends(require_consultant_or_partner),
                       db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
-    return await service.generate_guidance(db, case_id, create_tasks)
+    return await service.generate_guidance(db, user, case_id, create_tasks)

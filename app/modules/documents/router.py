@@ -11,6 +11,7 @@ from app.core.deps import (
     page_params,
     require_active_tenant,
     require_consultant,
+    require_consultant_or_partner,
 )
 from app.core.enums import DocumentStatus, Role
 from app.core.exceptions import Forbidden, NotFound
@@ -72,7 +73,7 @@ async def download(document_id: str,
 
 @router.post("/{document_id}/approve", response_model=s.DocumentOut)
 async def approve(document_id: str,
-                  user: CurrentUser = Depends(require_consultant),
+                  user: CurrentUser = Depends(require_consultant_or_partner),
                   db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
     return await service.approve(db, user, document_id)
 
@@ -80,7 +81,7 @@ async def approve(document_id: str,
 @router.post("/{document_id}/reject", response_model=s.DocumentOut,
              summary="Return to the client for re-upload with feedback")
 async def reject(document_id: str, payload: s.RejectPayload,
-                 user: CurrentUser = Depends(require_consultant),
+                 user: CurrentUser = Depends(require_consultant_or_partner),
                  db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
     return await service.reject(db, user, document_id, payload.feedback)
 
@@ -94,6 +95,6 @@ async def comment(document_id: str, payload: s.CommentPayload,
 
 @router.post("/{document_id}/reanalyze", summary="Re-run the AI analysis")
 async def reanalyze(document_id: str,
-                    user: CurrentUser = Depends(require_consultant),
+                    user: CurrentUser = Depends(require_consultant_or_partner),
                     db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
-    return await service.reanalyze(db, document_id)
+    return await service.reanalyze(db, user, document_id)

@@ -8,7 +8,6 @@ from app.core.enums import Role, UserStatus
 
 class ProfileUpdate(BaseModel):
     full_name: Optional[str] = Field(None, min_length=2, max_length=120)
-    email: Optional[EmailStr] = None
     mobile: Optional[str] = None
     title: Optional[str] = None
     language: Optional[str] = None
@@ -31,6 +30,11 @@ class ClientCreate(BaseModel):
     nationality: Optional[str] = None
     language: Optional[str] = None
     country_of_residence: Optional[str] = None
+
+
+class AssignPartnerPayload(BaseModel):
+    partner_id: str = Field(description="Partner who will process every case of this "
+                                        "client, acting like a consultant")
 
 
 class UserOut(BaseModel):
@@ -72,6 +76,7 @@ class ClientDetailView(BaseModel):
     country: Optional[str] = None
     consultant_id: str
     partner_id: Optional[str] = None
+    partner_name: Optional[str] = None
     gdpr_consent_status: str = "Consent recorded"
     immigration_cases: List[dict] = []
     banner_notice: str = "New immigration cases are created after the client submits a request and a consultant approves the recommended process."

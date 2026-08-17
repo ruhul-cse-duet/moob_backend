@@ -80,6 +80,7 @@ def require_roles(*roles: Role):
 
 
 require_consultant = require_roles(Role.CONSULTANT_OWNER, Role.CONSULTANT)
+require_consultant_or_partner = require_roles(Role.CONSULTANT_OWNER, Role.CONSULTANT, Role.PARTNER)
 require_owner = require_roles(Role.CONSULTANT_OWNER)
 require_partner = require_roles(Role.PARTNER)
 require_client = require_roles(Role.CLIENT)
