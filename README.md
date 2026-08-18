@@ -284,9 +284,35 @@ consolidated AI analysis report.
 serves the file listing but not file contents). Read `INFERRED.md` before building against
 them — it grades every area by confidence and lists exactly what to verify.
 
+## Who owns the price
+
+The super admin sets plan prices in the platform dashboard
+(`PUT /admin/billing/plans/{code}/price`), so `platform_settings` is the source of truth —
+not Stripe. That needs care, because **a Stripe Price is immutable**: its `unit_amount`
+can never be edited.
+
+So a price change does not edit anything at Stripe. It creates a **new** Price under the
+plan's Product, and new signups bill against it. Prices are cached by
+`(plan, cycle, currency, amount)` in `platform.stripe_prices`, so setting a price back to
+an earlier value reuses that Price instead of accumulating duplicates.
+
+**Existing subscribers keep the Price they signed up on.** Nothing migrates them, by
+design — silently raising someone's recurring charge is a legal problem in several
+jurisdictions. Moving them is a deliberate, separate action.
+
+`STRIPE_PRICES` in `.env` stays empty in normal operation. An entry there pins a
+hand-made Price and overrides the dashboard for that one plan/cycle.
+
 ## Before production
 
-1. Replace `_fake_charge()` in `app/modules/auth/service.py` with Stripe/Adyen + webhooks.
+1. **Move the frontend to Stripe.js.** Recurring billing is built
+   (`app/services/stripe_service.py` + `POST /api/v1/webhooks/stripe`), and needs only
+   `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` to run — Prices create themselves,
+   see below. What is still missing is browser-side tokenisation:
+   `POST /auth/signup/payment` takes a `payment_method_id`, and **only that path creates
+   a real subscription**. The legacy raw-card fields still work, but that is a one-off
+   charge nothing renews, and Stripe blocks raw card data unless the account is
+   PCI-certified.
 2. Watch GridFS growth. It is correct and transactional with the tenant data, but it puts
    file bytes on your Mongo bill and in every backup. If document volume climbs, move
    `app/services/storage.py` to S3/GCS with signed URLs — the interface is already

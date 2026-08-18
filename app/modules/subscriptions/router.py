@@ -3,11 +3,12 @@ from fastapi import APIRouter, Body, Depends
 
 from app.core.deps import CurrentUser, require_owner
 from app.core.enums import BillingCycle, PlanCode, TenantStatus
-from app.core.exceptions import NotFound
+from app.core.exceptions import BadRequest, NotFound
 from app.core.utils import oid, serialize, utcnow
 from app.db.mongo import platform_db
 from app.modules.subscriptions.plans import order_summary, plan_by_code
 from app.schemas.common import Message
+from app.services import stripe_service
 
 router = APIRouter(prefix="/subscription", tags=["Subscription & Billing"])
 
@@ -64,6 +65,20 @@ async def change_plan(plan_code: PlanCode = Body(embed=True),
 @router.post("/cancel", response_model=Message)
 async def cancel(user: CurrentUser = Depends(require_owner)):
     db = platform_db()
+    tenant = await db.tenants.find_one({"_id": oid(user.tenant_id)})
+    if not tenant:
+        raise NotFound("Workspace not found")
+
+    # Stop the recurring charge first. Marking our own row cancelled while Stripe
+    # keeps billing monthly is the one failure the customer notices on their
+    # statement. The webhook then confirms it from Stripe's side.
+    stopped = await stripe_service.cancel_subscription(tenant.get("stripe_subscription_id"))
+    if tenant.get("stripe_subscription_id") and not stopped:
+        raise BadRequest(
+            "Could not cancel the subscription at Stripe. Nothing was changed - "
+            "please retry, or contact support so you are not billed again."
+        )
+
     await db.tenants.update_one({"_id": oid(user.tenant_id)},
                                 {"$set": {"status": TenantStatus.CANCELLED.value,
                                           "cancelled_at": utcnow(), "updated_at": utcnow()}})

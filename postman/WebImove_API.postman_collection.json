@@ -571,7 +571,7 @@
             "description": "Step 5 of 5 \u00b7 Pay and activate the tenant",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name_on_card\": \"Sarah Jenkins\",\n  \"card_number\": \"4242424242424242\",\n  \"expiry\": \"12/28\",\n  \"cvc\": \"123\"\n}",
+              "raw": "{\n  \"payment_method_id\": \"<payment_method_id>\",\n  \"name_on_card\": \"Sarah Jenkins\",\n  \"card_number\": \"4242424242424242\",\n  \"expiry\": \"12/28\",\n  \"cvc\": \"123\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -5898,6 +5898,32 @@
               ]
             },
             "description": "Unassign the partner from this client \u2014 hands the client back to the consultant only"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Webhooks",
+      "item": [
+        {
+          "name": "Stripe billing events (renewals, failed payments)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/webhooks/stripe",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks",
+                "stripe"
+              ]
+            },
+            "description": "Stripe billing events (renewals, failed payments)"
           },
           "response": []
         }

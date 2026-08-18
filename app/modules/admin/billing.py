@@ -1,6 +1,6 @@
 """admin/Billing.tsx — platform revenue across every tenant.  [INFERRED]"""
 from datetime import timedelta
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field, model_validator
 
 from fastapi import APIRouter, Depends, Query
@@ -17,7 +17,7 @@ from app.modules.subscriptions.plans import (
     save_plan_overrides,
 )
 from app.schemas.common import PageParams
-from app.services import audit
+from app.services import audit, stripe_service
 from app.services.pagination import paginate
 
 router = APIRouter(prefix="/billing", tags=["Super Admin · Billing"])
@@ -40,6 +40,9 @@ class PlanPricing(BaseModel):
     monthly_price: float
     annual_price: float
     currency: str = "USD"
+    # Present on a price update: which Stripe Prices now back this plan, and
+    # whether the sync succeeded. Absent when simply reading the catalogue.
+    stripe: Optional[Dict[str, Any]] = None
 
 
 class SubscriptionPlan(BaseModel):
@@ -242,7 +245,33 @@ async def update_plan_price(plan_code: PlanCode, payload: PlanPriceUpdate,
     )
 
     plans = await plan_catalogue()
-    return _plan_pricing(plan_code, plans[plan_code])
+    pricing = _plan_pricing(plan_code, plans[plan_code])
+
+    # A Stripe Price is immutable, so a new amount means a new Price. Create it
+    # now rather than at the next signup, so the admin finds out here if Stripe
+    # rejects it. Existing subscribers stay on the Price they signed up with -
+    # this never touches a live subscription.
+    pricing["stripe"] = await _sync_stripe_prices(plan_code, plans[plan_code])
+    return pricing
+
+
+async def _sync_stripe_prices(plan_code: PlanCode, plan: dict) -> Dict[str, Optional[str]]:
+    if not stripe_service.configured():
+        return {"synced": False,
+                "detail": "Stripe is not configured; prices apply to the catalogue only."}
+    result: Dict[str, Optional[str]] = {"synced": True,
+                                        "detail": "New signups bill at the new price. "
+                                                  "Existing subscribers keep their current price."}
+    for cycle, field in ((BillingCycle.MONTHLY, "monthly_price"),
+                         (BillingCycle.ANNUAL, "annual_price")):
+        price_id = await stripe_service.ensure_price(
+            plan_code, cycle, plan[field], plan.get("name"))
+        result[cycle.value] = price_id
+        if price_id is None:
+            result["synced"] = False
+            result["detail"] = (f"Could not create a Stripe Price for {cycle.value}. "
+                                "The catalogue was updated; check the server logs.")
+    return result
 
 
 @router.get("/subscriptions", summary="Every subscription on the platform")

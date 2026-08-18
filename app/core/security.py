@@ -1,3 +1,4 @@
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
@@ -36,8 +37,11 @@ def create_access_token(*, user_id: str, role: str, tenant_id: Optional[str], em
 
 
 def create_refresh_token(*, user_id: str, tenant_id: Optional[str]) -> str:
+    # jti keeps two tokens minted in the same second distinct. Without it the
+    # payload is identical down to `iat`, and refresh_tokens.token is unique -
+    # so a double-clicked login used to fail on a duplicate key.
     return _encode(
-        {"sub": user_id, "tenant_id": tenant_id},
+        {"sub": user_id, "tenant_id": tenant_id, "jti": secrets.token_urlsafe(8)},
         timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
         REFRESH,
     )

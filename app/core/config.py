@@ -1,5 +1,5 @@
 from functools import lru_cache
-from typing import List
+from typing import Dict, List
 
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -23,7 +23,9 @@ class Settings(BaseSettings):
     # Mongo - database per tenant
     MONGODB_URI: str = "mongodb://localhost:27017"
     PLATFORM_DB_NAME: str = "webimove_platform"
-    TENANT_DB_PREFIX: str = "webimove_tenant_"
+    # Keep this short. Atlas caps database names at 38 bytes and the tenant id
+    # that follows is a 24-character ObjectId, so the prefix has 14 to work with.
+    TENANT_DB_PREFIX: str = "wm_t_"
 
     # JWT
     JWT_SECRET_KEY: str = "change-me"
@@ -78,6 +80,12 @@ class Settings(BaseSettings):
     STRIPE_SECRET_KEY: str = "sk_test_51MockupKeyHereForSafety"
     STRIPE_WEBHOOK_SECRET: str = ""
     STRIPE_CURRENCY: str = "usd"
+    # Recurring billing needs a Stripe Price per plan/cycle. Create them once in
+    # the Stripe dashboard and map them here as JSON, keyed "<plan>_<cycle>":
+    #   STRIPE_PRICES={"starter_monthly":"price_1A...","starter_annual":"price_1B..."}
+    # Without a price the plan falls back to the legacy one-off charge, which
+    # never renews.
+    STRIPE_PRICES: Dict[str, str] = {}
 
 
 @lru_cache

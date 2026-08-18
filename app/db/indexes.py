@@ -18,6 +18,11 @@ async def ensure_platform_indexes() -> None:
     await db.refresh_tokens.create_index("token", unique=True)
     await db.refresh_tokens.create_index("expires_at", expireAfterSeconds=0)
     await db.subscriptions.create_index("tenant_id")
+    # Stripe delivers the same event more than once; the unique _id is what makes
+    # the webhook idempotent. Kept 90 days - long enough to outlive Stripe's retries.
+    await db.stripe_events.create_index("received_at", expireAfterSeconds=60 * 60 * 24 * 90)
+    await db.tenants.create_index("stripe_customer_id", sparse=True)
+    await db.tenants.create_index("stripe_subscription_id", sparse=True)
     await db.plans.create_index("code", unique=True)
     await db.platform_admins.create_index("email", unique=True)
     await db.audit_log.create_index([("tenant_id", 1), ("created_at", -1)])
