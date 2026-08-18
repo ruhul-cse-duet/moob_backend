@@ -1,3 +1,4 @@
+import logging
 from datetime import timedelta
 from typing import Any, Dict, Optional
 
@@ -24,12 +25,16 @@ from app.core.security import (
 from app.core.config import settings
 from app.core.utils import oid, random_token, serialize, slugify_db, utcnow
 from app.db.indexes import ensure_tenant_indexes
-from app.db.mongo import platform_db, tenant_db
-from app.modules.subscriptions.plans import order_summary
+from app.db.mongo import drop_tenant_db, platform_db, tenant_db
+from app.modules.subscriptions.plans import order_summary, plan_by_code
 from app.services import audit
 from app.services import invites
 from app.services import otp as otp_service
+from app.services import stripe_service
 from app.services.ownership import consultant_map, link_partner_to_consultant
+
+
+logger = logging.getLogger(__name__)
 
 
 # --------------------------------------------------------------------------- #
@@ -193,9 +198,23 @@ async def complete_payment(token: str, data) -> Dict[str, Any]:
     if not signup.get("plan"):
         raise BadRequest("Choose a plan first")
 
-    charge = _fake_charge(data, signup["plan"]["total_due_today"])
-    if not charge["success"]:
-        raise BadRequest(charge["message"])
+    # Charge once per signup, ever. Provisioning below can fail after the money
+    # has moved; without this a retry would take the customer's money twice.
+    # `completed` is only set at the very end, so a retry is genuinely reachable.
+    reference = signup.get("charge_reference")
+    stripe_ids = signup.get("stripe", {})
+    if not reference:
+        payment = await _take_payment(signup, data)
+        if not payment["success"]:
+            raise BadRequest(payment["message"])
+        reference = payment["reference"]
+        stripe_ids = {"customer_id": payment.get("customer_id"),
+                      "subscription_id": payment.get("subscription_id")}
+        await db.signups.update_one(
+            {"_id": signup["_id"]},
+            {"$set": {"charge_reference": reference, "charged_at": utcnow(),
+                      "stripe": stripe_ids}},
+        )
 
     org = signup["organization"]
     plan = signup["plan"]
@@ -219,58 +238,78 @@ async def complete_payment(token: str, data) -> Dict[str, Any]:
         "activated_at": None,
         "signed_up_at": now,
         "renews_on": plan["renews_on"],
+        # Set only on the subscription path. The webhook needs these to match a
+        # renewal or a failed payment back to this organization.
+        "stripe_customer_id": stripe_ids.get("customer_id"),
+        "stripe_subscription_id": stripe_ids.get("subscription_id"),
         "created_at": now,
         "updated_at": now,
     }
-    tenant_id = str((await db.tenants.insert_one(tenant_doc)).inserted_id)
+    tenant_id = None
 
-    tdb = tenant_db(tenant_id)
-    await ensure_tenant_indexes(tdb)
+    # Everything from here is provisioning. The card is already charged, so a
+    # failure must not leave a half-built workspace behind - the customer would
+    # be paying for an organization with no database and no owner account.
+    try:
+        tenant_id = str((await db.tenants.insert_one(tenant_doc)).inserted_id)
 
-    owner = {
-        "email": signup["email"],
-        "full_name": signup["full_name"],
-        "mobile": signup["mobile"],
-        "password_hash": signup["password_hash"],
-        "role": Role.CONSULTANT_OWNER.value,
-        "title": "Senior Consultant",
-        "status": UserStatus.ACTIVE.value,
-        "email_verified": True,
-        "language": "EN",
-        "avatar_url": None,
-        "created_at": now,
-        "updated_at": now,
-    }
-    user_id = str((await tdb.users.insert_one(owner)).inserted_id)
+        tdb = tenant_db(tenant_id)
+        await ensure_tenant_indexes(tdb)
 
-    await db.user_directory.insert_one({
-        "email": signup["email"],
-        "tenant_id": tenant_id,
-        "user_id": user_id,
-        "role": Role.CONSULTANT_OWNER.value,
-        "created_at": now,
-    })
-    await db.subscriptions.insert_one({
-        "tenant_id": tenant_id,
-        "plan_code": plan["code"],
-        "billing_cycle": plan["billing_cycle"],
-        "amount": plan["subtotal"],
-        "tax": plan["estimated_tax"],
-        "total": plan["total_due_today"],
-        "status": "active",
-        "started_at": now,
-        "renews_on": plan["renews_on"],
-        "payment_reference": charge["reference"],
-        "card_last4": data.card_number[-4:],
-        "created_at": now,
-    })
-    await db.signups.update_one(
-        {"_id": signup["_id"]}, {"$set": {"completed": True, "tenant_id": tenant_id}}
-    )
-    await audit.record(action=AuditAction.TENANT_CREATED, actor_id=user_id,
-                       actor_email=signup["email"], actor_role=Role.CONSULTANT_OWNER.value,
-                       tenant_id=tenant_id, subject=org["name"],
-                       detail=f"{plan['code']} / {plan['billing_cycle']}")
+        owner = {
+            "email": signup["email"],
+            "full_name": signup["full_name"],
+            "mobile": signup["mobile"],
+            "password_hash": signup["password_hash"],
+            "role": Role.CONSULTANT_OWNER.value,
+            "title": "Senior Consultant",
+            "status": UserStatus.ACTIVE.value,
+            "email_verified": True,
+            "language": "EN",
+            "avatar_url": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+        user_id = str((await tdb.users.insert_one(owner)).inserted_id)
+
+        await db.user_directory.insert_one({
+            "email": signup["email"],
+            "tenant_id": tenant_id,
+            "user_id": user_id,
+            "role": Role.CONSULTANT_OWNER.value,
+            "created_at": now,
+        })
+        await db.subscriptions.insert_one({
+            "tenant_id": tenant_id,
+            "plan_code": plan["code"],
+            "billing_cycle": plan["billing_cycle"],
+            "amount": plan["subtotal"],
+            "tax": plan["estimated_tax"],
+            "total": plan["total_due_today"],
+            "status": "active",
+            "started_at": now,
+            "renews_on": plan["renews_on"],
+            "payment_reference": reference,
+            "card_last4": (data.card_number or "")[-4:] or None,
+            "stripe_customer_id": stripe_ids.get("customer_id"),
+            "stripe_subscription_id": stripe_ids.get("subscription_id"),
+            # A one-off charge has no renewal behind it; a subscription does.
+            "recurring": bool(stripe_ids.get("subscription_id")),
+            "created_at": now,
+        })
+        await db.signups.update_one(
+            {"_id": signup["_id"]}, {"$set": {"completed": True, "tenant_id": tenant_id}}
+        )
+        await audit.record(action=AuditAction.TENANT_CREATED, actor_id=user_id,
+                           actor_email=signup["email"], actor_role=Role.CONSULTANT_OWNER.value,
+                           tenant_id=tenant_id, subject=org["name"],
+                           detail=f"{plan['code']} / {plan['billing_cycle']}")
+    except Exception:
+        logger.exception("Provisioning failed after charge %s - rolling back", reference)
+        await _rollback_provisioning(tenant_id)
+        # `charge_reference` stays on the signup, so the retry provisions again
+        # without charging a second time.
+        raise
 
     return {
         "success": True,
@@ -291,8 +330,83 @@ async def complete_payment(token: str, data) -> Dict[str, Any]:
     }
 
 
-def _fake_charge(data, amount: float) -> Dict[str, Any]:
-    """Charge card using Stripe API."""
+async def _take_payment(signup: Dict[str, Any], data) -> Dict[str, Any]:
+    """Charge the customer, preferring a real recurring subscription.
+
+    The subscription path needs both a Stripe.js payment method from the caller
+    and a Price mapped for this plan. When either is missing we fall back to the
+    legacy one-off charge - which works, but nothing renews it, so the operator
+    should map STRIPE_PRICES and move the frontend to Stripe.js.
+    """
+    plan = signup["plan"]
+    plan_code = PlanCode(plan["code"])
+    billing_cycle = BillingCycle(plan["billing_cycle"])
+    idempotency_key = f"signup_{signup['_id']}"
+
+    payment_method_id = getattr(data, "payment_method_id", None)
+    if payment_method_id and stripe_service.configured():
+        # `subtotal` is the pre-tax list price this customer was actually quoted
+        # when they picked the plan. Billing them the amount they saw matters
+        # more than the catalogue's current value, which the super admin may
+        # have changed since.
+        result = await stripe_service.create_subscription(
+            email=signup["email"],
+            full_name=signup["full_name"],
+            plan_code=plan_code,
+            billing_cycle=billing_cycle,
+            payment_method_id=payment_method_id,
+            idempotency_key=idempotency_key,
+            amount=plan.get("subtotal"),
+            plan_name=(await plan_by_code(plan_code)).get("name"),
+        )
+        if result["success"] or result.get("subscription_id"):
+            return result
+        logger.error("Subscription creation failed for %s: %s",
+                     signup["email"], result.get("message"))
+        return result
+
+    if payment_method_id:
+        # The caller did the right thing; the server is not set up for it yet.
+        logger.warning(
+            "payment_method_id supplied but Stripe is not configured - refusing "
+            "to fall back to a one-off charge that would never renew",
+        )
+        return {"success": False, "customer_id": None, "subscription_id": None,
+                "reference": None,
+                "message": ("Recurring billing is not configured. Set a real "
+                            "STRIPE_SECRET_KEY to accept subscriptions.")}
+
+    charge = charge_card(data, plan["total_due_today"], idempotency_key=idempotency_key)
+    return {**charge, "customer_id": None, "subscription_id": None}
+
+
+async def _rollback_provisioning(tenant_id: Optional[str]) -> None:
+    """Undo a half-finished workspace so the signup can be retried cleanly.
+
+    Best effort: each step is independent, and a failure here must not mask the
+    original error that triggered the rollback.
+    """
+    if not tenant_id:
+        return
+    db = platform_db()
+    for label, action in (
+        ("tenant database", lambda: drop_tenant_db(tenant_id)),
+        ("tenant record", lambda: db.tenants.delete_one({"_id": oid(tenant_id)})),
+        ("directory entries", lambda: db.user_directory.delete_many({"tenant_id": tenant_id})),
+        ("subscription", lambda: db.subscriptions.delete_many({"tenant_id": tenant_id})),
+    ):
+        try:
+            await action()
+        except Exception:  # noqa: BLE001 - keep unwinding, report at the end
+            logger.exception("Rollback could not remove the %s for %s", label, tenant_id)
+
+
+def charge_card(data, amount: float, idempotency_key: Optional[str] = None) -> Dict[str, Any]:
+    """Charge card using Stripe API.
+
+    ``idempotency_key`` makes a retry reuse the original charge rather than
+    taking the money twice - Stripe replays the first result for 24 hours.
+    """
     import stripe
     from app.core.config import settings
 
@@ -317,11 +431,13 @@ def _fake_charge(data, amount: float) -> Dict[str, Any]:
             },
         )
 
+        options = {"idempotency_key": idempotency_key} if idempotency_key else {}
         charge = stripe.Charge.create(
             amount=int(amount * 100),  # Stripe accepts cents
             currency="usd",
             source=token_res.id,
             description="WebImove Subscription Activation",
+            **options,
         )
         return {"success": True, "message": "ok", "reference": charge.id}
     except stripe.error.CardError as e:

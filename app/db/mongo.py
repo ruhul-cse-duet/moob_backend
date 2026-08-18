@@ -44,8 +44,20 @@ def platform_db() -> AsyncIOMotorDatabase:
     return get_client()[settings.PLATFORM_DB_NAME]
 
 
+# Atlas rejects database names over 38 bytes. With a 24-character ObjectId as the
+# tenant id, anything longer than a 14-character prefix fails - and it fails in the
+# middle of signup, after the card has been charged. Catch it at the boundary.
+MAX_DB_NAME_BYTES = 38
+
+
 def tenant_db_name(tenant_id: str) -> str:
-    return f"{settings.TENANT_DB_PREFIX}{tenant_id}"
+    name = f"{settings.TENANT_DB_PREFIX}{tenant_id}"
+    if len(name.encode()) > MAX_DB_NAME_BYTES:
+        raise RuntimeError(
+            f"Tenant database name {name!r} is {len(name.encode())} bytes; "
+            f"Atlas allows {MAX_DB_NAME_BYTES}. Shorten TENANT_DB_PREFIX."
+        )
+    return name
 
 
 def tenant_db(tenant_id: str) -> AsyncIOMotorDatabase:

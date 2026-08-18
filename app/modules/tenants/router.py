@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from app.core.deps import CurrentUser, get_current_user, require_owner
-from app.core.exceptions import NotFound
+from app.core.exceptions import Forbidden, NotFound
 from app.core.utils import oid, serialize, utcnow
 from app.db.mongo import platform_db
 
@@ -22,6 +22,9 @@ class OrganizationUpdate(BaseModel):
 
 @router.get("", summary="My organization")
 async def get_organization(user: CurrentUser = Depends(get_current_user)):
+    # Platform admins have no tenant; say so rather than letting oid(None) 400.
+    if not user.tenant_id:
+        raise Forbidden("No workspace bound to this account")
     tenant = await platform_db().tenants.find_one({"_id": oid(user.tenant_id)})
     if not tenant:
         raise NotFound("Organization not found")

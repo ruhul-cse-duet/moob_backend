@@ -23,6 +23,7 @@ from app.modules.subscriptions.router import router as subscription_router
 from app.modules.tasks.router import router as tasks_router
 from app.modules.tenants.router import router as organization_router
 from app.modules.users.router import router as users_router
+from app.modules.webhooks.router import router as webhooks_router
 
 api_router = APIRouter()
 
@@ -50,3 +51,5 @@ api_router.include_router(legal_router)
 api_router.include_router(reporting_router)
 api_router.include_router(search_router)
 api_router.include_router(admin_router)
+# Unauthenticated by design - Stripe authenticates with a request signature.
+api_router.include_router(webhooks_router)

@@ -95,6 +95,10 @@ async def get_tenant_db(user: CurrentUser = Depends(get_current_user)) -> AsyncI
 
 async def require_active_tenant(user: CurrentUser = Depends(get_current_user)) -> dict:
     """Blocks the whole workspace when the subscription is not paid / approved."""
+    # Platform admins carry no tenant. Answer that before oid() turns None into
+    # a confusing 400 about an invalid id.
+    if not user.tenant_id:
+        raise Forbidden("No workspace bound to this account")
     tenant = await platform_db().tenants.find_one({"_id": oid(user.tenant_id)})
     if not tenant:
         raise Unauthorized("Workspace not found")

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 from app.core.enums import BillingCycle, LoginPortalRole, PlanCode, Role
 
@@ -121,10 +121,33 @@ class OrderSummary(BaseModel):
 
 # ---------- Step 5 of 5 - Payment ----------
 class SignupPayment(BaseModel):
-    name_on_card: str
-    card_number: str = Field(min_length=12, max_length=19)
-    expiry: str = Field(pattern=r"^(0[1-9]|1[0-2])/\d{2}$")
-    cvc: str = Field(min_length=3, max_length=4)
+    """Either a Stripe.js payment method, or raw card details.
+
+    ``payment_method_id`` is the path that gets a real recurring subscription:
+    Stripe.js tokenises the card in the browser, so the number never reaches
+    this server. The raw card fields are the legacy one-off charge - they still
+    work, but that charge never renews, and Stripe blocks raw card data unless
+    the account is PCI-certified.
+    """
+    payment_method_id: Optional[str] = Field(
+        None, description="Stripe PaymentMethod id from Stripe.js (pm_...). Preferred.")
+    name_on_card: Optional[str] = None
+    card_number: Optional[str] = Field(None, min_length=12, max_length=19)
+    expiry: Optional[str] = Field(None, pattern=r"^(0[1-9]|1[0-2])/\d{2}$")
+    cvc: Optional[str] = Field(None, min_length=3, max_length=4)
+
+    @model_validator(mode="after")
+    def one_complete_payment_method(self) -> "SignupPayment":
+        if self.payment_method_id:
+            return self
+        missing = [name for name in ("name_on_card", "card_number", "expiry", "cvc")
+                   if not getattr(self, name)]
+        if missing:
+            raise ValueError(
+                "Send payment_method_id from Stripe.js, or all of "
+                "name_on_card, card_number, expiry and cvc"
+            )
+        return self
 
 
 class TenantActivated(BaseModel):

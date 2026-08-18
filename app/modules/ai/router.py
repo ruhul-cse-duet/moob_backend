@@ -102,7 +102,7 @@ async def chat(payload: ChatRequest,
         "consultant_id": consultant_id,
         "client_id": payload.client_id or updated_convo.get("client_id"),
         "partner_id": user.raw.get("partner_id"),
-        "messages": serialize(updated_convo.get("messages", [])),
+        "messages": [serialize(m) for m in updated_convo.get("messages", [])],
     }
 
 
