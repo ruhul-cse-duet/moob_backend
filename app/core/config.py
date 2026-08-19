@@ -1,5 +1,5 @@
 from functools import lru_cache
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -26,6 +26,29 @@ class Settings(BaseSettings):
     # Keep this short. Atlas caps database names at 38 bytes and the tenant id
     # that follows is a 24-character ObjectId, so the prefix has 14 to work with.
     TENANT_DB_PREFIX: str = "wm_t_"
+
+    # Docs. Public API reference is fine while building; in production it hands
+    # an attacker the whole surface, so it is off unless explicitly re-enabled.
+    ENABLE_DOCS: Optional[bool] = None
+
+    # Set to True only when the API really sits behind a proxy you control
+    # (nginx, a load balancer, Cloudflare). It makes the app believe
+    # X-Forwarded-For, which a direct caller can otherwise forge to dodge the
+    # login throttle and to poison the audit trail.
+    TRUST_PROXY_HEADERS: bool = False
+
+    # Security response headers (HSTS is only sent over HTTPS by the browser anyway).
+    SECURITY_HEADERS: bool = True
+    HSTS_MAX_AGE: int = 60 * 60 * 24 * 365
+
+    # Brute force. Counted per email+IP over a rolling window, then a lockout.
+    LOGIN_MAX_ATTEMPTS: int = 8
+    LOGIN_ATTEMPT_WINDOW_MINUTES: int = 15
+    LOGIN_LOCKOUT_MINUTES: int = 15
+
+    # One-time bootstrap of the first platform admin over HTTP. Empty disables
+    # the endpoint entirely; the CLI script stays available either way.
+    PLATFORM_SETUP_TOKEN: str = ""
 
     # JWT
     JWT_SECRET_KEY: str = "change-me"
@@ -86,6 +109,51 @@ class Settings(BaseSettings):
     # Without a price the plan falls back to the legacy one-off charge, which
     # never renews.
     STRIPE_PRICES: Dict[str, str] = {}
+
+
+    # ------------------------------------------------------------------ #
+    # Derived helpers
+    # ------------------------------------------------------------------ #
+    @property
+    def is_production(self) -> bool:
+        return self.ENVIRONMENT.lower() in {"production", "prod"}
+
+    @property
+    def docs_enabled(self) -> bool:
+        if self.ENABLE_DOCS is not None:
+            return self.ENABLE_DOCS
+        return not self.is_production
+
+    @property
+    def cors_allows_any_origin(self) -> bool:
+        return "*" in self.BACKEND_CORS_ORIGINS
+
+    def insecure_settings(self) -> List[str]:
+        """Configuration that must never reach production.
+
+        Returned rather than raised so the caller decides between a hard stop
+        and a loud warning - a half-configured staging box should still boot.
+        """
+        problems: List[str] = []
+        if self.JWT_SECRET_KEY in {"change-me", "change-me-to-a-long-random-string", ""}:
+            problems.append(
+                "JWT_SECRET_KEY is still the placeholder - anyone can mint a valid "
+                "token for any account. Set it to a long random string."
+            )
+        elif len(self.JWT_SECRET_KEY) < 32:
+            problems.append("JWT_SECRET_KEY is shorter than 32 characters")
+        if self.DEBUG:
+            problems.append("DEBUG is on - error responses carry exception text")
+        if self.cors_allows_any_origin:
+            problems.append(
+                'BACKEND_CORS_ORIGINS is ["*"] - list the real frontend origins instead'
+            )
+        if not self.STRIPE_WEBHOOK_SECRET:
+            problems.append(
+                "STRIPE_WEBHOOK_SECRET is empty - renewals and failed payments "
+                "will never be recorded"
+            )
+        return problems
 
 
 @lru_cache

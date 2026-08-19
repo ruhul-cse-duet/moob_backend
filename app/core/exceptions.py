@@ -66,3 +66,30 @@ class PaymentRequired(AppError):
 class ValidationFailed(AppError):
     status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
     code = "validation_error"
+
+
+class TooManyRequests(AppError):
+    status_code = status.HTTP_429_TOO_MANY_REQUESTS
+    code = "too_many_requests"
+
+    def __init__(
+        self,
+        detail: str = "Too many requests. Please slow down.",
+        code: str | None = None,
+        *,
+        retry_after: Optional[int] = None,
+        errors: Optional[list[dict[str, Any]]] = None,
+        headers: Optional[dict[str, str]] = None,
+    ):
+        merged = dict(headers or {})
+        if retry_after is not None:
+            merged["Retry-After"] = str(int(retry_after))
+        super().__init__(detail, code=code, errors=errors, headers=merged)
+        self.retry_after = retry_after
+
+
+class ServiceUnavailable(AppError):
+    """A dependency we do not own is down - database, mail, Stripe, OpenAI."""
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    code = "service_unavailable"

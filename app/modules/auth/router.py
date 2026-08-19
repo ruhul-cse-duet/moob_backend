@@ -4,6 +4,7 @@ from fastapi import APIRouter, Body, Depends, Header, Query, Request, status
 
 from app.core.deps import CurrentUser, get_current_user
 from app.core.enums import BillingCycle, PlanCode
+from app.core.utils import client_ip
 from app.modules.auth import schemas as s
 from app.modules.auth import service
 from app.modules.subscriptions.plans import order_summary, plan_catalogue
@@ -178,7 +179,7 @@ async def accept_invite(payload: s.AcceptInvite, request: Request):
 # ------------------------------- sessions -------------------------------
 def _session(request: Request) -> dict:
     return {
-        "ip": request.client.host if request.client else None,
+        "ip": client_ip(request),
         "user_agent": request.headers.get("user-agent"),
         "device": request.headers.get("x-device-name"),
     }

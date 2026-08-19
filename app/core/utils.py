@@ -1,5 +1,5 @@
-import random
 import re
+import secrets
 import string
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
@@ -41,12 +41,46 @@ def _clean(value: Any) -> Any:
 
 
 def random_code(length: int) -> str:
-    return "".join(random.choices(string.digits, k=length))
+    """Numeric OTP. `secrets`, not `random` - a Mersenne Twister stream is
+    reconstructible from a handful of observed outputs, and these codes are the
+    only thing standing between an email address and an account."""
+    return "".join(secrets.choice(string.digits) for _ in range(length))
 
 
 def random_token(length: int = 32) -> str:
+    """URL-safe invite / reset token. Same reasoning as `random_code`: this token
+    is the sole credential in an invitation link."""
     alphabet = string.ascii_letters + string.digits
-    return "".join(random.choices(alphabet, k=length))
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+def client_ip(request) -> Optional[str]:
+    """The caller's IP, as far as we can honestly tell.
+
+    Behind a reverse proxy every request appears to come from the proxy, which
+    would put every user of the platform in one throttling bucket and record the
+    same address against every sign-in. X-Forwarded-For fixes that - but only
+    when a proxy we control actually sets it, because a direct caller can put
+    anything in that header. Hence the TRUST_PROXY_HEADERS gate.
+    """
+    from app.core.config import settings
+
+    if settings.TRUST_PROXY_HEADERS:
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            # Left-most entry is the original client; the rest are proxy hops.
+            first = forwarded.split(",")[0].strip()
+            if first:
+                return first
+        real_ip = request.headers.get("x-real-ip")
+        if real_ip:
+            return real_ip.strip()
+    return request.client.host if request.client else None
+
+
+def constant_time_equals(a: str, b: str) -> bool:
+    """Compare secrets without leaking their length or prefix through timing."""
+    return secrets.compare_digest((a or "").encode(), (b or "").encode())
 
 
 def slugify_db(name: str) -> str:

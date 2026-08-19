@@ -6,11 +6,25 @@ from app.services import storage
 
 
 class FakeUpload:
+    """Stands in for starlette's UploadFile.
+
+    ``read`` takes an optional size and advances a cursor, exactly like the real
+    one - ``save_upload`` reads in chunks so an oversized body is rejected before
+    it is all in memory, and a double that ignores the size argument would return
+    the whole payload on every call and loop forever.
+    """
+
     def __init__(self, name: str, content_type: str, data: bytes):
         self.filename, self.content_type, self._data = name, content_type, data
+        self._pos = 0
 
-    async def read(self) -> bytes:
-        return self._data
+    async def read(self, size: int = -1) -> bytes:
+        if size is None or size < 0:
+            chunk, self._pos = self._data[self._pos:], len(self._data)
+            return chunk
+        chunk = self._data[self._pos:self._pos + size]
+        self._pos += len(chunk)
+        return chunk
 
 
 @pytest.fixture
@@ -45,9 +59,12 @@ async def test_upload_read_stream_delete(db):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("name,ctype,data", [
-    ("x.exe", "application/x-msdownload", b"MZ"),
-    ("empty.pdf", "application/pdf", b""),
-    ("huge.pdf", "application/pdf", b"y" * (26 * 1024 * 1024)),
+    pytest.param("x.exe", "application/x-msdownload", b"MZ", id="wrong-type"),
+    pytest.param("empty.pdf", "application/pdf", b"", id="empty"),
+    # Explicit ids: without them pytest derives the id from the value, and a
+    # 26 MB payload becomes a 26 MB test id - which Windows rejects outright
+    # ("environment variable is longer than 32767 characters").
+    pytest.param("huge.pdf", "application/pdf", b"y" * (26 * 1024 * 1024), id="over-size-limit"),
 ])
 async def test_rejects_bad_uploads(db, name, ctype, data):
     from app.core.exceptions import BadRequest

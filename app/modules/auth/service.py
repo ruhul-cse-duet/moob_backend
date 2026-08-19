@@ -27,7 +27,7 @@ from app.core.utils import oid, random_token, serialize, slugify_db, utcnow
 from app.db.indexes import ensure_tenant_indexes
 from app.db.mongo import drop_tenant_db, platform_db, tenant_db
 from app.modules.subscriptions.plans import order_summary, plan_by_code
-from app.services import audit
+from app.services import audit, throttle
 from app.services import invites
 from app.services import otp as otp_service
 from app.services import stripe_service
@@ -475,10 +475,16 @@ async def login(email: str, password: str, role: LoginPortalRole,
     """
     db = platform_db()
     email = email.lower().strip()
+    ip = (session or {}).get("ip")
+
+    # Checked before any password work: a locked pair costs one indexed read,
+    # not a bcrypt round.
+    await throttle.ensure_not_locked(throttle.LOGIN, email, ip)
 
     async def _fail(detail: str = "Email or password is incorrect") -> None:
+        await throttle.register_failure(throttle.LOGIN, email, ip)
         await audit.record(action=AuditAction.LOGIN_FAILED, actor_email=email,
-                           ip=(session or {}).get("ip"),
+                           ip=ip,
                            user_agent=(session or {}).get("user_agent"),
                            meta={"role": role.value})
         raise Unauthorized(detail)
@@ -539,9 +545,13 @@ async def login(email: str, password: str, role: LoginPortalRole,
     if tenant_status == TenantStatus.CANCELLED.value:
         raise Unauthorized("This organization has been cancelled")
 
+    # The credentials were right, so the failure counter for this pair is spent.
+    # Done before the 2FA branch below, which returns early.
+    await throttle.clear(throttle.LOGIN, email, ip)
+
     await tdb.login_history.insert_one({
         "user_id": str(user["_id"]),
-        "ip": (session or {}).get("ip"),
+        "ip": ip,
         "user_agent": (session or {}).get("user_agent"),
         "successful": True,
         "portal_role": role.value,
@@ -576,17 +586,25 @@ async def platform_login(email: str, password: str, trust_device: bool = True,
     """Platform administration sign-in — only ``platform_admins``."""
     db = platform_db()
     email = email.lower().strip()
+    ip = (session or {}).get("ip")
+
+    # The platform admin owns every organization on the instance, so this login
+    # is the highest-value target in the system.
+    await throttle.ensure_not_locked(throttle.PLATFORM_LOGIN, email, ip)
 
     admin = await db.platform_admins.find_one({"email": email})
     if not admin or not verify_password(password, admin.get("password_hash") or ""):
+        await throttle.register_failure(throttle.PLATFORM_LOGIN, email, ip)
         await audit.record(action=AuditAction.LOGIN_FAILED, actor_email=email,
-                           ip=(session or {}).get("ip"),
+                           ip=ip,
                            user_agent=(session or {}).get("user_agent"),
                            meta={"portal": "platform"})
         raise Unauthorized("Administrator email or password is incorrect")
 
     if admin.get("status") == UserStatus.SUSPENDED.value:
         raise Unauthorized("This administrator account is suspended")
+
+    await throttle.clear(throttle.PLATFORM_LOGIN, email, ip)
 
     await audit.record(action=AuditAction.LOGIN, actor_id=str(admin["_id"]),
                        actor_email=email, actor_role="super_admin",

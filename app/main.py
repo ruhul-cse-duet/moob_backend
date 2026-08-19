@@ -1,12 +1,13 @@
 import logging
+import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import api_router
 from app.core.config import settings
-from app.core.errors import register_exception_handlers
+from app.core.errors import baseline_headers, register_exception_handlers
 from app.core.logging import setup_logging
 from app.db.indexes import ensure_platform_indexes
 from app.db.mongo import close, connect
@@ -29,6 +30,14 @@ async def lifespan(app: FastAPI):
             type(exc).__name__, str(exc).split(",")[0],
         )
         logger.debug("Startup database error", exc_info=True)
+    for problem in settings.insecure_settings():
+        # Loud, not fatal: refusing to boot would take a running platform down
+        # over a setting that may be deliberate. One line per problem, at the
+        # level the operator is most likely to be watching.
+        if settings.is_production:
+            logger.error("INSECURE CONFIGURATION: %s", problem)
+        else:
+            logger.warning("Configuration warning: %s", problem)
     logger.info("%s started (%s)", settings.APP_NAME, settings.ENVIRONMENT)
     yield
     await close()
@@ -49,17 +58,46 @@ app = FastAPI(
         "`{success, message, detail, code, errors, status_code}`."
     ),
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_url=f"{settings.API_V1_PREFIX}/openapi.json",
+    docs_url="/docs" if settings.docs_enabled else None,
+    redoc_url="/redoc" if settings.docs_enabled else None,
+    openapi_url=(
+        f"{settings.API_V1_PREFIX}/openapi.json" if settings.docs_enabled else None
+    ),
 )
+
+
+@app.middleware("http")
+async def request_context(request: Request, call_next):
+    """One id per request, echoed on the response and into every error body.
+
+    A user can quote it in a support ticket and we can find the exact log line -
+    otherwise a 500 is untraceable across tenants.
+    """
+    request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
+    request.state.request_id = request_id
+    response = await call_next(request)
+    for header, value in baseline_headers(request_id).items():
+        response.headers.setdefault(header, value)
+    return response
+
+
+# `allow_credentials` with a wildcard origin is rejected by every browser and
+# would silently break the cookie-less bearer flow the apps rely on. Send
+# credentials only when the operator has named the origins.
+_cors_any_origin = settings.cors_allows_any_origin
+if _cors_any_origin and settings.is_production:
+    logger.error(
+        "CORS is open to every origin in production. Set BACKEND_CORS_ORIGINS "
+        "to the real frontend origins."
+    )
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.BACKEND_CORS_ORIGINS,
-    allow_credentials=True,
+    allow_credentials=not _cors_any_origin,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Request-ID", "Content-Disposition"],
 )
 
 register_exception_handlers(app)
