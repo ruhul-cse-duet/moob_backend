@@ -15,6 +15,11 @@ async def ensure_platform_indexes() -> None:
     await db.signups.create_index("created_at", expireAfterSeconds=60 * 60 * 24 * 7)
     await db.otp_codes.create_index([("email", 1), ("purpose", 1)])
     await db.otp_codes.create_index("expires_at", expireAfterSeconds=0)
+    # Brute-force counters. The TTL is what keeps this collection from growing
+    # without bound; the document carries its own expiry.
+    await db.auth_throttle.create_index("expires_at", expireAfterSeconds=0)
+    await db.auth_throttle.create_index("locked_until", sparse=True)
+
     await db.refresh_tokens.create_index("token", unique=True)
     await db.refresh_tokens.create_index("expires_at", expireAfterSeconds=0)
     await db.subscriptions.create_index("tenant_id")

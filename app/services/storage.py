@@ -29,6 +29,21 @@ ALLOWED = {
 DOCUMENTS_BUCKET = "documents"
 DELIVERABLES_BUCKET = "deliverables"
 
+READ_CHUNK = 256 * 1024
+
+
+def safe_filename(name: Optional[str], fallback: str = "document") -> str:
+    """A filename fit for a Content-Disposition header.
+
+    The value arrives from the uploader, so it can carry quotes, CR/LF or path
+    separators. Unescaped, a crafted name breaks out of the quoted header value
+    and injects headers of its own.
+    """
+    cleaned = (name or "").strip().replace("\\", "/").rsplit("/", 1)[-1]
+    cleaned = "".join(ch for ch in cleaned if ch.isprintable() and ch not in '"\\')
+    cleaned = cleaned.replace("\r", "").replace("\n", "").strip(". ")
+    return cleaned[:180] or fallback
+
 
 def bucket(db: AsyncIOMotorDatabase, name: str = DOCUMENTS_BUCKET) -> AsyncIOMotorGridFSBucket:
     return AsyncIOMotorGridFSBucket(db, bucket_name=name)
@@ -45,12 +60,23 @@ async def save_upload(
     if file.content_type not in ALLOWED:
         raise BadRequest(f"Unsupported file type: {file.content_type}")
 
-    data = await file.read()
+    # Read in chunks and stop at the limit. `await file.read()` with no argument
+    # buffers the whole body first, so an oversized upload costs us the memory
+    # before we get to reject it - a 2 GB POST would take the worker down.
     max_bytes = settings.MAX_UPLOAD_MB * 1024 * 1024
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(READ_CHUNK)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise BadRequest(f"File is larger than {settings.MAX_UPLOAD_MB} MB")
+        chunks.append(chunk)
+    data = b"".join(chunks)
     if not data:
         raise BadRequest("The uploaded file is empty")
-    if len(data) > max_bytes:
-        raise BadRequest(f"File is larger than {settings.MAX_UPLOAD_MB} MB")
 
     ext = ALLOWED[file.content_type]
     kind = "PDF" if ext == "pdf" else "Image" if ext in {"jpg", "png", "webp"} else "Document"

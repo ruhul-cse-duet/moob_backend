@@ -61,13 +61,16 @@ async def download(document_id: str,
         raise Forbidden("This document is not yours")
 
     meta = doc["file"]
-    filename = meta.get("original_name") or "document"
+    filename = storage.safe_filename(meta.get("original_name"))
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    # An empty Content-Length is an invalid header, not an absent one.
+    if isinstance(meta.get("size"), int):
+        headers["Content-Length"] = str(meta["size"])
     return StreamingResponse(
         storage.stream_file(db, meta["file_id"],
                             meta.get("bucket", storage.DOCUMENTS_BUCKET)),
         media_type=meta.get("mime_type") or "application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"',
-                 "Content-Length": str(meta.get("size", ""))},
+        headers=headers,
     )
 
 
