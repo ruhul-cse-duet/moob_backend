@@ -96,6 +96,9 @@ SETTING_SPECS: Dict[str, Dict[str, Any]] = {
         "type": "int",
         "default": 0,
         "min": 0,
+        "section": "limits_contact",
+        "label": "Free trial length (days)",
+        "description": "Zero means new organizations pay from day one.",
     },
     "otp_expire_minutes": {
         "type": "int",
@@ -140,6 +143,8 @@ SECTION_DEFINITIONS = [
         "settings": [
             "max_document_size_mb",
             "document_retention_months",
+            "trial_days",
+            "support_email",
         ],
     },
 ]
@@ -219,6 +224,10 @@ def _setting_meta(key: str, value: Any) -> Dict[str, Any]:
         out["type"] = spec["type"]
     if spec.get("section"):
         out["section"] = spec["section"]
+    # The client needs the bounds to validate before it posts.
+    for bound in ("min", "max"):
+        if bound in spec:
+            out[bound] = spec[bound]
     return out
 
 

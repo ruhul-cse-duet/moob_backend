@@ -4,11 +4,12 @@ from fastapi import APIRouter, Depends, Query, status as http
 from pydantic import BaseModel
 
 from app.core.deps import CurrentUser, page_params, require_super_admin
-from app.core.enums import Role, UserStatus
-from app.core.exceptions import NotFound
+from app.core.enums import AuditAction, Role, UserStatus
+from app.core.exceptions import BadRequest, NotFound
 from app.core.utils import oid, serialize, utcnow
 from app.db.mongo import platform_db, tenant_db
 from app.schemas.common import Message, PageParams
+from app.services import audit
 
 router = APIRouter(prefix="/users", tags=["Super Admin · Consultant Management"])
 
@@ -52,9 +53,7 @@ async def list_consultants(
         # Construct unified object
         user_status = t_user.get("status", UserStatus.ACTIVE.value)
         
-        # In UI, "suspended" might be mapped to "disabled"
         is_disabled = user_status == UserStatus.SUSPENDED.value
-        mapped_status = "Disabled" if is_disabled else "Active"
         
         # Filter by tab
         if tab == "active" and is_disabled:
@@ -71,17 +70,22 @@ async def list_consultants(
             if search_lower not in full_name.lower() and search_lower not in email.lower():
                 continue
                 
+        # Wire values, not display strings — the clients map these onto their
+        # own enums, and "Disabled" would silently fall back to active.
         results.append({
             "id": str(t_user["_id"]),
             "tenant_id": tid,
             "full_name": full_name,
             "email": email,
-            "role": "Consultant",
+            "mobile": t_user.get("mobile"),
+            "avatar_url": t_user.get("avatar_url"),
+            "role": t_user.get("role", Role.CONSULTANT.value),
             "title": t_user.get("title", "Consultant"),
+            "organization_info": {"id": tid, "name": tenant_names[tid]},
             "organization_name": tenant_names[tid],
-            "status": mapped_status,
+            "status": user_status,
+            "is_owner": t_user.get("role") == Role.CONSULTANT_OWNER.value,
             "created_at": d_user.get("created_at"),
-            "raw_status": user_status
         })
 
     # Sort results newest first
@@ -117,12 +121,29 @@ async def update_consultant_status(
     if not t_user:
         raise NotFound("Consultant not found in organization")
         
-    new_status = UserStatus.SUSPENDED.value if payload.status.lower() in ["disabled", "suspended"] else UserStatus.ACTIVE.value
-    
-    # Update in tenant DB
+    disabling = payload.status.lower() in ["disabled", "suspended"]
+    new_status = UserStatus.SUSPENDED.value if disabling else UserStatus.ACTIVE.value
+
+    # An administrator must not lock themselves out of the platform.
+    if disabling and user_id == admin.id:
+        raise BadRequest("You cannot disable the account you are signed in with")
+
     await tdb.users.update_one(
         {"_id": oid(user_id)},
         {"$set": {"status": new_status, "updated_at": utcnow()}}
     )
-    
+
+    tenant = await db.tenants.find_one({"_id": oid(tenant_id)})
+    await audit.record(
+        action=AuditAction.USER_SUSPENDED if disabling else AuditAction.ADMIN_ACTION,
+        actor_id=admin.id,
+        actor_email=admin.email,
+        actor_role=admin.role.value if hasattr(admin.role, "value") else admin.role,
+        tenant_id=tenant_id,
+        subject=t_user.get("full_name") or t_user.get("email"),
+        detail=("Disabled" if disabling else "Re-enabled")
+               + f" a consultant account in {(tenant or {}).get('name', 'an organization')}",
+        meta={"user_id": user_id, "status": new_status},
+    )
+
     return {"success": True, "message": f"Account status updated to {new_status}"}

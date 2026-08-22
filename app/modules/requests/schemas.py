@@ -10,6 +10,7 @@ class RequestedDocument(BaseModel):
     name: str
     category: DocumentCategory = DocumentCategory.OTHER
     why: Optional[str] = None
+    is_required: bool = True
     due_date: Optional[datetime] = None
 
 
@@ -76,9 +77,27 @@ class RequestOut(BaseModel):
     documents: List[dict] = []
     client_profile: Optional[dict] = None
     case_id: Optional[str] = None
+    # What the consultant concluded once the consultation closed.
+    outcome: Optional[dict] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
+
+
+class ConsultationOutcomeIn(BaseModel):
+    """What the consultant concluded — the client reads this on the request."""
+    summary: str = Field(min_length=2, max_length=4000)
+    guidance: Optional[str] = None
+    next_steps: List[str] = []
+    notes: Optional[str] = None
+    timeline: Optional[str] = None
+    recommendations: Optional[str] = None
+
+
+class CompleteConsultation(BaseModel):
+    outcome: ConsultationOutcomeIn
+    case_type: Optional[str] = None
+    deadline: Optional[datetime] = None
 
 
 class RequestCounts(BaseModel):
@@ -96,6 +115,7 @@ class ClientDashboardSummary(BaseModel):
     action_next_step: Optional[dict] = None
     my_requests: List[dict] = []
     recent_activities: List[dict] = []
+    pending_documents_count: int = 0
 
 
 class ClientRequestCategory(BaseModel):

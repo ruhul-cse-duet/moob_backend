@@ -238,15 +238,24 @@ async def get_partner_dashboard(db, user: CurrentUser) -> Dict[str, Any]:
     submitted = await db.tasks.count_documents(
         {"assignee_id": partner_id, "status": TaskStatus.SUBMITTED.value})
 
-    # Recent tasks for the home screen list
+    overdue = await db.tasks.count_documents({
+        "assignee_id": partner_id,
+        "due_date": {"$lt": utcnow()},
+        "status": {"$in": [TaskStatus.PENDING.value, TaskStatus.IN_PROGRESS.value]},
+    })
+
+    # Recent tasks for the home screen list. Submitted work is still the
+    # partner's until the consultant signs it off, so it belongs here too.
     cursor = db.tasks.find(
         {"assignee_id": partner_id, "status": {"$in": [
-            TaskStatus.PENDING.value, TaskStatus.IN_PROGRESS.value]}}
+            TaskStatus.PENDING.value, TaskStatus.IN_PROGRESS.value,
+            TaskStatus.SUBMITTED.value]}}
     ).sort("due_date", 1).limit(10)
     active_tasks = [serialize(t) async for t in cursor]
 
     return {
         "partner_id": partner_id,
+        "partner_name": user.raw.get("full_name", ""),
         "consultant_id": user.raw.get("consultant_id"),
         "summary": {
             "total": total,
@@ -254,6 +263,7 @@ async def get_partner_dashboard(db, user: CurrentUser) -> Dict[str, Any]:
             "in_progress": in_progress,
             "submitted": submitted,
             "completed": completed,
+            "overdue": overdue,
         },
         "active_tasks": active_tasks,
     }

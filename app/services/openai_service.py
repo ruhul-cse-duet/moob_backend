@@ -48,10 +48,33 @@ Given the case context, return STRICT JSON:
 }
 Be specific to the destination country and visa type. Return JSON only."""
 
-ASSISTANT_PROMPT = """You are the WebImove AI assistant embedded in an immigration case
-management workspace. You help consultants with process guidance, document requirements and
-drafting. You are not a lawyer: never give a definitive legal determination, and tell the
-consultant to verify against the current official government source. Be concise."""
+_ASSISTANT_BASE = """You are the WebImove AI assistant embedded in an immigration case
+management workspace. You are not a lawyer: never give a definitive legal determination, and
+say plainly that the answer should be checked against the current official government source.
+Be concise."""
+
+# Every role gets the assistant, but not the same one: a client must never be
+# handed the internal case-handling advice a consultant asks for.
+_ASSISTANT_BY_ROLE = {
+    "client": """You are speaking to the applicant themselves. Explain what a document or a
+step means in plain language, what they need to prepare, and what happens next. Do not
+speculate about the outcome of their application, and point them at their consultant for
+anything about their specific case.""",
+    "partner": """You are speaking to a partner who carries out delegated tasks — collecting
+documents, verifying details, local filings. Answer about the task at hand and the paperwork
+it needs. Case strategy and client-facing decisions belong to the consultant.""",
+}
+
+_ASSISTANT_CONSULTANT = """You are speaking to an immigration consultant. Help with process
+guidance, document requirements, checklists and drafting."""
+
+
+def assistant_prompt(role: Optional[str] = None) -> str:
+    tail = _ASSISTANT_BY_ROLE.get(role or "", _ASSISTANT_CONSULTANT)
+    return f"{_ASSISTANT_BASE}\n\n{tail}"
+
+
+ASSISTANT_PROMPT = assistant_prompt()
 
 
 def _parse_json(content: str) -> Dict[str, Any]:
@@ -139,7 +162,9 @@ async def assistant_reply(*, history: List[Dict[str, str]], message: str,
     api = client()
     if api is None:
         return "The AI assistant is not configured. Add OPENAI_API_KEY to enable it."
-    messages: List[Dict[str, str]] = [{"role": "system", "content": ASSISTANT_PROMPT}]
+    messages: List[Dict[str, str]] = [
+        {"role": "system", "content": assistant_prompt((context or {}).get("role"))}
+    ]
     if context:
         messages.append(
             {"role": "system", "content": f"Workspace context: {json.dumps(context, default=str)}"}

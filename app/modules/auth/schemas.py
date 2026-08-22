@@ -97,6 +97,13 @@ class PlanFeature(BaseModel):
     label: str
 
 
+class PaymentConfig(BaseModel):
+    """Everything the sign-up payment step needs before it draws a card form."""
+    publishable_key: Optional[str] = None
+    card_tokenization: bool = False
+    currency: str = "usd"
+
+
 class PlanOut(BaseModel):
     code: PlanCode
     name: str
@@ -175,10 +182,15 @@ class PlatformLoginRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    """Sign-in after the Select Your Role screen (consultant / partner / client)."""
+    """Sign-in.
+
+    ``role`` is optional: a caller with a Select Your Role screen sends it and
+    the account is refused if it is anything else; a caller with one sign-in box
+    omits it and the account's own role is used.
+    """
     email: EmailStr
     password: str
-    role: LoginPortalRole
+    role: Optional[LoginPortalRole] = None
     trust_device: bool = False
 
 
@@ -218,7 +230,10 @@ class LoginResponse(BaseModel):
 class TwoFactorVerify(BaseModel):
     email: EmailStr
     code: str = Field(min_length=4, max_length=8)
-    role: LoginPortalRole
+
+    # Optional for the same reason as LoginRequest: send it and step two is held
+    # to the portal step one named.
+    role: Optional[LoginPortalRole] = None
 
 
 class RefreshRequest(BaseModel):

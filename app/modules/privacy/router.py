@@ -21,7 +21,7 @@ from app.core.enums import (
     NotificationType,
     Role,
 )
-from app.core.exceptions import BadRequest, NotFound
+from app.core.exceptions import BadRequest, Forbidden, NotFound
 from app.core.utils import oid, serialize, utcnow
 from app.schemas.common import PageParams
 from app.services import audit
@@ -40,6 +40,12 @@ class ConsentSet(BaseModel):
 class DataRequestCreate(BaseModel):
     type: DataRequestType
     reason: Optional[str] = Field(None, max_length=2000)
+
+
+class DataRequestDecision(BaseModel):
+    """What the organization decided, and what it wants the person to read."""
+    status: DataRequestStatus
+    note: Optional[str] = Field(None, max_length=2000)
 
 
 @router.get("/consents", summary="My consent state, one row per consent type")
@@ -161,7 +167,6 @@ async def tenant_data_requests(status: Optional[DataRequestStatus] = None,
                                params: PageParams = Depends(page_params),
                                user: CurrentUser = Depends(get_current_user),
                                db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
-    from app.core.exceptions import Forbidden
     if not user.is_consultant:
         raise Forbidden("Consultants only")
     query = {"status": status.value} if status else {}
@@ -169,20 +174,26 @@ async def tenant_data_requests(status: Optional[DataRequestStatus] = None,
 
 
 @router.post("/admin/requests/{request_id}/status", summary="Progress a data request")
-async def set_data_request_status(request_id: str, status: DataRequestStatus,
-                                  note: Optional[str] = None,
+async def set_data_request_status(request_id: str, payload: DataRequestDecision,
                                   user: CurrentUser = Depends(get_current_user),
                                   db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
-    from app.core.exceptions import Forbidden
     if not user.is_consultant:
         raise Forbidden("Consultants only")
+    now = utcnow()
+    changes = {"status": payload.status.value, "handled_by": user.id,
+               "handled_by_name": user.raw.get("full_name"), "note": payload.note,
+               "updated_at": now}
+    if payload.status in (DataRequestStatus.COMPLETED, DataRequestStatus.REJECTED):
+        changes["closed_at"] = now
     result = await db.data_requests.find_one_and_update(
-        {"_id": oid(request_id)},
-        {"$set": {"status": status.value, "handled_by": user.id, "note": note,
-                  "updated_at": utcnow()}},
-        return_document=True)
+        {"_id": oid(request_id)}, {"$set": changes}, return_document=True)
     if not result:
         raise NotFound("Data request not found")
     await notify(db, user_ids=[result["user_id"]], type=NotificationType.SUBSCRIPTION,
-                 title=f"Your {result['type']} request is {status.value}", body=note or "")
+                 title=f"Your {result['type']} request is {payload.status.value.replace('_', ' ')}",
+                 body=payload.note or "",
+                 data={"data_request_id": request_id})
+    await audit.record(action=AuditAction.DATA_REQUEST_HANDLED, actor_id=user.id,
+                       actor_email=user.email, tenant_id=user.tenant_id,
+                       subject=f"{result['type']} request", detail=payload.status.value)
     return serialize(result)

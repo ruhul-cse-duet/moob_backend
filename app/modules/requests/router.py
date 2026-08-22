@@ -1,7 +1,8 @@
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Body, Depends, Query, status
+from fastapi import APIRouter, Body, Depends, File, Query, UploadFile, status
+from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.core.deps import (
@@ -17,6 +18,7 @@ from app.core.enums import RequestStatus
 from app.modules.requests import schemas as s
 from app.modules.requests import service
 from app.schemas.common import Message, PageParams
+from app.services import storage
 
 router = APIRouter(prefix="/requests", tags=["Immigration Requests"],
                    dependencies=[Depends(require_active_tenant)])
@@ -103,11 +105,44 @@ async def save_notes(request_id: str, payload: s.ReviewNotes,
     return await service.save_review_notes(db, user, request_id, payload.notes)
 
 
+@router.post("/{request_id}/attachments", status_code=status.HTTP_201_CREATED,
+             summary="Attach supporting material to a request")
+async def add_attachment(request_id: str, file: UploadFile = File(...),
+                         user: CurrentUser = Depends(get_current_user),
+                         db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+    return await service.add_attachment(db, user, request_id, file)
+
+
+@router.get("/{request_id}/attachments/{file_id}",
+            summary="Stream one attachment out of GridFS")
+async def download_attachment(request_id: str, file_id: str,
+                              user: CurrentUser = Depends(get_current_user),
+                              db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+    meta = await service.get_attachment(db, user, request_id, file_id)
+    filename = storage.safe_filename(meta.get("original_name"))
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    if isinstance(meta.get("size"), int):
+        headers["Content-Length"] = str(meta["size"])
+    return StreamingResponse(
+        storage.stream_file(db, file_id, meta.get("bucket", storage.DOCUMENTS_BUCKET)),
+        media_type=meta.get("mime_type") or "application/octet-stream",
+        headers=headers,
+    )
+
+
+@router.delete("/{request_id}/attachments/{file_id}", response_model=Message,
+               summary="Remove an attachment")
+async def delete_attachment(request_id: str, file_id: str,
+                            user: CurrentUser = Depends(get_current_user),
+                            db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+    await service.remove_attachment(db, user, request_id, file_id)
+    return {"detail": "Attachment removed"}
+
+
 @router.post("/{request_id}/complete", status_code=status.HTTP_201_CREATED,
              summary="Complete consultation and open the immigration case")
 async def complete_consultation(request_id: str,
-                                case_type: Optional[str] = Body(None, embed=True),
-                                deadline: Optional[datetime] = Body(None, embed=True),
+                                payload: s.CompleteConsultation,
                                 user: CurrentUser = Depends(require_consultant),
                                 db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
-    return await service.complete_consultation(db, user, request_id, case_type, deadline)
+    return await service.complete_consultation(db, user, request_id, payload)
