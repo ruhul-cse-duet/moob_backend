@@ -50,6 +50,15 @@ class Settings(BaseSettings):
     # the endpoint entirely; the CLI script stays available either way.
     PLATFORM_SETUP_TOKEN: str = ""
 
+    # The platform administrator to create on boot, so a fresh database is never
+    # locked out of its own admin area. Both must be set or nothing is seeded.
+    # Creation only: an account that already exists is left exactly as it is,
+    # because a leaked .env must not be able to take over a live platform by
+    # rewriting its owner's password on the next restart.
+    ADMIN_EMAIL: str = ""
+    ADMIN_PASSWORD: str = ""
+    ADMIN_NAME: str = "Platform Admin"
+
     # JWT
     JWT_SECRET_KEY: str = "change-me"
     JWT_ALGORITHM: str = "HS256"
@@ -101,6 +110,9 @@ class Settings(BaseSettings):
 
     # Stripe — platform subscriptions, invoices, refunds
     STRIPE_SECRET_KEY: str = "sk_test_51MockupKeyHereForSafety"
+    # Safe to hand to a browser: Stripe.js needs it to tokenise a card so the
+    # number never reaches this server.
+    STRIPE_PUBLISHABLE_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""
     STRIPE_CURRENCY: str = "usd"
     # Recurring billing needs a Stripe Price per plan/cycle. Create them once in
@@ -152,6 +164,20 @@ class Settings(BaseSettings):
             problems.append(
                 "STRIPE_WEBHOOK_SECRET is empty - renewals and failed payments "
                 "will never be recorded"
+            )
+        # Only in production: seeding is a development convenience, and warning
+        # about it on every local boot would train the operator to ignore this
+        # whole list.
+        if self.ADMIN_PASSWORD and self.is_production:
+            problems.append(
+                "ADMIN_PASSWORD is set - the seeded administrator owns the whole "
+                "platform, so clear it once the account exists"
+            )
+        if self.STRIPE_SECRET_KEY and not self.STRIPE_PUBLISHABLE_KEY:
+            problems.append(
+                "STRIPE_PUBLISHABLE_KEY is empty while a secret key is set - "
+                "the client cannot tokenise a card, so signup will not take "
+                "payment"
             )
         return problems
 

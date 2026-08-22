@@ -123,18 +123,23 @@ async def reporting_summary(period: str = Query("90d", pattern="^(30d|90d|12m)$"
     avg_resolution_days = await _avg_resolution_days(since, now + timedelta(seconds=1))
     avg_resolution_days_prev = await _avg_resolution_days(prev_since, since)
 
-    # ── Approval rate: approved vs (approved + rejected) documents decided in window ──
-    approved = await db.documents.count_documents(
-        {"status": DocumentStatus.APPROVED.value, "updated_at": {"$gte": since, "$lte": now}})
-    rejected = await db.documents.count_documents(
-        {"status": DocumentStatus.REJECTED.value, "updated_at": {"$gte": since, "$lte": now}})
+    # ── Approval rate: decisions taken in the window, not the state they left behind ──
+    # Counting current status hid every rejection the client later fixed — a
+    # document sent back and then approved read as a clean 100%. `approved_at`
+    # and `rejected_at` both survive a later decision, so they count the work
+    # the consultant actually did.
+    async def _decisions(start, end) -> tuple[int, int]:
+        window = {"$gte": start, "$lt": end}
+        return (
+            await db.documents.count_documents({"approved_at": window}),
+            await db.documents.count_documents({"rejected_at": window}),
+        )
+
+    approved, rejected = await _decisions(since, now + timedelta(seconds=1))
     decided = approved + rejected
     approval_rate = round((approved / decided) * 100) if decided else None
 
-    approved_prev = await db.documents.count_documents(
-        {"status": DocumentStatus.APPROVED.value, "updated_at": {"$gte": prev_since, "$lt": since}})
-    rejected_prev = await db.documents.count_documents(
-        {"status": DocumentStatus.REJECTED.value, "updated_at": {"$gte": prev_since, "$lt": since}})
+    approved_prev, rejected_prev = await _decisions(prev_since, since)
     decided_prev = approved_prev + rejected_prev
     approval_rate_prev = round((approved_prev / decided_prev) * 100) if decided_prev else None
 

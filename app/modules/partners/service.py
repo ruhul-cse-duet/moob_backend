@@ -77,6 +77,10 @@ async def invite_partner(db, user: CurrentUser, tenant: Dict[str, Any],
     )
     out = serialize({**doc, "_id": oid(user_id)})
     out["invite_expires_in_days"] = settings.INVITE_EXPIRE_DAYS
+    # The consultant may want to pass the code on by hand — the email is not
+    # the only route in.
+    out["invite_token"] = token
+    out["invite_link"] = invites.build_link(token)
     return out
 
 
@@ -92,12 +96,21 @@ async def list_partners(db, params: PageParams, search: Optional[str] = None,
             {"partner_role": {"$regex": search, "$options": "i"}},
         ]
     page = await paginate(db, "users", query, params, sort=[("created_at", -1)])
+    pdb = platform_db()
     for item in page["items"]:
         item.pop("password_hash", None)
         item["open_tasks"] = await db.tasks.count_documents({
             "assignee_id": item["id"],
             "status": {"$in": [TaskStatus.PENDING.value, TaskStatus.IN_PROGRESS.value]},
         })
+        # A partner who has not signed in yet still has a live invite code, and
+        # the workspace screen offers it for copying.
+        if item.get("status") == UserStatus.INVITED.value:
+            entry = await pdb.user_directory.find_one({"email": item.get("email")})
+            token = (entry or {}).get("invite_token")
+            if token:
+                item["invite_token"] = token
+                item["invite_link"] = invites.build_link(token)
     return page
 
 
@@ -115,8 +128,12 @@ async def resend_invite(db, tenant: Dict[str, Any], partner_id: str) -> Dict[str
         role=partner.get("partner_role", "Partner"),
         link=invites.build_link(token),
     )
-    return {"detail": f"Invitation resent. The link is valid for "
-                      f"{settings.INVITE_EXPIRE_DAYS} days."}
+    return {
+        "detail": f"Invitation resent. The link is valid for "
+                  f"{settings.INVITE_EXPIRE_DAYS} days.",
+        "invite_token": token,
+        "invite_link": invites.build_link(token),
+    }
 
 
 async def revoke_partner(db, partner_id: str) -> Dict[str, str]:

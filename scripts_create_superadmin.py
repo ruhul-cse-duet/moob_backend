@@ -1,31 +1,37 @@
-"""Create the platform super admin:  python scripts_create_superadmin.py <email> <password>"""
+"""Create the platform super admin.
+
+    python scripts_create_superadmin.py                      # uses ADMIN_EMAIL / ADMIN_PASSWORD
+    python scripts_create_superadmin.py <email> <password> [name]
+
+With no arguments this does exactly what booting the API does, which is the
+point: one code path, so the script can never drift from the seeder and create
+an account the app would not recognise.
+"""
 import asyncio
+import logging
 import sys
 
-from app.core.enums import UserStatus
-from app.core.security import hash_password
-from app.core.utils import utcnow
+from app.core.config import settings
 from app.db.indexes import ensure_platform_indexes
-from app.db.mongo import platform_db
+from app.db.mongo import close, connect
+from app.db.seed import seed_platform_admin
 
 
-async def main(email: str, password: str, name: str = "Platform Admin") -> None:
-    await ensure_platform_indexes()
-    db = platform_db()
-    if await db.platform_admins.find_one({"email": email.lower()}):
-        print("Super admin already exists")
-        return
-    await db.platform_admins.insert_one({
-        "email": email.lower(),
-        "full_name": name,
-        "password_hash": hash_password(password),
-        "status": UserStatus.ACTIVE.value,
-        "created_at": utcnow(),
-    })
-    print(f"Super admin created: {email}")
+async def main(email: str = "", password: str = "", name: str = "") -> None:
+    connect()
+    try:
+        await ensure_platform_indexes()
+        created = await seed_platform_admin(
+            email=email or None, password=password or None, name=name or None,
+        )
+        if not created and not (email or settings.ADMIN_EMAIL):
+            print("Set ADMIN_EMAIL and ADMIN_PASSWORD, or pass them as arguments.")
+    finally:
+        await close()
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        raise SystemExit("usage: python scripts_create_superadmin.py <email> <password>")
-    asyncio.run(main(sys.argv[1], sys.argv[2], *sys.argv[3:]))
+    # The seeder says what happened through the log, so make sure it is visible
+    # when run as a one-off script rather than under the API's logging setup.
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    asyncio.run(main(*sys.argv[1:4]))

@@ -11,6 +11,7 @@ from app.core.errors import baseline_headers, register_exception_handlers
 from app.core.logging import setup_logging
 from app.db.indexes import ensure_platform_indexes
 from app.db.mongo import close, connect
+from app.db.seed import seed_platform_admin
 
 setup_logging()
 logger = logging.getLogger("app.main")
@@ -30,6 +31,16 @@ async def lifespan(app: FastAPI):
             type(exc).__name__, str(exc).split(",")[0],
         )
         logger.debug("Startup database error", exc_info=True)
+    else:
+        # After the indexes, never before: platform_admins.email is unique, and
+        # the seeder leans on that when two workers boot at the same moment.
+        # Its own try, so a seeding failure is never reported as an unreachable
+        # database - and never stops an otherwise healthy API from serving.
+        try:
+            await seed_platform_admin()
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Could not seed the platform administrator: %s", exc)
+            logger.debug("Seed error", exc_info=True)
     for problem in settings.insecure_settings():
         # Loud, not fatal: refusing to boot would take a running platform down
         # over a setting that may be deliberate. One line per problem, at the
@@ -91,9 +102,19 @@ if _cors_any_origin and settings.is_production:
         "to the real frontend origins."
     )
 
+# A Flutter web debug server picks a fresh port on every run, so no fixed list
+# can name it and a developer would meet "Disallowed CORS origin" instead of
+# their app. Outside production any loopback origin is accepted; production is
+# held to BACKEND_CORS_ORIGINS alone.
+_cors_origin_regex = (
+    None if settings.is_production
+    else r"http://(localhost|127\.0\.0\.1)(:\d+)?"
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.BACKEND_CORS_ORIGINS,
+    allow_origin_regex=_cors_origin_regex,
     allow_credentials=not _cors_any_origin,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -24,6 +24,15 @@ class PartnerOut(BaseModel):
     joined_at: Optional[datetime] = None
     invited_at: Optional[datetime] = None
     open_tasks: int = 0
+    invite_token: Optional[str] = None
+    invite_link: Optional[str] = None
+    invite_expires_in_days: Optional[int] = None
+
+
+class InviteResent(BaseModel):
+    detail: str
+    invite_token: Optional[str] = None
+    invite_link: Optional[str] = None
 
 
 class SeatUsage(BaseModel):

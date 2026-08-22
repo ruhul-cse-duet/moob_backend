@@ -262,6 +262,7 @@ class AuditAction(str, Enum):
     CASE_STAGE_CHANGED = "case_stage_changed"
     DATA_EXPORT_REQUESTED = "data_export_requested"
     DATA_DELETION_REQUESTED = "data_deletion_requested"
+    DATA_REQUEST_HANDLED = "data_request_handled"
     ADMIN_ACTION = "admin_action"
 
 

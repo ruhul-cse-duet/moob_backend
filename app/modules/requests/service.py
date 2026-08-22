@@ -16,6 +16,7 @@ from app.schemas.common import PageParams
 from app.services.events import log_activity, notify
 from app.services.openai_service import suggest_required_documents
 from app.services.pagination import paginate
+from app.services import storage
 
 
 async def _get(db, request_id: str) -> Dict[str, Any]:
@@ -52,7 +53,9 @@ async def create_request(db, user: CurrentUser, data) -> Dict[str, Any]:
         "client_notes": data.client_notes,
         "preferred_appointment": data.preferred_appointment,
         "review_notes": None,
-        "status": RequestStatus.NEW.value if not data.is_draft else "draft",
+        # A draft is a NEW request flagged as one — "draft" is not a status
+        # the rest of the API (or its enum) knows about.
+        "status": RequestStatus.NEW.value,
         "client_id": user.id,
         "client_name": user.raw.get("full_name"),
         "consultant_id": consultant_id,
@@ -94,29 +97,46 @@ async def get_client_dashboard(db, user: CurrentUser) -> Dict[str, Any]:
     for r in req_list:
         await _attach_document_counts(db, r)
 
-    # Active hero request
-    hero_req = req_list[0] if req_list else None
+    # Active hero request: the newest one still being worked, falling back to
+    # the newest overall once everything is closed.
+    hero_req = next((r for r in req_list if r.get("status") != RequestStatus.COMPLETED.value), None)
+    if hero_req is None:
+        hero_req = req_list[0] if req_list else None
+
     active_hero = None
     action_next = None
+    pending_documents = sum(r.get("documents_action_required", 0) for r in req_list)
 
     if hero_req:
         total = hero_req.get("documents_total", 0)
         approved = hero_req.get("documents_approved", 0)
-        progress = int((approved / total * 100)) if total > 0 else 45
         active_hero = {
             "request_id": hero_req["id"],
             "reference": hero_req["reference"],
             "visa_type": hero_req["visa_type"],
             "status": hero_req["status"],
-            "overall_progress": progress,
+            "overall_progress": int(approved / total * 100) if total > 0 else 0,
         }
 
-        needed = total - approved
-        action_next = {
-            "type": "upload_documents",
-            "title": f"Upload {needed if needed > 0 else 5} requested document",
-            "action_url": f"/documents?request_id={hero_req['id']}",
-        }
+        needed = hero_req.get("documents_action_required", 0)
+        if needed > 0:
+            action_next = {
+                "type": "upload_documents",
+                "title": f"Upload {needed} requested document" + ("s" if needed != 1 else ""),
+                "action_url": f"/documents?request_id={hero_req['id']}",
+            }
+        elif hero_req.get("status") == RequestStatus.COMPLETED.value:
+            action_next = {
+                "type": "view_outcome",
+                "title": "Your consultation summary is ready",
+                "action_url": f"/requests/{hero_req['id']}",
+            }
+        else:
+            action_next = {
+                "type": "wait",
+                "title": "Nothing to do — we will let you know",
+                "action_url": None,
+            }
 
     # Format list for home screen cards
     formatted_requests = []
@@ -130,23 +150,21 @@ async def get_client_dashboard(db, user: CurrentUser) -> Dict[str, Any]:
             "destination_country": r.get("destination_country", ""),
             "created_at": r.get("created_at"),
             "purpose": r.get("purpose", ""),
+            "is_draft": r.get("is_draft", False),
+            "documents_total": r.get("documents_total", 0),
+            "documents_approved": r.get("documents_approved", 0),
+            "documents_awaiting_review": r.get("documents_awaiting_review", 0),
+            "documents_action_required": r.get("documents_action_required", 0),
         })
 
-    # Recent activities
+    # Recent activity on this client's own requests, newest first.
+    request_ids = [r["id"] for r in req_list]
     recent_activities = []
-    if "activity_logs" in await db.list_collection_names():
-        act_cursor = db.activity_logs.find({"actor_id": client_id}).sort("created_at", -1).limit(5)
-        async for act in act_cursor:
-            recent_activities.append({
-                "message": f"Your {act.get('action')} {act.get('subject', '')}".strip(),
-                "time": "Just now",
-            })
-
-    if not recent_activities:
-        recent_activities = [
-            {"message": "Your consent and authorization have been recorded.", "time": "Just now"},
-            {"message": "Your profile is ready. You can now start an immigration request.", "time": "Yesterday"},
-        ]
+    act_cursor = db.activities.find(
+        {"$or": [{"actor_id": client_id}, {"request_id": {"$in": request_ids}}]}
+    ).sort("created_at", -1).limit(6)
+    async for act in act_cursor:
+        recent_activities.append(serialize(act))
 
     return {
         "client_name": client_name,
@@ -155,6 +173,7 @@ async def get_client_dashboard(db, user: CurrentUser) -> Dict[str, Any]:
         "action_next_step": action_next,
         "my_requests": formatted_requests,
         "recent_activities": recent_activities,
+        "pending_documents_count": pending_documents,
     }
 
 
@@ -272,7 +291,7 @@ async def get_request(db, user: CurrentUser, request_id: str) -> Dict[str, Any]:
             "status": d_st,
             "status_badge": d_badge,
             "description": d.get("why") or d.get("description") or f"Your {d.get('name', 'document').lower()} requirement.",
-            "due_date": d.get("due_date") or "Nov 15, 2026",
+            "due_date": d.get("due_date"),
             "submitted_at": d.get("updated_at") or d.get("created_at"),
             "allow_upload": d_st in [DocumentStatus.UPLOAD_NEEDED.value, DocumentStatus.NEEDS_REUPLOAD.value],
             "file": d.get("file"),
@@ -298,7 +317,65 @@ async def update_request(db, user: CurrentUser, request_id: str, data) -> Dict[s
     payload = {k: v for k, v in data.model_dump(exclude_unset=True).items() if v is not None}
     payload["updated_at"] = utcnow()
     await db.requests.update_one({"_id": oid(request_id)}, {"$set": payload})
+
+    # Clearing the draft flag is how a draft is submitted, so it earns the same
+    # notification and activity entry a fresh submission would.
+    if doc.get("is_draft") and payload.get("is_draft") is False:
+        await notify(db, user_ids=[doc.get("consultant_id")], type=NotificationType.REQUEST_SUBMITTED,
+                     title=f"{doc.get('client_name')} submitted a request",
+                     body=f"{payload.get('visa_type') or doc['visa_type']} · {doc['reference']}",
+                     data={"request_id": request_id})
+        await log_activity(db, actor_id=doc["client_id"], actor_name=doc.get("client_name") or "Client",
+                           action="submitted a request", subject=doc["reference"],
+                           request_id=request_id)
     return serialize(await _get(db, request_id))
+
+
+async def add_attachment(db, user: CurrentUser, request_id: str, file) -> Dict[str, Any]:
+    """Supporting material the client sends along with the request itself.
+
+    Kept apart from `documents`: those are the checklist the consultant asked
+    for and each carries a review state; these are just context.
+    """
+    doc = await _get(db, request_id)
+    if user.role == Role.CLIENT and doc["client_id"] != user.id:
+        raise Forbidden("This request is not yours")
+
+    meta = await storage.save_upload(
+        db, file,
+        metadata={"request_id": request_id, "uploaded_by": user.id},
+    )
+    meta["uploaded_at"] = utcnow()
+    await db.requests.update_one(
+        {"_id": oid(request_id)},
+        {"$push": {"attached_files": meta}, "$set": {"updated_at": utcnow()}},
+    )
+    return meta
+
+
+async def remove_attachment(db, user: CurrentUser, request_id: str, file_id: str) -> None:
+    doc = await _get(db, request_id)
+    if user.role == Role.CLIENT and doc["client_id"] != user.id:
+        raise Forbidden("This request is not yours")
+
+    meta = next((f for f in doc.get("attached_files", []) if f.get("file_id") == file_id), None)
+    if not meta:
+        raise NotFound("Attachment not found")
+    await db.requests.update_one(
+        {"_id": oid(request_id)},
+        {"$pull": {"attached_files": {"file_id": file_id}}, "$set": {"updated_at": utcnow()}},
+    )
+    await storage.delete_file(db, file_id, meta.get("bucket", storage.DOCUMENTS_BUCKET))
+
+
+async def get_attachment(db, user: CurrentUser, request_id: str, file_id: str) -> Dict[str, Any]:
+    doc = await _get(db, request_id)
+    if user.role == Role.CLIENT and doc["client_id"] != user.id:
+        raise Forbidden("This request is not yours")
+    meta = next((f for f in doc.get("attached_files", []) if f.get("file_id") == file_id), None)
+    if not meta:
+        raise NotFound("Attachment not found")
+    return meta
 
 
 async def request_documents(db, user: CurrentUser, request_id: str, data) -> Dict[str, Any]:
@@ -316,6 +393,7 @@ async def request_documents(db, user: CurrentUser, request_id: str, data) -> Dic
             "name": item.name,
             "category": item.category.value,
             "why": item.why,
+            "is_required": item.is_required,
             "status": DocumentStatus.UPLOAD_NEEDED.value,
             "due_date": item.due_date or (now + timedelta(days=14)),
             "file": None,
@@ -358,9 +436,7 @@ async def save_review_notes(db, user: CurrentUser, request_id: str, notes: str) 
     return {"detail": "Notes saved"}
 
 
-async def complete_consultation(db, user: CurrentUser, request_id: str,
-                                case_type: Optional[str] = None,
-                                deadline=None) -> Dict[str, Any]:
+async def complete_consultation(db, user: CurrentUser, request_id: str, data) -> Dict[str, Any]:
     """Unlocked only when every required document is approved; opens the case."""
     doc = await _get(db, request_id)
     if doc.get("case_id"):
@@ -377,6 +453,8 @@ async def complete_consultation(db, user: CurrentUser, request_id: str,
 
     seq = await next_sequence(db, "case", start=80)
     now = utcnow()
+    case_type = data.case_type
+    deadline = data.deadline
     case = {
         "reference": build_reference("CAS", seq),
         "request_id": request_id,
@@ -400,7 +478,12 @@ async def complete_consultation(db, user: CurrentUser, request_id: str,
 
     await db.requests.update_one(
         {"_id": oid(request_id)},
-        {"$set": {"status": RequestStatus.COMPLETED.value, "case_id": case_id, "updated_at": now}},
+        {"$set": {
+            "status": RequestStatus.COMPLETED.value,
+            "case_id": case_id,
+            "outcome": {**data.outcome.model_dump(), "completed_at": now},
+            "updated_at": now,
+        }},
     )
     await db.documents.update_many({"request_id": request_id}, {"$set": {"case_id": case_id}})
     await notify(db, user_ids=[doc["client_id"]], type=NotificationType.CASE_STAGE_CHANGED,
@@ -410,7 +493,17 @@ async def complete_consultation(db, user: CurrentUser, request_id: str,
     await log_activity(db, actor_id=user.id, actor_name=user.raw.get("full_name", ""),
                        action="completed the consultation for", subject=doc["reference"],
                        request_id=request_id, case_id=case_id)
-    return serialize({**case, "_id": oid(case_id)})
+    return {**serialize({**case, "_id": oid(case_id)}), "case_id": case_id}
+
+
+# What the queue card says about a request, per status.
+_QUEUE_BADGE = {
+    RequestStatus.NEW.value: "New request",
+    RequestStatus.WAITING_FOR_CLIENT.value: "Waiting for documents",
+    RequestStatus.DOCUMENTS_RECEIVED.value: "Documents received",
+    RequestStatus.UNDER_REVIEW.value: "Under review",
+    RequestStatus.COMPLETED.value: "Completed",
+}
 
 
 async def get_consultant_dashboard(db, user: CurrentUser) -> Dict[str, Any]:
@@ -442,7 +535,7 @@ async def get_consultant_dashboard(db, user: CurrentUser) -> Dict[str, Any]:
     async for req in cursor:
         client_name = req.get("client_name") or "Client"
         status_val = req.get("status", "new")
-        badge_label = "Under Review" if status_val == "under_review" else "Waiting for documents"
+        badge_label = _QUEUE_BADGE.get(status_val, status_val.replace("_", " ").title())
         open_reqs.append({
             "id": str(req["_id"]),
             "reference": req.get("reference", ""),

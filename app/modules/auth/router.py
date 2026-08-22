@@ -2,6 +2,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Body, Depends, Header, Query, Request, status
 
+from app.core.config import settings
 from app.core.deps import CurrentUser, get_current_user
 from app.core.enums import BillingCycle, PlanCode
 from app.core.utils import client_ip
@@ -52,6 +53,23 @@ async def signup_resend(token: str = Depends(_bearer)):
 @router.get("/plans", response_model=List[s.PlanOut], summary="Step 5 of 6 · Plan catalogue")
 async def list_plans():
     return list((await plan_catalogue()).values())
+
+
+@router.get("/payment-config", response_model=s.PaymentConfig,
+            summary="What the client needs to tokenise a card")
+async def payment_config():
+    """The publishable key is meant to be public — it can only create tokens.
+
+    When card_tokenization is false the client must not collect a card at all:
+    Stripe refuses raw card numbers, so the form would only ever fail.
+    """
+    from app.services import stripe_service
+    key = settings.STRIPE_PUBLISHABLE_KEY
+    return {
+        "publishable_key": key or None,
+        "card_tokenization": bool(key) and stripe_service.configured(),
+        "currency": settings.STRIPE_CURRENCY,
+    }
 
 
 @router.get("/plans/{plan_code}/summary", response_model=s.OrderSummary,
@@ -220,13 +238,13 @@ async def platform_login(payload: s.PlatformLoginRequest, request: Request):
 
 
 @router.post("/login", response_model=s.LoginResponse,
-             summary="Sign in after selecting a role (consultant / partner / client)")
+             summary="Sign in with an email and password")
 async def login(payload: s.LoginRequest, request: Request):
     return await service.login(payload.email, payload.password, payload.role, _session(request))
 
 
 @router.post("/login/2fa", response_model=s.TokenPair,
-             summary="Second leg of a two-factor sign-in (same role as step 1)")
+             summary="Second leg of a two-factor sign-in")
 async def login_2fa(payload: s.TwoFactorVerify, request: Request):
     return await service.verify_login_2fa(
         payload.email, payload.code, payload.role, _session(request)

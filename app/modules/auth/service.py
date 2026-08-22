@@ -7,8 +7,10 @@ from app.core.enums import (
     BillingCycle,
     LOGIN_PORTAL_ROLE_MAP,
     LoginPortalRole,
+    NotificationType,
     OtpPurpose,
     PlanCode,
+    RequestStatus,
     Role,
     TenantStatus,
     UserStatus,
@@ -23,14 +25,22 @@ from app.core.security import (
     verify_password,
 )
 from app.core.config import settings
-from app.core.utils import oid, random_token, serialize, slugify_db, utcnow
-from app.db.indexes import ensure_tenant_indexes
+from app.core.utils import (
+    build_reference,
+    oid,
+    random_token,
+    serialize,
+    slugify_db,
+    utcnow,
+)
+from app.db.indexes import ensure_tenant_indexes, next_sequence
 from app.db.mongo import drop_tenant_db, platform_db, tenant_db
 from app.modules.subscriptions.plans import order_summary, plan_by_code
 from app.services import audit, throttle
 from app.services import invites
 from app.services import otp as otp_service
 from app.services import stripe_service
+from app.services.events import notify
 from app.services.ownership import consultant_map, link_partner_to_consultant
 
 
@@ -376,6 +386,18 @@ async def _take_payment(signup: Dict[str, Any], data) -> Dict[str, Any]:
                 "message": ("Recurring billing is not configured. Set a real "
                             "STRIPE_SECRET_KEY to accept subscriptions.")}
 
+    # A live Stripe account rejects raw card numbers outright, so failing here
+    # with an actionable message beats forwarding the card and relaying
+    # Stripe's "sending credit card numbers directly is unsafe".
+    if stripe_service.configured():
+        return {
+            "success": False, "customer_id": None, "subscription_id": None,
+            "reference": None,
+            "message": ("This workspace bills through Stripe, which will not "
+                        "accept a raw card number. Tokenise the card in the "
+                        "client and send payment_method_id instead."),
+        }
+
     charge = charge_card(data, plan["total_due_today"], idempotency_key=idempotency_key)
     return {**charge, "customer_id": None, "subscription_id": None}
 
@@ -466,12 +488,16 @@ async def _store_refresh(user_id: str, tenant_id: Optional[str],
     return token
 
 
-async def login(email: str, password: str, role: LoginPortalRole,
+async def login(email: str, password: str, role: Optional[LoginPortalRole] = None,
                 session: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Sign in after Select Your Role (consultant / partner / client).
+    """Sign in with an email and a password.
 
-    Platform super admins use ``POST /auth/platform/login`` instead — this
-    endpoint rejects platform staff so the role picker flow stays clean.
+    ``role`` is what the caller *claims* the account is, from a Select Your Role
+    screen; sending it makes this endpoint refuse an account of any other kind.
+    Callers with a single sign-in box omit it, and the account's own role — which
+    the directory already records — is used instead. A platform administrator
+    signing in without a claimed role is handed to ``platform_login``, so one
+    box can be the whole front door.
     """
     db = platform_db()
     email = email.lower().strip()
@@ -486,24 +512,25 @@ async def login(email: str, password: str, role: LoginPortalRole,
         await audit.record(action=AuditAction.LOGIN_FAILED, actor_email=email,
                            ip=ip,
                            user_agent=(session or {}).get("user_agent"),
-                           meta={"role": role.value})
+                           meta={"role": role.value if role else None})
         raise Unauthorized(detail)
 
     if await db.platform_admins.find_one({"email": email}):
-        raise Unauthorized(
-            "Use the Platform administration sign-in for this account"
-        )
+        if role is not None:
+            raise Unauthorized(
+                "Use the Platform administration sign-in for this account"
+            )
+        return await platform_login(email, password, session=session)
 
     entry = await db.user_directory.find_one({"email": email})
     if not entry:
         await _fail()
 
-    allowed_roles = LOGIN_PORTAL_ROLE_MAP[role]
     try:
         entry_role = Role(entry["role"])
     except (KeyError, ValueError):
         await _fail()
-    if entry_role not in allowed_roles:
+    if role is not None and entry_role not in LOGIN_PORTAL_ROLE_MAP[role]:
         label = role.value.replace("_", " ")
         await _fail(f"This account is not registered as a {label}")
 
@@ -517,7 +544,7 @@ async def login(email: str, password: str, role: LoginPortalRole,
         await _fail()
 
     user_role = Role(user["role"])
-    if user_role not in allowed_roles:
+    if role is not None and user_role not in LOGIN_PORTAL_ROLE_MAP[role]:
         label = role.value.replace("_", " ")
         await _fail(f"This account is not registered as a {label}")
 
@@ -554,13 +581,13 @@ async def login(email: str, password: str, role: LoginPortalRole,
         "ip": ip,
         "user_agent": (session or {}).get("user_agent"),
         "successful": True,
-        "portal_role": role.value,
+        "portal_role": (role.value if role else user_role.value),
         "created_at": utcnow(),
     })
     await audit.record(action=AuditAction.LOGIN, actor_id=str(user["_id"]),
                        actor_email=email, actor_role=user["role"],
                        tenant_id=entry["tenant_id"], ip=(session or {}).get("ip"),
-                       meta={"portal_role": role.value})
+                       meta={"portal_role": (role.value if role else user_role.value)})
 
     if user.get("two_factor_enabled"):
         await otp_service.issue_otp(email=email, purpose=OtpPurpose.LOGIN,
@@ -617,9 +644,14 @@ async def platform_login(email: str, password: str, trust_device: bool = True,
     return tokens
 
 
-async def verify_login_2fa(email: str, code: str, role: LoginPortalRole,
+async def verify_login_2fa(email: str, code: str,
+                           role: Optional[LoginPortalRole] = None,
                            session: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Second leg of a 2FA sign-in. Re-checks the selected portal role. [INFERRED]"""
+    """Second leg of a 2FA sign-in.
+
+    Re-checks the claimed portal role when step one sent one, so the second leg
+    cannot be used to slip into a portal the first leg refused.
+    """
     db = platform_db()
     email = email.lower().strip()
     await otp_service.verify_otp(email=email, purpose=OtpPurpose.LOGIN, code=code)
@@ -627,9 +659,10 @@ async def verify_login_2fa(email: str, code: str, role: LoginPortalRole,
     entry = await db.user_directory.find_one({"email": email})
     if not entry:
         raise Unauthorized("Account not found")
-    allowed_roles = LOGIN_PORTAL_ROLE_MAP[role]
+    # Only a caller that named a portal in step one gets held to it here.
+    allowed_roles = LOGIN_PORTAL_ROLE_MAP[role] if role else None
     try:
-        if Role(entry["role"]) not in allowed_roles:
+        if allowed_roles and Role(entry["role"]) not in allowed_roles:
             raise Unauthorized(f"This account is not registered as a {role.value}")
     except (KeyError, ValueError) as exc:
         raise Unauthorized("Account not found") from exc
@@ -642,7 +675,7 @@ async def verify_login_2fa(email: str, code: str, role: LoginPortalRole,
         user_role = Role(user["role"])
     except (KeyError, ValueError) as exc:
         raise Unauthorized("Account not found") from exc
-    if user_role not in allowed_roles:
+    if allowed_roles and user_role not in allowed_roles:
         raise Unauthorized(f"This account is not registered as a {role.value}")
     tenant = await db.tenants.find_one({"_id": oid(entry["tenant_id"])})
     await tdb.users.update_one({"_id": user["_id"]}, {"$set": {"last_login_at": utcnow()}})
@@ -1119,19 +1152,37 @@ async def finalize_client_signup(token: str, data, session: Optional[Dict[str, A
         "created_at": now,
     })
 
-    # Create immigration request (e.g. REQ-699)
-    req_number = f"REQ-{random_token(4).upper()}"
+    # The goal captured at sign-up becomes the client's first request, in the
+    # same shape POST /requests writes — otherwise it would read as an untitled
+    # request with no reference everywhere it appears.
+    seq = await next_sequence(db, "request", start=200)
+    visa_type = imm.get("preferred_immigration_type") or "Immigration Advice"
     request_doc = {
-        "request_number": req_number,
-        "client_id": user_id,
-        "consultant_id": consultant_id,
-        "immigration_type": imm.get("preferred_immigration_type") or "Immigration Advice",
+        "reference": build_reference("REQ", seq),
+        "visa_type": visa_type,
+        "destination_country": imm.get("destination_country") or "",
+        "origin_country": imm.get("country_of_residence"),
+        "purpose": f"{visa_type} enquiry raised during registration.",
+        "additional_information": None,
+        "client_notes": None,
+        "preferred_appointment": "Flexible",
+        "review_notes": None,
         "status": RequestStatus.NEW.value,
-        "stage": "consultant_review",
+        "client_id": user_id,
+        "client_name": signup.get("full_name"),
+        "consultant_id": consultant_id,
+        "attached_files": [],
+        "is_draft": False,
+        "case_id": None,
         "created_at": now,
         "updated_at": now,
     }
-    await tdb.requests.insert_one(request_doc)
+    request_id = str((await tdb.requests.insert_one(request_doc)).inserted_id)
+
+    await notify(tdb, user_ids=[consultant_id], type=NotificationType.REQUEST_SUBMITTED,
+                 title=f"{signup.get('full_name')} joined and raised a request",
+                 body=f"{visa_type} · {request_doc['reference']}",
+                 data={"request_id": request_id})
 
     await db.signups.update_one(
         {"_id": signup["_id"]},
@@ -1147,7 +1198,8 @@ async def finalize_client_signup(token: str, data, session: Optional[Dict[str, A
         "token_pair": tokens,
         "request_summary": {
             "status": "Waiting for review",
-            "request_number": req_number,
+            "request_id": request_id,
+            "request_number": request_doc["reference"],
             "organization_name": tenant["name"] if tenant else "",
             "consultant_name": (consultant or {}).get("full_name") or "",
             "message": f"Your account is created and linked to {tenant['name'] if tenant else ''}. { (consultant or {}).get('full_name', '') } has received your immigration request.",

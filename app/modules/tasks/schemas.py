@@ -69,10 +69,12 @@ class TaskSummary(BaseModel):
     in_progress: int
     submitted: int
     completed: int
+    overdue: int = 0
 
 
 class PartnerDashboardOut(BaseModel):
     partner_id: str
+    partner_name: Optional[str] = None
     consultant_id: Optional[str] = None
     summary: TaskSummary
     active_tasks: List[TaskOut]

@@ -45,7 +45,7 @@ async def seats(user: CurrentUser = Depends(require_consultant),
     return await service.seat_usage(db, tenant)
 
 
-@router.post("/{partner_id}/resend", response_model=Message)
+@router.post("/{partner_id}/resend", response_model=s.InviteResent)
 async def resend(partner_id: str,
                  user: CurrentUser = Depends(require_consultant),
                  tenant: dict = Depends(require_active_tenant),
