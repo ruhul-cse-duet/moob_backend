@@ -96,15 +96,11 @@ async def request_context(request: Request, call_next):
     return response
 
 
-# `allow_credentials` with a wildcard origin is rejected by every browser and
-# would silently break the cookie-less bearer flow the apps rely on. Send
-# credentials only when the operator has named the origins.
+# `allow_credentials` with a wildcard origin is rejected by every browser, and
+# turning it on would silently break the cookie-less bearer flow the apps rely
+# on. Credentials are sent only when the operator has named the origins - which
+# is also what makes a wildcard an acceptable default for a mobile-first API.
 _cors_any_origin = settings.cors_allows_any_origin
-if _cors_any_origin and settings.is_production:
-    logger.error(
-        "CORS is open to every origin in production. Set BACKEND_CORS_ORIGINS "
-        "to the real frontend origins."
-    )
 
 # A Flutter web debug server picks a fresh port on every run, so no fixed list
 # can name it and a developer would meet "Disallowed CORS origin" instead of
@@ -126,6 +122,15 @@ app.add_middleware(
 )
 
 register_exception_handlers(app)
+
+# Stated plainly at boot: which browsers may call this, and whether cookies
+# ride along. Not a warning - the wildcard is a supported configuration - but
+# the one CORS fact worth being able to read back out of a deploy log.
+logger.info(
+    "CORS: %s, credentials %s",
+    "all origins" if _cors_any_origin else ", ".join(settings.BACKEND_CORS_ORIGINS),
+    "disabled" if _cors_any_origin else "enabled",
+)
 
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 
