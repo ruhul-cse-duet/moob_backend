@@ -148,7 +148,11 @@ async def approve(db, user: CurrentUser, document_id: str) -> Dict[str, Any]:
     )
     await notify(db, user_ids=[doc["client_id"]], type=NotificationType.DOCUMENT_APPROVED,
                  title=f"{doc['name']} approved", body="No further action needed.",
-                 data={"document_id": document_id})
+                 # Enough to open something: the app has no screen for a
+                 # document on its own, so a bare document_id is a dead tap.
+                 data={"document_id": document_id,
+                       "request_id": doc.get("request_id"),
+                       "case_id": doc.get("case_id")})
     await log_activity(db, actor_id=user.id, actor_name=user.raw.get("full_name", ""),
                        action="approved", subject=doc["name"],
                        request_id=doc.get("request_id"), case_id=doc.get("case_id"))
@@ -169,7 +173,9 @@ async def reject(db, user: CurrentUser, document_id: str, feedback: str) -> Dict
     )
     await notify(db, user_ids=[doc["client_id"]], type=NotificationType.DOCUMENT_REJECTED,
                  title=f"{doc['name']} needs a re-upload", body=feedback,
-                 data={"document_id": document_id})
+                 data={"document_id": document_id,
+                       "request_id": doc.get("request_id"),
+                       "case_id": doc.get("case_id")})
     await log_activity(db, actor_id=user.id, actor_name=user.raw.get("full_name", ""),
                        action="returned to the client", subject=doc["name"],
                        request_id=doc.get("request_id"), case_id=doc.get("case_id"))

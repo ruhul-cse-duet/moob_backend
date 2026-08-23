@@ -27,6 +27,7 @@ from app.services import storage
 from app.services.events import notify
 from app.services.ownership import assigned_client_ids
 from app.services.pagination import paginate
+from app.services.realtime import publish_message
 
 ATTACHMENTS_BUCKET = "message_attachments"
 
@@ -268,7 +269,13 @@ async def send(db, user: CurrentUser, thread_id: str, body: str,
                      body=_preview(body, attachment),
                      data={"thread_id": thread_id, "message_id": message_id})
 
-    return serialize({**doc, "_id": result.inserted_id})
+    sent = serialize({**doc, "_id": result.inserted_id})
+
+    # After the write, and deliberately unable to fail it: the message is
+    # already saved, so a socket that is down costs live delivery and nothing
+    # else. The app falls back to what it fetches when the screen opens.
+    await publish_message(sent, recipients)
+    return sent
 
 
 def _preview(body: str, attachment: Optional[Dict[str, Any]]) -> str:
