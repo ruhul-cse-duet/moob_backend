@@ -1,8 +1,14 @@
+"""Conversations between the people working on a case.
+
+The rules about who may message whom live in `service.contact_ids`; every route
+here goes through it rather than trusting the ids it was handed.
+"""
 from typing import List, Optional
 
-from fastapi import APIRouter, Body, Depends, Query
+from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorDatabase
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.core.deps import (
     CurrentUser,
@@ -11,16 +17,14 @@ from app.core.deps import (
     page_params,
     require_active_tenant,
 )
-from app.core.exceptions import Forbidden, NotFound
-from app.core.utils import oid, serialize, utcnow
+from app.modules.messages import service
 from app.schemas.common import PageParams
-from app.services.pagination import paginate
+from app.services import storage
 
 router = APIRouter(prefix="/messages", tags=["Messages"],
                    dependencies=[Depends(require_active_tenant)])
 
 
-# ─── Schemas ───────────────────────────────────────────────────────────
 class ThreadCreate(BaseModel):
     participant_ids: List[str]
     case_id: Optional[str] = None
@@ -28,165 +32,85 @@ class ThreadCreate(BaseModel):
 
 
 class SendMessage(BaseModel):
-    body: str
-    attachment_url: Optional[str] = None
-    attachment_type: Optional[str] = None  # image, pdf, audio
+    body: str = Field(default="", max_length=4000)
 
 
-# ─── Thread CRUD ───────────────────────────────────────────────────────
-@router.post("/threads", status_code=201, summary="Create or reuse a conversation thread")
+@router.get("/contacts", summary="Who I am allowed to message")
+async def contacts(user: CurrentUser = Depends(get_current_user),
+                   db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+    """A client sees their consultant; a consultant sees their clients and
+    partners. Existing conversations come back attached, so the app can open
+    one without a second call."""
+    return await service.contacts(db, user)
+
+
+@router.get("/unread", summary="Unread messages across every conversation")
+async def unread(user: CurrentUser = Depends(get_current_user),
+                 db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+    return {"unread": await service.unread_total(db, user)}
+
+
+@router.post("/threads", status_code=201, summary="Open, or reuse, a conversation")
 async def create_thread(payload: ThreadCreate,
                         user: CurrentUser = Depends(get_current_user),
                         db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
-    participants = sorted(set(payload.participant_ids + [user.id]))
-    existing = await db.threads.find_one({"participant_ids": participants,
-                                          "case_id": payload.case_id})
-    if existing:
-        return serialize(existing)
-    now = utcnow()
-    consultant_id = user.consultant_id or user.id
-    doc = {
-        "participant_ids": participants,
-        "consultant_id": consultant_id,
-        "case_id": payload.case_id,
-        "subject": payload.subject,
-        "last_message": None,
-        "last_message_at": None,
-        "unread_counts": {pid: 0 for pid in participants},
-        "created_at": now,
-        "updated_at": now,
-    }
-    result = await db.threads.insert_one(doc)
-    return serialize({**doc, "_id": result.inserted_id})
+    return await service.open_thread(db, user, payload.participant_ids,
+                                     payload.case_id, payload.subject)
 
 
-@router.get("/threads", summary="List all conversation threads for the current user")
+@router.get("/threads", summary="My conversations, most recent first")
 async def list_threads(params: PageParams = Depends(page_params),
                        user: CurrentUser = Depends(get_current_user),
                        db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
-    page = await paginate(db, "threads", {"participant_ids": user.id}, params,
-                          sort=[("updated_at", -1)])
-    # Enrich each thread with participant details for the mobile UI
-    for item in page.get("items", []):
-        enriched = []
-        for pid in item.get("participant_ids", []):
-            p = await db.users.find_one({"_id": oid(pid)})
-            if p:
-                enriched.append({
-                    "id": str(p["_id"]),
-                    "full_name": p.get("full_name", ""),
-                    "avatar_url": p.get("avatar_url"),
-                    "role": p.get("role"),
-                    "is_online": p.get("is_online", False),
-                })
-        item["participants"] = enriched
-    return page
+    return await service.list_threads(db, user, params)
 
 
-@router.get("/threads/{thread_id}", summary="Get messages in a conversation thread")
+@router.get("/threads/{thread_id}", summary="The messages in one conversation")
 async def thread_messages(thread_id: str,
                           params: PageParams = Depends(page_params),
                           user: CurrentUser = Depends(get_current_user),
                           db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
-    thread = await db.threads.find_one({"_id": oid(thread_id)})
-    if not thread:
-        raise NotFound("Thread not found")
-    if user.id not in thread["participant_ids"]:
-        raise Forbidden("You are not part of this conversation")
-
-    # Mark all messages as read by this user
-    await db.messages.update_many(
-        {"thread_id": thread_id, "read_by": {"$ne": user.id}},
-        {"$addToSet": {"read_by": user.id}},
-    )
-    # Reset unread count for this user
-    await db.threads.update_one(
-        {"_id": oid(thread_id)},
-        {"$set": {f"unread_counts.{user.id}": 0}},
-    )
-
-    # Enrich with participant profile for header display
-    enriched_participants = []
-    for pid in thread["participant_ids"]:
-        p = await db.users.find_one({"_id": oid(pid)})
-        if p:
-            enriched_participants.append({
-                "id": str(p["_id"]),
-                "full_name": p.get("full_name", ""),
-                "avatar_url": p.get("avatar_url"),
-                "role": p.get("role"),
-                "is_online": p.get("is_online", False),
-            })
-
-    messages = await paginate(db, "messages", {"thread_id": thread_id}, params,
-                              sort=[("created_at", 1)])
-    return {
-        "thread": serialize(thread),
-        "participants": enriched_participants,
-        "consultant_id": thread.get("consultant_id"),
-        **messages,
-    }
+    return await service.thread_messages(db, user, thread_id, params)
 
 
-@router.post("/threads/{thread_id}", status_code=201, summary="Send a message in a conversation")
+@router.post("/threads/{thread_id}", status_code=201, summary="Send a message")
 async def send_message(thread_id: str,
                        payload: SendMessage,
                        user: CurrentUser = Depends(get_current_user),
                        db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
-    thread = await db.threads.find_one({"_id": oid(thread_id)})
-    if not thread:
-        raise NotFound("Thread not found")
-    if user.id not in thread["participant_ids"]:
-        raise Forbidden("You are not part of this conversation")
-    now = utcnow()
-    doc = {
-        "thread_id": thread_id,
-        "sender_id": user.id,
-        "sender_name": user.raw.get("full_name", ""),
-        "sender_avatar": user.raw.get("avatar_url"),
-        "sender_role": user.raw.get("role"),
-        "body": payload.body,
-        "attachment_url": payload.attachment_url,
-        "attachment_type": payload.attachment_type,
-        "read_by": [user.id],
-        "delivered": True,
-        "created_at": now,
-    }
-    result = await db.messages.insert_one(doc)
+    return await service.send(db, user, thread_id, payload.body)
 
-    # Update thread metadata for listing
-    unread_inc = {f"unread_counts.{pid}": 1
-                  for pid in thread["participant_ids"] if pid != user.id}
-    await db.threads.update_one(
-        {"_id": oid(thread_id)},
-        {
-            "$set": {
-                "last_message": payload.body[:140],
-                "last_message_at": now,
-                "updated_at": now,
-            },
-            "$inc": unread_inc,
+
+@router.post("/threads/{thread_id}/attachment", status_code=201,
+             summary="Send a photo or a document")
+async def send_attachment(thread_id: str,
+                          file: UploadFile = File(...),
+                          body: str = Form(""),
+                          user: CurrentUser = Depends(get_current_user),
+                          db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+    """One round trip: the file is stored and posted as a message together, so
+    an upload that succeeds can never leave a message that never arrives."""
+    return await service.send_attachment(db, user, thread_id, file, body)
+
+
+@router.get("/attachments/{message_id}", summary="Download what was sent")
+async def download_attachment(message_id: str,
+                              user: CurrentUser = Depends(get_current_user),
+                              db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+    attachment = await service.attachment_for(db, user, message_id)
+    return StreamingResponse(
+        storage.stream_file(db, attachment["file_id"], service.ATTACHMENTS_BUCKET),
+        media_type=attachment.get("mime") or "application/octet-stream",
+        headers={
+            # inline: a photo shared in a chat should open, not land in Downloads.
+            "Content-Disposition":
+                f'inline; filename="{storage.safe_filename(attachment.get("name"))}"'
         },
     )
-    return serialize({**doc, "_id": result.inserted_id})
 
 
-@router.post("/threads/{thread_id}/read", summary="Mark all messages in a thread as read")
+@router.post("/threads/{thread_id}/read", summary="Mark a conversation as read")
 async def mark_read(thread_id: str,
                     user: CurrentUser = Depends(get_current_user),
                     db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
-    thread = await db.threads.find_one({"_id": oid(thread_id)})
-    if not thread:
-        raise NotFound("Thread not found")
-    if user.id not in thread["participant_ids"]:
-        raise Forbidden("You are not part of this conversation")
-    await db.messages.update_many(
-        {"thread_id": thread_id, "read_by": {"$ne": user.id}},
-        {"$addToSet": {"read_by": user.id}},
-    )
-    await db.threads.update_one(
-        {"_id": oid(thread_id)},
-        {"$set": {f"unread_counts.{user.id}": 0}},
-    )
-    return {"detail": "All messages marked as read"}
-
+    return await service.mark_read(db, user, thread_id)

@@ -22,6 +22,10 @@ ALLOWED = {
     "image/jpeg": "jpg",
     "image/png": "png",
     "image/webp": "webp",
+    # iPhones photograph in HEIC; the picker offers it, so refusing it here
+    # would fail the upload only after the person had chosen the file.
+    "image/heic": "heic",
+
     "application/msword": "doc",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
 }

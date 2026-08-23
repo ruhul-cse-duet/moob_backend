@@ -132,6 +132,18 @@ services:
       - key: STRIPE_PRICES
         value: "{}"
 
+      # ---- OTP ----
+      - key: OTP_LENGTH
+        value: "6"
+      - key: OTP_EXPIRE_MINUTES
+        value: "10"
+      # A full minute between codes. The app shows this as a countdown, so the
+      # number here is what the person watching the screen waits out.
+      - key: OTP_RESEND_COOLDOWN_SECONDS
+        value: "60"
+      - key: OTP_MAX_ATTEMPTS
+        value: "5"
+
       # ---- Logging ----
       - key: LOG_LEVEL
         value: INFO

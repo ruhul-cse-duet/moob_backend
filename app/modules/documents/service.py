@@ -3,7 +3,13 @@ from typing import Any, Dict, Optional
 from fastapi import UploadFile
 
 from app.core.deps import CurrentUser
-from app.core.enums import DocumentStatus, NotificationType, RequestStatus, Role
+from app.core.enums import (
+    CONSULTANT_ROLES,
+    DocumentStatus,
+    NotificationType,
+    RequestStatus,
+    Role,
+)
 from app.core.exceptions import BadRequest, Forbidden, NotFound
 from app.core.utils import oid, serialize, utcnow
 from app.schemas.common import PageParams
@@ -216,3 +222,58 @@ async def _sync_request_status(db, doc: Dict[str, Any]) -> None:
         new = RequestStatus.WAITING_FOR_CLIENT.value
     await db.requests.update_one({"_id": oid(rid)},
                                  {"$set": {"status": new, "updated_at": utcnow()}})
+
+
+async def delete_document(db, user: CurrentUser, document_id: str) -> Dict[str, Any]:
+    """Withdraw a document requirement, and the file behind it if there is one.
+
+    Consultants only. A client must never be able to remove a requirement they
+    have been asked to satisfy, and a partner works to a brief rather than
+    setting it - both would turn "I have not uploaded it" into "it was never
+    asked for".
+
+    An approved document is refused. It is evidence a decision was taken on,
+    and deleting it would quietly rewrite the case's history - and its progress,
+    which is now counted from these very records. Reject it first if it really
+    has to go.
+    """
+    doc = await _get(db, document_id)
+
+    if user.role not in CONSULTANT_ROLES:
+        raise Forbidden("Only a consultant can remove a document request")
+
+    owner = await _consultant_for(db, doc)
+    if user.role != Role.CONSULTANT_OWNER and owner and owner != user.id:
+        raise Forbidden("This document belongs to another consultant's client")
+
+    if doc["status"] == DocumentStatus.APPROVED.value:
+        raise BadRequest(
+            "This document is already approved. Reject it first if it needs to be removed."
+        )
+
+    # The blob outlives the record unless it is dropped here, and nothing else
+    # refers to it afterwards - GridFS would keep it for the life of the tenant.
+    stored = (doc.get("file") or {}).get("file_id")
+    if stored:
+        await storage.delete_file(db, stored, storage.DOCUMENTS_BUCKET)
+
+    await db.documents.delete_one({"_id": oid(document_id)})
+
+    if doc.get("file"):
+        # Only worth telling the client when they had actually done the work.
+        await notify(
+            db, user_ids=[doc["client_id"]],
+            type=NotificationType.DOCUMENT_REJECTED,
+            title=f"{doc['name']} is no longer required",
+            body="Your consultant has withdrawn this request.",
+            data={"request_id": doc.get("request_id"), "case_id": doc.get("case_id")},
+        )
+
+    await log_activity(db, actor_id=user.id, actor_name=user.raw.get("full_name", ""),
+                       action="removed the document request", subject=doc["name"],
+                       request_id=doc.get("request_id"), case_id=doc.get("case_id"))
+
+    # The request's status is derived from its documents, so it has to be
+    # recomputed against what is left rather than what was there.
+    await _sync_request_status(db, doc)
+    return {"id": document_id, "deleted": True, "name": doc["name"]}

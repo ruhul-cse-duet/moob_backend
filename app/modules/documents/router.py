@@ -74,6 +74,13 @@ async def download(document_id: str,
     )
 
 
+@router.delete("/{document_id}", summary="Withdraw a document request (consultant)")
+async def delete_document(document_id: str,
+                          user: CurrentUser = Depends(require_consultant),
+                          db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+    return await service.delete_document(db, user, document_id)
+
+
 @router.post("/{document_id}/approve", response_model=s.DocumentOut)
 async def approve(document_id: str,
                   user: CurrentUser = Depends(require_consultant_or_partner),
