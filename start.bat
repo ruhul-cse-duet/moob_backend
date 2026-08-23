@@ -95,7 +95,7 @@ if /i "%~1"=="test" (
 if /i "%~1"=="prod" (
     echo  [3/3] Starting in production mode on %HOST%:%PORT% ...
     echo.
-    "%PY%" -m uvicorn app.main:app --host %HOST% --port %PORT% --workers 4
+    "%PY%" -m uvicorn app.main:socket_app --host %HOST% --port %PORT% --workers 4
     goto :stopped
 )
 
@@ -107,7 +107,7 @@ echo         Health http://localhost:%PORT%/health
 echo.
 echo         Press CTRL+C to stop.
 echo.
-"%PY%" -m uvicorn app.main:app --host %HOST% --port %PORT% --reload %*
+"%PY%" -m uvicorn app.main:socket_app --host %HOST% --port %PORT% --reload %*
 
 :stopped
 echo.

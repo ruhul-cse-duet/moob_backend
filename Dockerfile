@@ -31,4 +31,6 @@ ENV FORWARDED_ALLOW_IPS=*
 
 # Shell form on purpose - $PORT has to be expanded at start, and exec keeps
 # uvicorn as PID 1 so a shutdown signal reaches it instead of the shell.
-CMD exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers
+# socket_app, not app: it wraps FastAPI and adds /socket.io beside it.
+# Serving `app` directly would leave live messaging with nothing to connect to.
+CMD exec uvicorn app.main:socket_app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers

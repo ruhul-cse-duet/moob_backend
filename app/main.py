@@ -1,5 +1,7 @@
 import logging
 import uuid
+
+import socketio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -12,6 +14,7 @@ from app.core.logging import setup_logging
 from app.db.indexes import ensure_platform_indexes
 from app.db.mongo import close, connect
 from app.db.seed import seed_platform_admin, seed_policies
+from app.services.realtime import sio
 
 setup_logging()
 logger = logging.getLogger("app.main")
@@ -133,6 +136,12 @@ logger.info(
 )
 
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
+
+
+# Socket.IO lives beside the API on the same port, at /socket.io. FastAPI keeps
+# serving everything else, so nothing about the HTTP surface changes — and a
+# client that cannot hold a socket open still works entirely over REST.
+socket_app = socketio.ASGIApp(sio, other_asgi_app=app, socketio_path="socket.io")
 
 
 @app.get("/", tags=["Health"])
