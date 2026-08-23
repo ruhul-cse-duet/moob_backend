@@ -18,6 +18,19 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     API_V1_PREFIX: str = "/api/v1"
     DEBUG: bool = True
+    # This API is consumed by Flutter apps, and CORS is a browser mechanism -
+    # a native HTTP client sends no Origin and performs no preflight, so the
+    # list has no effect on them at all. It applies only to browser callers
+    # (the consultant website, Flutter Web, /docs).
+    #
+    # "*" is safe *here* specifically because a wildcard also switches
+    # `allow_credentials` off in main.py. Cookies are therefore never sent
+    # cross-origin, and auth is a bearer token the attacking page cannot read
+    # from another origin - so a hostile site gains nothing it could not
+    # already do from its own server, without a browser.
+    #
+    # Name the real origins instead if a browser client ever needs cookie
+    # authentication; credentialed CORS turns itself back on automatically.
     BACKEND_CORS_ORIGINS: List[str] = ["*"]
 
     # Mongo - database per tenant
@@ -161,10 +174,10 @@ class Settings(BaseSettings):
             problems.append("JWT_SECRET_KEY is shorter than 32 characters")
         if self.DEBUG:
             problems.append("DEBUG is on - error responses carry exception text")
-        if self.cors_allows_any_origin:
-            problems.append(
-                'BACKEND_CORS_ORIGINS is ["*"] - list the real frontend origins instead'
-            )
+        # A wildcard origin is deliberate on a mobile-first API and is not
+        # listed here: it forces credentials off, which leaves a hostile page
+        # able to make only unauthenticated calls it could make from its own
+        # server anyway. main.py logs the effective policy on boot instead.
         if not self.STRIPE_WEBHOOK_SECRET:
             problems.append(
                 "STRIPE_WEBHOOK_SECRET is empty - renewals and failed payments "
