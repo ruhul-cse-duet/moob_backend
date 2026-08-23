@@ -91,7 +91,10 @@ class Settings(BaseSettings):
     # OTP / SMTP
     OTP_LENGTH: int = 6
     OTP_EXPIRE_MINUTES: int = 10
-    OTP_RESEND_COOLDOWN_SECONDS: int = 30
+    # A full minute between codes. Short enough not to strand someone whose
+    # first email went astray, long enough that the address cannot be used as a
+    # free mail cannon - every resend is an email sent in someone else's name.
+    OTP_RESEND_COOLDOWN_SECONDS: int = 60
     OTP_MAX_ATTEMPTS: int = 5
     SMTP_HOST: str = "localhost"
     SMTP_PORT: int = 587

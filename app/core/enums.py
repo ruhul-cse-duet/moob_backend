@@ -155,6 +155,7 @@ class NotificationType(str, Enum):
     TASK_COMPLETED = "task_completed"
     PARTNER_INVITED = "partner_invited"
     SUBSCRIPTION = "subscription"
+    MESSAGE_RECEIVED = "message_received"
     SUPPORT_TICKET = "support_ticket"
     SUPPORT_REPLY = "support_reply"
     ANNOUNCEMENT = "announcement"
