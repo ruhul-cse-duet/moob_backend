@@ -9,7 +9,7 @@ from app.modules.partners.service import seat_usage
 from app.schemas.common import PageParams
 from app.services import invites
 from app.services.email import send_client_invite_email, send_partner_invite_email
-from app.services.ownership import assign_partner_to_client
+from app.services.ownership import assign_partner_to_client, partner_is_delegated
 from app.services.pagination import paginate
 
 
@@ -113,10 +113,13 @@ async def invite_team_member(db, user: CurrentUser, tenant: Dict[str, Any],
     user_id = str((await db.users.insert_one(doc)).inserted_id)
     token = await invites.issue(email=email, tenant_id=user.tenant_id, user_id=user_id,
                                 role=Role.CONSULTANT, invited_by=user.id)
-    await send_partner_invite_email(to=email, name=data.full_name, org=tenant["name"],
-                                    role=data.title, link=invites.build_link(token),
-                                    invited_by=user.raw.get("full_name"))
-    return _clean({**doc, "_id": oid(user_id)})
+    emailed = await send_partner_invite_email(
+        to=email, name=data.full_name, org=tenant["name"],
+        role=data.title, link=invites.build_link(token),
+        invited_by=user.raw.get("full_name"))
+    return {**_clean({**doc, "_id": oid(user_id)}),
+            "invite_token": token,
+            "invite_email_sent": emailed}
 
 
 async def create_client(db, user: CurrentUser, tenant: Dict[str, Any],
@@ -138,10 +141,13 @@ async def create_client(db, user: CurrentUser, tenant: Dict[str, Any],
     user_id = str((await db.users.insert_one(doc)).inserted_id)
     token = await invites.issue(email=email, tenant_id=user.tenant_id, user_id=user_id,
                                 role=Role.CLIENT, invited_by=user.id)
-    await send_client_invite_email(to=email, name=data.full_name, org=tenant["name"],
-                                   link=invites.build_link(token),
-                                   consultant=user.raw.get("full_name"))
-    return _clean({**doc, "_id": oid(user_id)})
+    emailed = await send_client_invite_email(
+        to=email, name=data.full_name, org=tenant["name"],
+        link=invites.build_link(token),
+        consultant=user.raw.get("full_name"))
+    return {**_clean({**doc, "_id": oid(user_id)}),
+            "invite_token": token,
+            "invite_email_sent": emailed}
 
 
 async def get_client_profile_detail(db, user: CurrentUser, client_id: str) -> Dict[str, Any]:
@@ -153,7 +159,20 @@ async def get_client_profile_detail(db, user: CurrentUser, client_id: str) -> Di
     if user.role == Role.CONSULTANT and client.get("consultant_id") != user.id:
         raise Forbidden("You do not have access to this client")
 
-    cases_cursor = db.cases.find({"client_id": client_id})
+    delegated = not user.is_consultant
+    if delegated and not await partner_is_delegated(db, user, client_id):
+        raise Forbidden("You do not have access to this client")
+
+    # A partner sees the client behind the work they were given, and only the
+    # cases that work is on. The rest of the client's file is the consultant's.
+    case_query: Dict[str, Any] = {"client_id": client_id}
+    if delegated:
+        case_ids = await db.tasks.distinct(
+            "case_id", {"assignee_id": user.id, "client_id": client_id})
+        if not (client.get("partner_id") == user.id):
+            case_query["_id"] = {"$in": [oid(cid) for cid in case_ids if cid]}
+
+    cases_cursor = db.cases.find(case_query)
     cases = []
     async for c in cases_cursor:
         cases.append({

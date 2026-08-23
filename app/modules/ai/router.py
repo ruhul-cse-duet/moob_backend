@@ -14,6 +14,7 @@ from app.core.deps import (
 from app.core.enums import Role
 from app.core.exceptions import NotFound
 from app.core.utils import oid, serialize, utcnow
+from app.modules.ai.context import workspace_snapshot
 from app.schemas.common import Message, PageParams
 from app.services.openai_service import assistant_reply
 from app.services.pagination import paginate
@@ -96,10 +97,14 @@ async def chat(payload: ChatRequest,
     context: Dict[str, Any] = {
         "user_name": user.raw.get("full_name", "there"),
         "role": user.role.value if isinstance(user.role, Role) else user.role,
-        "tenant_context": "isolated workspace for this consultancy",
+        "today": now.date().isoformat(),
+        # The records this account could open in the app, and no others. Without
+        # them the assistant answers questions about the caller's own clients
+        # from imagination.
+        "workspace": await workspace_snapshot(db, user),
     }
     if payload.case_id:
-        context.update(await _case_context(db, user, payload.case_id))
+        context["current_case"] = await _case_context(db, user, payload.case_id)
 
     reply = await assistant_reply(
         history=[{"role": m["role"], "content": m["content"]} for m in history],

@@ -27,12 +27,16 @@ class PartnerOut(BaseModel):
     invite_token: Optional[str] = None
     invite_link: Optional[str] = None
     invite_expires_in_days: Optional[int] = None
+    # False when SMTP refused the message. The invitation still exists - the
+    # code below it is the way in - but nobody has been told about it.
+    invite_email_sent: Optional[bool] = None
 
 
 class InviteResent(BaseModel):
     detail: str
     invite_token: Optional[str] = None
     invite_link: Optional[str] = None
+    invite_email_sent: Optional[bool] = None
 
 
 class SeatUsage(BaseModel):

@@ -13,6 +13,7 @@ from app.core.deps import (
 )
 from app.core.enums import CaseStage, DocumentStatus, RequestStatus, Role, TaskStatus
 from app.core.utils import serialize, utcnow
+from app.services.case_progress import attach_case_progress
 
 router = APIRouter(tags=["Dashboard & Reporting"],
                    dependencies=[Depends(require_active_tenant)])
@@ -40,8 +41,9 @@ async def dashboard(user: CurrentUser = Depends(get_current_user),
             },
             "requests": [serialize(d) async for d in
                          db.requests.find(scope).sort("created_at", -1).limit(5)],
-            "cases": [serialize(d) async for d in
-                      db.cases.find(scope).sort("updated_at", -1).limit(5)],
+            "cases": await attach_case_progress(db, [
+                serialize(d) async for d in
+                db.cases.find(scope).sort("updated_at", -1).limit(5)]),
         }
 
     if user.role == Role.PARTNER:

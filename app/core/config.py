@@ -65,9 +65,14 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
-    # Frontend - invite and reset links must open the app, not this API
+    # Frontend - invite and reset links must open the app, not this API.
+    # FRONTEND_URL is where the app is actually served: in development a Flutter
+    # web build picks a fresh port every run, so pin one
+    # (`flutter run -d chrome --web-port 5173`) or set this to match.
     FRONTEND_URL: str = "http://localhost:5173"
-    INVITE_ACCEPT_PATH: str = "/invite/accept"
+    # The app routes on the URL fragment, so an invitation link without the `#`
+    # opens the app's front door and drops the token on the floor.
+    INVITE_ACCEPT_PATH: str = "/#/auth/invite"
     INVITE_EXPIRE_DAYS: int = 7
 
     # OTP / SMTP

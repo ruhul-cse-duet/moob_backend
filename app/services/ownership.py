@@ -87,6 +87,27 @@ async def assert_client_access(db: AsyncIOMotorDatabase, user, client_id: str) -
     raise Forbidden("You do not have access to this client's records")
 
 
+async def partner_is_delegated(db: AsyncIOMotorDatabase, user, client_id: str) -> bool:
+    """Whether this partner has been given work touching this client.
+
+    Two routes count: a whole client handed over with `assign_partner_to_client`,
+    or a single task on one of their cases. The second is the everyday one - a
+    consultant delegates a translation and the partner needs to know whose
+    document it is and what was applied for.
+
+    Read-only. Approving a document or moving a case still needs
+    `assert_client_access`, which a task alone does not satisfy.
+    """
+    if getattr(user, "role", None) != Role.PARTNER:
+        return False
+    client = await db.users.find_one({"_id": oid(client_id)}, {"partner_id": 1})
+    if client and client.get("partner_id") == user.id:
+        return True
+    return await db.tasks.find_one(
+        {"assignee_id": user.id, "client_id": client_id}, {"_id": 1}
+    ) is not None
+
+
 async def assert_case_access(db: AsyncIOMotorDatabase, user, case_doc: Dict[str, Any]) -> None:
     """Same rule as `assert_client_access`, resolved from an already-fetched case."""
     await assert_client_access(db, user, case_doc["client_id"])
