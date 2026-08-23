@@ -1,0 +1,34 @@
+# `COPY . .` takes everything not listed here.
+#
+# Two of these matter more than the rest: .venv is hundreds of megabytes of
+# Windows-built packages that are useless inside a Linux image, and .env holds
+# the live database URI, the JWT secret and the Stripe keys - baking it into a
+# layer would ship the platform's secrets inside the image, where they survive
+# every later `docker run` regardless of what the environment says.
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+.git/
+.gitignore
+.idea/
+.vscode/
+
+tests/
+postman/
+docker-compose.yml
+Dockerfile
+.dockerignore
+*.docx
+README.md
+start.bat
+
+# scripts_create_superadmin.py stays in the image: it is the way back in if
+# seeding is ever skipped and nobody can reach the admin area.

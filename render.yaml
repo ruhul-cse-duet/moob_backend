@@ -1,0 +1,137 @@
+# Render Blueprint — the deployment as code.
+#
+# Point Render at this file (New → Blueprint) and the service, its health check
+# and the full list of settings come from here instead of from a dashboard form
+# nobody can review.
+#
+# `sync: false` means "ask me for this value, and never store it in git". Those
+# are the secrets: paste them once in the dashboard and Render keeps them.
+# Everything with a literal `value` is safe to read in a public repo.
+services:
+  - type: web
+    name: moob-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: oregon
+    branch: main
+
+    # Render restarts the service if this stops answering. It reports the
+    # database honestly, so a container that is up but cannot reach Atlas is
+    # visible as degraded rather than passing as healthy.
+    healthCheckPath: /health
+
+    envVars:
+      # ---- App ----
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: APP_NAME
+        value: WebImove
+      - key: API_V1_PREFIX
+        value: /api/v1
+
+      # The browser origins allowed to call this API. The Android app is not a
+      # browser and is unaffected; leaving this as ["*"] in production lets any
+      # site on the internet make authenticated calls from a logged-in user's
+      # browser.
+      - key: BACKEND_CORS_ORIGINS
+        sync: false
+
+      # Render terminates TLS and forwards, so X-Forwarded-For is trustworthy
+      # here. Without this every caller looks like the proxy and the login
+      # throttle counts the whole internet as one client.
+      - key: TRUST_PROXY_HEADERS
+        value: "true"
+
+      # The API reference is a map of the whole surface. Off in production.
+      - key: ENABLE_DOCS
+        value: "false"
+
+      # ---- Mongo ----
+      - key: MONGODB_URI
+        sync: false
+      - key: PLATFORM_DB_NAME
+        value: webimove_platform
+      - key: TENANT_DB_PREFIX
+        value: wm_t_
+
+      # ---- JWT ----
+      # Generated once by Render and kept. Never put this in git: it is the
+      # single secret that lets anyone mint a token for any account.
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "60"
+      - key: REFRESH_TOKEN_EXPIRE_DAYS
+        value: "30"
+
+      # ---- The first platform administrator ----
+      # Created on the first boot of an empty database and never rewritten.
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_NAME
+        value: Platform Admin
+
+      # ---- Email ----
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USERNAME
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: SMTP_FROM_NAME
+        value: WebImove
+      - key: SMTP_USE_TLS
+        value: "true"
+      - key: SMTP_STARTTLS
+        value: "true"
+
+      # Where invitation and password-reset links point. This must be the app,
+      # not this API, or every invited user lands on a JSON error.
+      - key: FRONTEND_URL
+        sync: false
+
+      # ---- OpenAI ----
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: OPENAI_VISION_MODEL
+        value: gpt-4o-mini
+      - key: OPENAI_MAX_TOKENS
+        value: "1500"
+
+      # ---- Stripe ----
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_PUBLISHABLE_KEY
+        sync: false
+      # From the Stripe dashboard, for an endpoint pointed at
+      # POST /api/v1/webhooks/stripe. Without it every event is rejected, so
+      # renewals and failed payments go unnoticed.
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_CURRENCY
+        value: usd
+      - key: STRIPE_PRICES
+        value: "{}"
+
+      # ---- Logging ----
+      - key: LOG_LEVEL
+        value: INFO
+      - key: MONGO_LOG_LEVEL
+        value: WARNING
+      - key: HTTP_LOG_LEVEL
+        value: WARNING
+      - key: ACCESS_LOG
+        value: "true"
+      - key: MAX_UPLOAD_MB
+        value: "25"
