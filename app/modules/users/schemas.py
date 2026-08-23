@@ -51,6 +51,10 @@ class UserOut(BaseModel):
     consultant_info: Optional[dict] = None
     organization_info: Optional[dict] = None
     created_at: Optional[datetime] = None
+    # Only on the response that creates an invited account: whether the
+    # invitation email actually went out, and the code to pass on if it did not.
+    invite_token: Optional[str] = None
+    invite_email_sent: Optional[bool] = None
 
 
 class ClientProfileOverview(BaseModel):

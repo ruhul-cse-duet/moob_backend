@@ -56,6 +56,9 @@ async def send_email(
             password=settings.SMTP_PASSWORD or None,
             start_tls=settings.SMTP_STARTTLS,
         )
+        # Logged at INFO because "did it actually go out?" is the first question
+        # asked when someone says they never got it, and silence answers nothing.
+        logger.info("Sent %r to %s", subject, recipients)
         return True
     except Exception:  # noqa: BLE001 - never let mail failure break a request
         logger.exception("Failed to send email to %s", recipients)

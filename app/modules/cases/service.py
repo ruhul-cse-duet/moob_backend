@@ -13,6 +13,7 @@ from app.core.exceptions import BadRequest, Forbidden, NotFound
 from app.core.utils import build_reference, oid, serialize, utcnow
 from app.db.indexes import next_sequence
 from app.schemas.common import PageParams
+from app.services.case_progress import APPROVED, apply_progress, attach_case_progress
 from app.services.events import log_activity, notify
 from app.services.openai_service import case_guidance
 from app.services.ownership import assert_case_access, assigned_client_ids, attach_consultant
@@ -89,8 +90,12 @@ async def list_cases(db, user: CurrentUser, params: PageParams,
             query["$and"] = [{"$or": query.pop("$or")}, {"$or": search_or}]
         else:
             query["$or"] = search_or
-    return await paginate(db, "cases", query, params,
+    page = await paginate(db, "cases", query, params,
                           sort=[("deadline", 1), ("created_at", -1)])
+    # Progress is derived from documents, so a list has to say the same thing
+    # the detail screen does - one aggregation for the page, not two per case.
+    page["items"] = await attach_case_progress(db, page["items"])
+    return page
 
 
 async def stage_counts(db, user: CurrentUser,
@@ -138,6 +143,11 @@ async def get_case(db, user: CurrentUser, case_id: str) -> Dict[str, Any]:
         ).sort("created_at", 1)
     ]
     out["stage_order"] = [st.value for st in CASE_STAGE_ORDER]
+    apply_progress(
+        out,
+        total=len(out["documents"]),
+        approved=sum(1 for d in out["documents"] if d.get("status") == APPROVED),
+    )
     return out
 
 

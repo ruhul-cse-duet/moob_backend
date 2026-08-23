@@ -15,6 +15,7 @@ from app.core.enums import UserStatus
 from app.core.security import hash_password
 from app.core.utils import utcnow
 from app.db.mongo import platform_db
+from app.db.policy_text import SEED_POLICIES, SEED_VERSION
 
 logger = logging.getLogger("app.db.seed")
 
@@ -87,3 +88,44 @@ async def seed_platform_admin(
 
     logger.info("Platform administrator created: %s", email)
     return True
+
+
+async def seed_policies() -> int:
+    """Publish the starting version of each legal policy, once.
+
+    Create-only per kind, and deliberately blind to version numbers: the check
+    is "does this kind have any version at all", not "does 1.0 exist". An
+    administrator who publishes their own 2.0 and archives ours must not have
+    1.0 reappear under them on the next restart.
+
+    Returns how many kinds were seeded.
+    """
+    db = platform_db()
+    seeded = 0
+
+    for kind, (title, body) in SEED_POLICIES.items():
+        if await db.policies.find_one({"kind": kind.value}, {"_id": 1}):
+            continue
+        now = utcnow()
+        try:
+            await db.policies.insert_one({
+                "kind": kind.value,
+                "version": SEED_VERSION,
+                "title": title,
+                "body_markdown": body,
+                "effective_from": None,
+                "published": True,
+                "published_at": now,
+                "seeded": True,
+                "created_at": now,
+                "updated_at": now,
+            })
+        except DuplicateKeyError:
+            # Two workers booting together; whichever lost is fine either way.
+            continue
+        seeded += 1
+
+    if seeded:
+        logger.info("Seeded %d starting legal policies at version %s",
+                    seeded, SEED_VERSION)
+    return seeded

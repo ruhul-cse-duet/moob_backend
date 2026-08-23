@@ -70,13 +70,16 @@ async def invite_partner(db, user: CurrentUser, tenant: Dict[str, Any],
     user_id = str((await db.users.insert_one(doc)).inserted_id)
     token = await invites.issue(email=email, tenant_id=user.tenant_id, user_id=user_id,
                                 role=Role.PARTNER, invited_by=user.id)
-    await send_partner_invite_email(
+    emailed = await send_partner_invite_email(
         to=email, name=data.full_name, org=tenant["name"], role=data.role,
         link=invites.build_link(token),
         invited_by=user.raw.get("full_name"),
     )
     out = serialize({**doc, "_id": oid(user_id)})
     out["invite_expires_in_days"] = settings.INVITE_EXPIRE_DAYS
+    # Mail is the one step here that can fail without failing the request. Say
+    # so, or the consultant walks away believing an invitation is on its way.
+    out["invite_email_sent"] = emailed
     # The consultant may want to pass the code on by hand — the email is not
     # the only route in.
     out["invite_token"] = token
@@ -123,16 +126,22 @@ async def resend_invite(db, tenant: Dict[str, Any], partner_id: str) -> Dict[str
     # New token, new expiry - the previous link stops working immediately.
     token = await invites.refresh(partner["email"])
     await db.users.update_one({"_id": oid(partner_id)}, {"$set": {"invited_at": utcnow()}})
-    await send_partner_invite_email(
+    emailed = await send_partner_invite_email(
         to=partner["email"], name=partner["full_name"], org=tenant["name"],
         role=partner.get("partner_role", "Partner"),
         link=invites.build_link(token),
     )
     return {
-        "detail": f"Invitation resent. The link is valid for "
-                  f"{settings.INVITE_EXPIRE_DAYS} days.",
+        "detail": (
+            f"Invitation resent. The link is valid for "
+            f"{settings.INVITE_EXPIRE_DAYS} days."
+        ) if emailed else (
+            "We could not email the invitation. Send them the code below "
+            f"instead - it is valid for {settings.INVITE_EXPIRE_DAYS} days."
+        ),
         "invite_token": token,
         "invite_link": invites.build_link(token),
+        "invite_email_sent": emailed,
     }
 
 

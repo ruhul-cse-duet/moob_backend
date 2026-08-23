@@ -188,10 +188,18 @@ async def create_client(payload: s.ClientCreate,
     return await service.create_client(db, user, tenant, payload)
 
 
-@router.get("/clients/{client_id}", response_model=s.ClientDetailView, summary="Get Client profile detail for consultant view")
+@router.get("/clients/{client_id}", response_model=s.ClientDetailView,
+            summary="Client profile - the consultant's full view, or the part a "
+                    "delegated partner needs")
 async def get_client_profile_detail(client_id: str,
-                                    user: CurrentUser = Depends(require_consultant),
+                                    user: CurrentUser = Depends(get_current_user),
                                     db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+    """Open to a partner who has been given work on this client.
+
+    They cannot check a document against the person it belongs to without
+    knowing who that is and what was applied for. The service narrows what they
+    see to the cases they were actually delegated.
+    """
     return await service.get_client_profile_detail(db, user, client_id)
 
 

@@ -11,7 +11,7 @@ from app.core.errors import baseline_headers, register_exception_handlers
 from app.core.logging import setup_logging
 from app.db.indexes import ensure_platform_indexes
 from app.db.mongo import close, connect
-from app.db.seed import seed_platform_admin
+from app.db.seed import seed_platform_admin, seed_policies
 
 setup_logging()
 logger = logging.getLogger("app.main")
@@ -38,8 +38,12 @@ async def lifespan(app: FastAPI):
         # database - and never stops an otherwise healthy API from serving.
         try:
             await seed_platform_admin()
+            # Terms and privacy are shown to people who have no account yet, so
+            # they cannot wait for an administrator to get around to writing
+            # them. Seeded once; an administrator's own version replaces them.
+            await seed_policies()
         except Exception as exc:  # noqa: BLE001
-            logger.error("Could not seed the platform administrator: %s", exc)
+            logger.error("Could not seed the platform defaults: %s", exc)
             logger.debug("Seed error", exc_info=True)
     for problem in settings.insecure_settings():
         # Loud, not fatal: refusing to boot would take a running platform down
