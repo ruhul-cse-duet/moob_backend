@@ -143,6 +143,43 @@ class Settings(BaseSettings):
     # never renews.
     STRIPE_PRICES: Dict[str, str] = {}
 
+    # ---- Push notifications (Firebase Cloud Messaging, HTTP v1) ----
+    # Every notification the API writes is also pushed to the account's
+    # registered devices. Credentials are a Firebase *service account*, not the
+    # legacy server key - the legacy HTTP API is switched off by Google.
+    #
+    # Leave all of these empty and push is simply skipped: the in-app feed, the
+    # socket and every REST endpoint carry on exactly as before, and
+    # /notifications/devices still accepts registrations, so the tokens are
+    # already there the moment credentials are filled in.
+    PUSH_ENABLED: bool = True
+    # Either drop the whole service-account JSON in here (or a path to it)...
+    FCM_CREDENTIALS_JSON: str = ""
+    # ...or name the three fields out of it individually. A private key pasted
+    # into a .env keeps its newlines as a literal backslash-n; that is expected
+    # and handled.
+    FCM_PROJECT_ID: str = ""
+    FCM_CLIENT_EMAIL: str = ""
+    FCM_PRIVATE_KEY: str = ""
+    # The Android notification channel the app creates. Must match the id in
+    # PushService, or Android silently drops the heads-up presentation.
+    PUSH_ANDROID_CHANNEL_ID: str = "webimove_default"
+    PUSH_SOUND: str = "default"
+    # How long FCM keeps trying a device that is offline.
+    PUSH_TTL_SECONDS: int = 60 * 60 * 24 * 7
+    # iOS bundle id. Only needed if the APNs topic differs from the one Firebase
+    # derives from the project itself.
+    APNS_BUNDLE_ID: str = ""
+    # Sends everything to FCM's validate_only endpoint instead of a device -
+    # proves the credentials and the payload without ringing a phone.
+    PUSH_DRY_RUN: bool = False
+    # A single fanout (an announcement to every account) is chunked so one
+    # broadcast cannot hold the event loop or FCM's rate limit hostage.
+    PUSH_MAX_CONCURRENCY: int = 10
+    # Above this many recipients the per-device iOS badge count is skipped: it
+    # costs one query per account and a broadcast does not need to be exact.
+    PUSH_BADGE_RECIPIENT_LIMIT: int = 50
+
 
     # ------------------------------------------------------------------ #
     # Derived helpers
@@ -150,6 +187,16 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT.lower() in {"production", "prod"}
+
+    @property
+    def push_configured(self) -> bool:
+        """Whether there is enough here to reach FCM at all."""
+        if not self.PUSH_ENABLED:
+            return False
+        if self.FCM_CREDENTIALS_JSON.strip():
+            return True
+        return bool(self.FCM_PROJECT_ID and self.FCM_CLIENT_EMAIL
+                    and self.FCM_PRIVATE_KEY)
 
     @property
     def docs_enabled(self) -> bool:

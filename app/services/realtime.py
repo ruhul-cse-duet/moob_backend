@@ -130,3 +130,23 @@ async def publish_message(message: Dict[str, Any], recipients: list[str]) -> Non
             await sio.emit("message_notice", payload, room=user_room(user_id))
     except Exception as exc:  # noqa: BLE001
         logger.warning("Could not publish a message over the socket: %s", exc)
+
+
+async def publish_notification(recipients: list[str],
+                               notification: Dict[str, Any]) -> None:
+    """Tells every open session of these accounts that a notification landed.
+
+    The mirror of `publish_message`, for the feed rather than a conversation.
+    An app that is open gets the badge and the row without polling; an app that
+    is closed gets the same thing as a push, which is arranged separately in
+    `events.notify`. Best effort, for the same reason: the notification is
+    stored before this runs.
+    """
+    payload = jsonable_encoder(notification)
+    for user_id in recipients:
+        if not user_id:
+            continue
+        try:
+            await sio.emit("notification", payload, room=user_room(str(user_id)))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not publish a notification over the socket: %s", exc)

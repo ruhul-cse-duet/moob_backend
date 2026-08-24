@@ -46,6 +46,18 @@ async def ensure_platform_indexes() -> None:
     await db.platform_settings.create_index("key", unique=True)
     await db.counters.create_index("name", unique=True)
 
+    # Push notifications. Device tokens live platform-side even for tenant
+    # users: a notification names user ids, and resolving them to devices must
+    # not depend on knowing which tenant database each one came from.
+    #
+    # The token is the identity, hence unique - the same handset re-registering
+    # updates its row rather than growing a second one, and a phone handed to a
+    # new person moves across instead of pushing to both accounts.
+    await db.device_tokens.create_index("token", unique=True)
+    await db.device_tokens.create_index("user_id")
+    await db.device_tokens.create_index([("user_id", 1), ("active", 1)])
+    await db.push_preferences.create_index("user_id", unique=True)
+
 
 async def ensure_tenant_indexes(db: AsyncIOMotorDatabase) -> None:
     await db.users.create_index("email", unique=True)

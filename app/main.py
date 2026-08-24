@@ -14,6 +14,7 @@ from app.core.logging import setup_logging
 from app.db.indexes import ensure_platform_indexes
 from app.db.mongo import close, connect
 from app.db.seed import seed_platform_admin, seed_policies
+from app.services import push
 from app.services.realtime import sio
 
 setup_logging()
@@ -56,8 +57,14 @@ async def lifespan(app: FastAPI):
             logger.error("INSECURE CONFIGURATION: %s", problem)
         else:
             logger.warning("Configuration warning: %s", problem)
+    # Reads the FCM service account once and says plainly whether push is on,
+    # so an operator does not have to send a notification to find out.
+    push.credentials()
     logger.info("%s started (%s)", settings.APP_NAME, settings.ENVIRONMENT)
     yield
+    # The push client holds a connection pool to Google; closing it here keeps
+    # a reload from leaking one per restart.
+    await push.close()
     await close()
 
 
