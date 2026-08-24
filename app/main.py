@@ -1,5 +1,7 @@
 import logging
+import time
 import uuid
+from datetime import datetime, timezone
 
 import socketio
 from contextlib import asynccontextmanager
@@ -14,11 +16,18 @@ from app.core.logging import setup_logging
 from app.db.indexes import ensure_platform_indexes
 from app.db.mongo import close, connect
 from app.db.seed import seed_platform_admin, seed_policies
-from app.services import push
+from app.services import email, keepalive, push
 from app.services.realtime import sio
 
 setup_logging()
 logger = logging.getLogger("app.main")
+
+# Stamped at import, which is as close to "when this instance started" as the
+# process can know. `monotonic` for the arithmetic because a clock adjustment
+# must not make an uptime go backwards; the wall clock separately, because that
+# is the one a human reads.
+_started_monotonic = time.monotonic()
+_started_at = datetime.now(timezone.utc)
 
 
 @asynccontextmanager
@@ -60,11 +69,25 @@ async def lifespan(app: FastAPI):
     # Reads the FCM service account once and says plainly whether push is on,
     # so an operator does not have to send a notification to find out.
     push.credentials()
+    # Which transport mail will actually use, stated once. An operator who has
+    # pasted an API key deserves to see it took effect without sending a test.
+    logger.info("Email transport: %s", email.describe_transport())
+    blocked = email.smtp_is_probably_blocked()
+    if blocked:
+        # ERROR, not a warning: this configuration cannot work at all, and the
+        # symptom otherwise is a verification code that never arrives with the
+        # real cause buried in an aiosmtplib stack trace.
+        logger.error("EMAIL WILL NOT SEND: %s", blocked)
+    # Holds a free-tier instance up between requests. No-op when there is no
+    # external URL to ping, which is every local run.
+    keepalive.start()
     logger.info("%s started (%s)", settings.APP_NAME, settings.ENVIRONMENT)
     yield
-    # The push client holds a connection pool to Google; closing it here keeps
-    # a reload from leaking one per restart.
+    await keepalive.stop()
+    # Both hold outbound connection pools; closing them keeps a reload from
+    # leaking one per restart.
     await push.close()
+    await email.close()
     await close()
 
 
@@ -159,6 +182,32 @@ async def root():
         "name": settings.APP_NAME,
         "status": "ok",
         "docs": "/docs",
+    }
+
+
+@app.get("/ping", tags=["Health"])
+async def ping():
+    """The cheapest possible answer, for whatever is keeping this awake.
+
+    Deliberately touches no database. A pinger hits this every few minutes
+    forever, and `/health` costs an Atlas round trip per call - which would mean
+    paying for a query thousands of times a month to learn something the ping
+    does not ask about.
+
+    `uptime_seconds` is the useful part: read it and you know whether the
+    instance actually stayed up or was restarted since the last check. A value
+    that keeps resetting to near zero means the pinging is not working.
+    """
+    now = time.monotonic()
+    return {
+        "success": True,
+        "message": "pong",
+        "status": "ok",
+        "uptime_seconds": round(now - _started_monotonic, 1),
+        "started_at": _started_at.isoformat(),
+        # Whether this instance is holding itself up, or relying entirely on
+        # something external to do it.
+        "self_keepalive": keepalive.is_running(),
     }
 
 

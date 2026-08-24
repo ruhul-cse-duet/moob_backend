@@ -111,6 +111,25 @@ class Settings(BaseSettings):
     SMTP_FROM_NAME: str = "WebImove"
     SMTP_STARTTLS: bool = True
 
+    # ---- Email transport ----
+    # Render blocks outbound ports 25, 465 and 587 to stop its platform being
+    # used for spam, and Gmail offers SMTP on 465 and 587 and nothing else - so
+    # smtp.gmail.com is unreachable from Render and every send times out. An
+    # HTTP API goes over 443, which nothing blocks.
+    #
+    # Leave EMAIL_PROVIDER empty and the transport is picked from whichever key
+    # below is filled in, falling back to SMTP when none are. So switching is one
+    # key, not a key plus a mode setting to keep in sync. Name a provider here
+    # only to force one when more than one key is present.
+    EMAIL_PROVIDER: str = ""
+    # 3,000 emails a month free. Needs a verified domain to send as your own
+    # address; onboarding@resend.dev works immediately for testing.
+    RESEND_API_KEY: str = ""
+    # 300 a day free, no domain needed to start.
+    BREVO_API_KEY: str = ""
+    # 100 a day free.
+    SENDGRID_API_KEY: str = ""
+
     # OpenAI
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o-mini"
@@ -180,6 +199,23 @@ class Settings(BaseSettings):
     # costs one query per account and a broadcast does not need to be exact.
     PUSH_BADGE_RECIPIENT_LIMIT: int = 50
 
+    # ---- Keeping a free-tier instance awake ----
+    # Render's free plan stops a service after 15 minutes with no inbound
+    # request. This pings itself just under that, which holds a running instance
+    # up - it cannot wake one that has already stopped. The external pinger in
+    # .github/workflows/keep-awake.yml is what does that half.
+    #
+    # Note the 750 instance-hours a month a free Render account gets, shared
+    # across every free service on it: one service awake 24/7 is ~730 hours and
+    # fits; two is 1460 and does not.
+    KEEPALIVE_ENABLED: bool = True
+    # Left empty on purpose. On Render the public URL is read from the
+    # RENDER_EXTERNAL_URL variable Render sets itself, so there is nothing to
+    # fill in; set this only when deploying somewhere that does not.
+    KEEPALIVE_URL: str = ""
+    # Under Render's 15-minute idle window, with room for a late tick.
+    KEEPALIVE_INTERVAL_MINUTES: int = 12
+
 
     # ------------------------------------------------------------------ #
     # Derived helpers
@@ -187,6 +223,24 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT.lower() in {"production", "prod"}
+
+    @property
+    def is_paas(self) -> bool:
+        """Whether this is running on a host that blocks outbound SMTP.
+
+        Detected from the variables the platforms set themselves rather than
+        from a setting, because the whole point is to warn an operator who does
+        not yet know this is the problem - and they will not have set a flag
+        saying so.
+        """
+        import os
+
+        return any(os.getenv(name) for name in (
+            "RENDER", "RENDER_EXTERNAL_URL",  # Render
+            "DYNO",                            # Heroku
+            "FLY_APP_NAME",                    # Fly.io
+            "RAILWAY_ENVIRONMENT",             # Railway
+        ))
 
     @property
     def push_configured(self) -> bool:
