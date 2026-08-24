@@ -32,8 +32,24 @@ ALLOWED = {
 
 DOCUMENTS_BUCKET = "documents"
 DELIVERABLES_BUCKET = "deliverables"
+AVATARS_BUCKET = "avatars"
 
 READ_CHUNK = 256 * 1024
+
+# Profile pictures are held to a stricter list than case documents. A PDF or a
+# Word file is a perfectly good document and a nonsense avatar, and every place
+# that renders one puts it straight into an <img>.
+IMAGE_TYPES = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/heic": "heic",
+}
+
+# An avatar is displayed at a few hundred pixels. MAX_UPLOAD_MB (25) is sized
+# for a scanned passport; letting that through here would store 25 MB to render
+# a 96 px circle, on every request, out of the database.
+MAX_AVATAR_MB = 5
 
 
 def safe_filename(name: Optional[str], fallback: str = "document") -> str:
@@ -101,6 +117,65 @@ async def save_upload(
         "original_name": file.filename,
         "size": len(data),
         "kind": kind,
+        "mime_type": file.content_type,
+    }
+
+
+async def save_avatar(
+    db: AsyncIOMotorDatabase,
+    file: UploadFile,
+    *,
+    owner_id: str,
+    replaces: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Store a profile picture, replacing the previous one.
+
+    ``replaces`` is the file id currently on the record. Deleting it after the
+    new blob is written - never before - means a failed upload leaves the old
+    picture intact instead of a profile with none. Skipping it entirely would
+    leave a dead blob in the bucket on every single avatar change.
+    """
+    if file.content_type not in IMAGE_TYPES:
+        raise BadRequest(
+            "A profile picture must be a JPEG, PNG, WebP or HEIC image"
+        )
+
+    max_bytes = MAX_AVATAR_MB * 1024 * 1024
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(READ_CHUNK)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise BadRequest(f"A profile picture must be smaller than {MAX_AVATAR_MB} MB")
+        chunks.append(chunk)
+    data = b"".join(chunks)
+    if not data:
+        raise BadRequest("The uploaded image is empty")
+
+    ext = IMAGE_TYPES[file.content_type]
+    file_id = await bucket(db, AVATARS_BUCKET).upload_from_stream(
+        safe_filename(file.filename, f"avatar.{ext}"),
+        data,
+        metadata={
+            "content_type": file.content_type,
+            "extension": ext,
+            "owner_id": owner_id,
+            **(metadata or {}),
+        },
+    )
+
+    if replaces and str(replaces) != str(file_id):
+        await delete_file(db, replaces, AVATARS_BUCKET)
+
+    return {
+        "file_id": str(file_id),
+        "bucket": AVATARS_BUCKET,
+        "original_name": file.filename,
+        "size": len(data),
         "mime_type": file.content_type,
     }
 

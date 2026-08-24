@@ -30,6 +30,8 @@ from app.modules.admin.announcements import router as announcements_router
 from app.modules.admin.billing import router as billing_router
 from app.modules.admin.helpdesk import router as helpdesk_router
 from app.modules.admin.organizations import router as organizations_router
+from app.modules.admin.profile import get_profile as get_admin_profile
+from app.modules.admin.profile import router as profile_router
 from app.modules.admin.setup import router as setup_router
 from app.modules.admin.oversight import router as oversight_router
 from app.modules.admin.settings import router as settings_router
@@ -380,17 +382,14 @@ async def stats(user: CurrentUser = Depends(require_super_admin)):
 @router.get("/me", tags=["Super Admin · Dashboard"],
             summary="Signed-in platform administrator profile")
 async def admin_me(user: CurrentUser = Depends(require_super_admin)):
-    return {
-        "success": True,
-        "message": "OK",
-        "id": user.id,
-        "email": user.email,
-        "full_name": user.raw.get("full_name"),
-        "admin_role": user.raw.get("admin_role", "super_admin"),
-        "title": "Platform Administrator",
-        "status": user.raw.get("status"),
-        "must_change_password": bool(user.raw.get("must_change_password")),
-    }
+    """Alias of ``GET /admin/profile``.
+
+    Kept because clients already call it. It delegates rather than building its
+    own reply: the previous version hard-coded `title` and knew nothing about
+    `phone` or the avatar, so the dashboard header and the Profile screen
+    disagreed about the same account.
+    """
+    return await get_admin_profile(user)
 
 
 @router.get("/search", tags=["Super Admin · Dashboard"],
@@ -454,6 +453,7 @@ router.include_router(admin_users_router)
 router.include_router(billing_router)
 router.include_router(helpdesk_router)
 router.include_router(announcements_router)
+router.include_router(profile_router)
 router.include_router(setup_router)
 router.include_router(oversight_router)
 router.include_router(settings_router)
