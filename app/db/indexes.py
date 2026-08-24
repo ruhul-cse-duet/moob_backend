@@ -74,7 +74,10 @@ async def ensure_platform_indexes() -> None:
         db.support_tickets.create_index("assigned_to"),
         db.ticket_messages.create_index([("ticket_id", 1), ("created_at", 1)]),
 
-        db.policies.create_index([("kind", 1), ("version", -1)]),
+        # Unique: acceptance is recorded against a version *string*, so two
+        # rows sharing (kind, version) make "this user accepted Privacy
+        # Policy 2.0" ambiguous about which 2.0 they actually saw.
+        db.policies.create_index([("kind", 1), ("version", -1)], unique=True),
         db.policy_acceptances.create_index([("user_email", 1), ("kind", 1)]),
         db.platform_settings.create_index("key", unique=True),
         db.counters.create_index("name", unique=True),
