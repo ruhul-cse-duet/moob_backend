@@ -132,6 +132,52 @@ services:
       - key: STRIPE_PRICES
         value: "{}"
 
+      # ---- Email transport ----
+      # Render blocks outbound ports 25, 465 and 587, and Gmail offers only 465
+      # and 587 - so the SMTP_* settings above cannot work from here and every
+      # send times out with SMTPConnectTimeoutError. An HTTP API goes over 443.
+      #
+      # Paste ONE of these keys and mail starts working; the app picks the
+      # transport from whichever is filled in. Leave EMAIL_PROVIDER unset unless
+      # you need to force one.
+      #
+      # Sending as your own domain requires verifying it with the provider. Until
+      # then, with Resend, set SMTP_FROM to onboarding@resend.dev.
+      - key: EMAIL_PROVIDER
+        value: ""
+      - key: RESEND_API_KEY
+        sync: false
+      - key: BREVO_API_KEY
+        sync: false
+      - key: SENDGRID_API_KEY
+        sync: false
+
+      # ---- Keeping this free instance awake ----
+      # Render stops a free service after 15 minutes with no inbound request,
+      # and Render's own health checks do not count as traffic - which is why
+      # healthCheckPath above does not already solve it.
+      #
+      # The app pings itself just under that window. RENDER_EXTERNAL_URL is set
+      # by Render on every service, so KEEPALIVE_URL stays empty and there is
+      # nothing to configure here.
+      #
+      # This holds a *running* instance up; it cannot wake a stopped one, since
+      # the process doing the pinging is the one that was stopped. The workflow
+      # in .github/workflows/keep-awake.yml is the half that can.
+      #
+      # WATCH THE QUOTA: a free Render account gets 750 instance-hours a month
+      # across every free service on it. A month is ~730 hours, so ONE service
+      # awake around the clock fits with almost nothing to spare. Two does not -
+      # both get suspended until the month rolls over. If you add a second free
+      # service, set KEEPALIVE_ENABLED=false on one of them.
+      - key: KEEPALIVE_ENABLED
+        value: "true"
+      - key: KEEPALIVE_INTERVAL_MINUTES
+        value: "12"
+      # Only for a deployment that is not Render; leave unset here.
+      - key: KEEPALIVE_URL
+        value: ""
+
       # ---- Push notifications (Firebase Cloud Messaging) ----
       # `sync: false` means Render prompts for these rather than storing them in
       # the repo. Leave them blank and push is skipped; the app still registers

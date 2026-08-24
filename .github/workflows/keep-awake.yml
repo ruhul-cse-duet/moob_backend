@@ -1,0 +1,106 @@
+# Pings the API from outside, so it stays awake — and, unlike the keep-alive
+# inside the app, can bring it back when it has already gone to sleep.
+#
+# The two are halves of one job:
+#
+#   app/services/keepalive.py   holds a *running* instance up. It is the process
+#                               that gets stopped, so it cannot revive itself.
+#   this workflow               runs on GitHub's machines, so it still fires
+#                               when the service is down — the request itself is
+#                               what wakes it.
+#
+# Free on GitHub: public repos have unlimited Actions minutes, private repos get
+# 2000 a month and this uses roughly 150 of them.
+#
+# ── Two things that will bite you ──────────────────────────────────────────
+#
+# 1. GitHub's scheduler is best-effort, not a real cron. Under load a job can
+#    fire 10–30 minutes late, which is longer than Render's 15-minute idle
+#    window — so this alone will not keep the service up every single time. That
+#    is exactly why the in-app keep-alive exists as well: between them, a late
+#    tick is covered.
+#
+#    Want it actually reliable? Use a dedicated free pinger instead — a
+#    cron-job.org or UptimeRobot monitor on https://<your-service>/ping every 10
+#    minutes fires on time, every time, and needs no repo at all.
+#
+# 2. GitHub disables scheduled workflows on a repo with no commits for 60 days,
+#    and emails you when it does. If pinging stops for no apparent reason, this
+#    is why: re-enable it in the Actions tab.
+#
+# ── Setup ─────────────────────────────────────────────────────────────────
+#
+# Set the URL once, in the repo: Settings → Secrets and variables → Actions →
+# *Variables* tab → New repository variable.
+#
+#     Name:  API_URL
+#     Value: https://moob.onrender.com
+#
+# A variable, not a secret: the URL is public anyway, and a secret would be
+# masked in the logs, which makes a failing ping much harder to read.
+name: Keep the API awake
+
+on:
+  schedule:
+    # Every 10 minutes, leaving margin under Render's 15-minute idle window for
+    # a tick that arrives late.
+    - cron: '*/10 * * * *'
+  # So you can prove it works without waiting for the schedule: Actions tab →
+  # this workflow → Run workflow.
+  workflow_dispatch:
+
+# If a run is somehow still going when the next is due, the newer one is what
+# matters — a queue of stale pings helps nobody.
+concurrency:
+  group: keep-awake
+  cancel-in-progress: true
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    # A cold start on Render's free plan can take most of a minute; this is
+    # generous enough to cover it and still fail rather than hang.
+    timeout-minutes: 5
+    steps:
+      - name: Ping the API
+        env:
+          API_URL: ${{ vars.API_URL }}
+        run: |
+          set -uo pipefail
+
+          if [ -z "${API_URL}" ]; then
+            echo "::error::The API_URL repository variable is not set."
+            echo "Settings → Secrets and variables → Actions → Variables →"
+            echo "New repository variable, named API_URL."
+            exit 1
+          fi
+
+          target="${API_URL%/}/ping"
+          echo "Pinging ${target}"
+
+          # Retries because the *first* request is the one that wakes a sleeping
+          # instance, and it can time out while the container is still starting.
+          # Failing on that would report a working setup as broken.
+          for attempt in 1 2 3; do
+            # --max-time, not --connect-timeout: waking is slow to *answer*, not
+            # slow to connect.
+            body=$(curl --silent --show-error --location --max-time 90 \
+                        --write-out '\n%{http_code}' "${target}" 2>&1) && rc=0 || rc=$?
+            status=$(printf '%s' "${body}" | tail -n1)
+            payload=$(printf '%s' "${body}" | sed '$d')
+
+            if [ "${rc}" -eq 0 ] && [ "${status}" = "200" ]; then
+              echo "Awake (HTTP ${status})"
+              echo "${payload}"
+              # uptime_seconds tells you whether the pinging is actually working:
+              # a value that keeps coming back near zero means every ping is
+              # waking a service that had already gone to sleep.
+              exit 0
+            fi
+
+            echo "Attempt ${attempt} failed (curl ${rc}, HTTP ${status:-none})"
+            [ "${attempt}" -lt 3 ] && sleep 20
+          done
+
+          echo "::error::${target} did not answer after 3 attempts."
+          exit 1
