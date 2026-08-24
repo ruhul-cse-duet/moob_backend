@@ -5,12 +5,13 @@ from fastapi import APIRouter, Depends, Query, status as http
 from pydantic import BaseModel, Field
 
 from app.core.deps import CurrentUser, page_params, require_super_admin
-from app.core.enums import AuditAction
+from app.core.enums import AuditAction, NotificationType
 from app.core.exceptions import NotFound
 from app.core.utils import oid, serialize, utcnow
 from app.db.mongo import platform_db
 from app.schemas.common import Message, PageParams
 from app.services import audit
+from app.services.events import notify
 from app.services.pagination import paginate
 
 router = APIRouter(tags=["Super Admin · Announcements & Notifications"])
@@ -76,8 +77,8 @@ async def create_announcement(payload: AnnouncementCreate,
 
     if payload.published:
         from app.db.mongo import tenant_db
-        from app.core.enums import Role
-        
+        from app.core.enums import NotificationType, Role
+
         target_roles = []
         if payload.audience == "consultants":
             target_roles = [Role.CONSULTANT.value, Role.CONSULTANT_OWNER.value]
@@ -85,25 +86,31 @@ async def create_announcement(payload: AnnouncementCreate,
             target_roles = [Role.PARTNER.value]
         elif payload.audience == "clients":
             target_roles = [Role.CLIENT.value]
-            
+
         async for tenant in platform_db().tenants.find({}, {"_id": 1}):
             tdb = tenant_db(str(tenant["_id"]))
             query = {}
             if target_roles:
                 query["role"] = {"$in": target_roles}
-                
+
             users = await tdb.users.find(query, {"_id": 1}).to_list(None)
             if users:
-                notifications = [{
-                    "user_id": str(u["_id"]),
-                    "type": "announcement",
-                    "title": payload.title,
-                    "body": payload.body[:200],
-                    "announcement_id": ann_id,
-                    "read": False,
-                    "created_at": now
-                } for u in users]
-                await tdb.notifications.insert_many(notifications)
+                # Through `notify` rather than a direct insert, so the same
+                # record also reaches the socket and the devices. One announcement
+                # per tenant, so a fleet-wide broadcast is still one push fanout
+                # per workspace rather than one giant one.
+                await notify(
+                    tdb,
+                    user_ids=[str(u["_id"]) for u in users],
+                    type=NotificationType.ANNOUNCEMENT,
+                    title=payload.title,
+                    body=payload.body[:200],
+                    data={"announcement_id": ann_id, "severity": payload.severity},
+                    extra={"announcement_id": ann_id},
+                    # One announcement replaces an earlier unread one in the
+                    # shade instead of stacking.
+                    collapse_key=f"announcement:{ann_id}",
+                )
 
     return serialize({**doc, "_id": oid(ann_id)})
 
@@ -150,24 +157,27 @@ async def list_notifications(unread_only: bool = Query(False),
 async def create_notification(payload: AdminNotificationCreate,
                               user: CurrentUser = Depends(require_super_admin)):
     targets = payload.admin_ids or [user.id]
-    now = utcnow()
-    docs = [{
-        "admin_id": admin_id,
-        "title": payload.title,
-        "body": payload.body,
-        "link": payload.link,
-        "severity": payload.severity,
-        "read": False,
-        "created_by": user.id,
-        "created_at": now,
-    } for admin_id in targets]
-    if docs:
-        await platform_db().admin_notifications.insert_many(docs)
+    if targets:
+        # `admin_notifications` is keyed on `admin_id`, not `user_id`; naming the
+        # field here is what lets this inbox share one delivery path with every
+        # other notification instead of insert-only.
+        await notify(
+            platform_db(),
+            user_ids=targets,
+            type=NotificationType.ANNOUNCEMENT,
+            title=payload.title,
+            body=payload.body,
+            data={"link": payload.link, "severity": payload.severity},
+            collection="admin_notifications",
+            id_field="admin_id",
+            extra={"link": payload.link, "severity": payload.severity,
+                   "created_by": user.id},
+        )
     return {
         "success": True,
-        "message": f"{len(docs)} notification(s) created",
-        "detail": f"{len(docs)} notification(s) created",
-        "count": len(docs),
+        "message": f"{len(targets)} notification(s) created",
+        "detail": f"{len(targets)} notification(s) created",
+        "count": len(targets),
     }
 
 

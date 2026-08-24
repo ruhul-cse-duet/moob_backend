@@ -11,11 +11,17 @@ ticket sends an in-app notification to the super admin(s). No email is sent.
 """
 from typing import Any, Dict, List, Optional
 
-from app.core.enums import TicketActor, TicketPriority, TicketStatus
+from app.core.enums import (
+    NotificationType,
+    TicketActor,
+    TicketPriority,
+    TicketStatus,
+)
 from app.core.exceptions import Forbidden, NotFound
 from app.core.utils import build_reference, oid, serialize, utcnow
 from app.db.mongo import platform_db
 from app.schemas.common import PageParams
+from app.services.events import notify
 from app.services.pagination import paginate
 
 
@@ -68,21 +74,24 @@ async def create_ticket(user, data) -> Dict[str, Any]:
         "created_at": now,
     })
 
-    # Notify super admin(s) via in-app notification (no email).
+    # In-app notification, socket and push in one call - no email.
     admin_ids = await _super_admin_ids()
-    for admin_id in admin_ids:
-        await db.platform_notifications.insert_one({
-            "user_id": admin_id,
-            "type": "support_ticket",
-            "title": f"New support ticket: {data.subject}",
-            "body": data.message[:200],
-            "ticket_id": ticket_id,
-            "reference": reference,
-            "requester_name": user.raw.get("full_name"),
-            "requester_role": user.role.value,
-            "read": False,
-            "created_at": now,
-        })
+    if admin_ids:
+        await notify(
+            db,
+            user_ids=admin_ids,
+            type=NotificationType.SUPPORT_TICKET,
+            title=f"New support ticket: {data.subject}",
+            body=data.message[:200],
+            data={"ticket_id": ticket_id, "reference": reference},
+            collection="platform_notifications",
+            extra={
+                "ticket_id": ticket_id,
+                "reference": reference,
+                "requester_name": user.raw.get("full_name"),
+                "requester_role": user.role.value,
+            },
+        )
 
     return serialize({**doc, "_id": oid(ticket_id)})
 
@@ -153,31 +162,38 @@ async def reply(ticket_id: str, body: str, *, user, admin: bool = False) -> Dict
         # Admin replied → notify the requester.
         from app.db.mongo import tenant_db
         if ticket.get("tenant_id"):
-            await tenant_db(ticket["tenant_id"]).notifications.insert_one({
-                "user_id": ticket["requester_id"],
-                "type": "support_reply",
-                "title": f"Reply on [{ticket['reference']}] {ticket['subject']}",
-                "body": body[:200],
-                "ticket_id": ticket_id,
-                "reference": ticket.get("reference"),
-                "read": False,
-                "created_at": now,
-            })
+            await notify(
+                tenant_db(ticket["tenant_id"]),
+                user_ids=[ticket["requester_id"]],
+                type=NotificationType.SUPPORT_REPLY,
+                title=f"Reply on [{ticket['reference']}] {ticket['subject']}",
+                body=body[:200],
+                data={"ticket_id": ticket_id,
+                      "reference": ticket.get("reference")},
+                extra={"ticket_id": ticket_id,
+                       "reference": ticket.get("reference")},
+                # A back-and-forth on one ticket is one running alert rather
+                # than a new row in the shade per reply.
+                collapse_key=f"ticket:{ticket_id}",
+            )
     else:
         # Customer replied → notify admin(s).
         admin_ids = await _super_admin_ids()
-        for admin_id in admin_ids:
-            await db.platform_notifications.insert_one({
-                "user_id": admin_id,
-                "type": "support_reply",
-                "title": f"Reply on [{ticket['reference']}] {ticket['subject']}",
-                "body": body[:200],
-                "ticket_id": ticket_id,
-                "reference": ticket.get("reference"),
-                "requester_name": user.raw.get("full_name"),
-                "read": False,
-                "created_at": now,
-            })
+        if admin_ids:
+            await notify(
+                db,
+                user_ids=admin_ids,
+                type=NotificationType.SUPPORT_REPLY,
+                title=f"Reply on [{ticket['reference']}] {ticket['subject']}",
+                body=body[:200],
+                data={"ticket_id": ticket_id,
+                      "reference": ticket.get("reference")},
+                collection="platform_notifications",
+                extra={"ticket_id": ticket_id,
+                       "reference": ticket.get("reference"),
+                       "requester_name": user.raw.get("full_name")},
+                collapse_key=f"ticket:{ticket_id}",
+            )
     return await get_ticket(ticket_id, user=user, admin=admin)
 
 
