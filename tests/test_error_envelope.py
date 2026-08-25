@@ -108,3 +108,61 @@ def test_duplicate_key_is_translated_for_a_human():
     # Unrecognised index still yields something a user can read.
     exc = DuplicateKeyError("E11000 ... index: whatever_1 dup key", 11000, None)
     assert _duplicate_message(exc) == "This record already exists"
+
+
+class TestSecurityHeaders:
+    """The header that made /docs render blank.
+
+    `default-src 'none'` is right for this API: it answers with JSON and streams
+    back files somebody else uploaded, so a stored HTML or SVG document must not
+    be able to execute when it is opened. Applied to the documentation pages
+    too, it blocked Swagger's own bundle, its inline config script and its fetch
+    of the schema - the HTML arrived and nothing else did.
+    """
+
+    def test_the_api_loads_nothing(self):
+        from app.core.errors import baseline_headers
+
+        csp = baseline_headers("rid")["Content-Security-Policy"]
+        assert csp == "default-src 'none'; frame-ancestors 'none'"
+
+    def test_the_docs_pages_may_load_their_bundle(self):
+        from app.core.errors import baseline_headers
+
+        csp = baseline_headers("rid", docs=True)["Content-Security-Policy"]
+        assert "cdn.jsdelivr.net" in csp
+        # Swagger's configuration is an inline <script> in the page FastAPI
+        # generates; without this the page is blank even with the CDN allowed.
+        assert "'unsafe-inline'" in csp
+        # And it fetches the schema from this same origin.
+        assert "connect-src 'self'" in csp
+        # Still not embeddable, and still no default source.
+        assert "frame-ancestors 'none'" in csp
+        assert csp.startswith("default-src 'none'")
+
+    @pytest.mark.parametrize("path,expected", [
+        ("/docs", True),
+        ("/docs/", True),
+        ("/redoc", True),
+        ("/docs/oauth2-redirect", True),
+        ("/api/v1/legal/policies", False),
+        ("/api/v1/documents/abc/download", False),
+        ("/", False),
+    ])
+    def test_only_the_documentation_paths_are_relaxed(self, path, expected):
+        from app.core.errors import is_docs_path
+
+        assert is_docs_path(path) is expected
+
+    def test_nothing_is_relaxed_when_docs_are_switched_off(self):
+        """With ENABLE_DOCS=false those routes do not exist, so a request for
+        one is just a 404 from the API and gets the API's policy."""
+        from app.core.config import settings
+        from app.core.errors import is_docs_path
+
+        original = settings.ENABLE_DOCS
+        settings.ENABLE_DOCS = False
+        try:
+            assert is_docs_path("/docs") is False
+        finally:
+            settings.ENABLE_DOCS = original

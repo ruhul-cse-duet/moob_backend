@@ -31,7 +31,7 @@
   "variable": [
     {
       "key": "base_url",
-      "value": "http://10.10.20.11:8000"
+      "value": "http://localhost:8000"
     },
     {
       "key": "access_token",
@@ -448,6 +448,27 @@
             "auth": {
               "type": "noauth"
             }
+          },
+          "response": []
+        },
+        {
+          "name": "What the client needs to tokenise a card",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/payment-config",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "payment-config"
+              ]
+            },
+            "description": "What the client needs to tokenise a card"
           },
           "response": []
         },
@@ -1264,7 +1285,7 @@
           "response": []
         },
         {
-          "name": "Sign in after selecting a role (consultant / partner / client)",
+          "name": "Sign in with an email and password",
           "request": {
             "method": "POST",
             "header": [
@@ -1285,7 +1306,7 @@
                 "login"
               ]
             },
-            "description": "Sign in after selecting a role (consultant / partner / client)",
+            "description": "Sign in with an email and password",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"email\": \"sarah.jenkins@jenkinslaw.com\",\n  \"password\": \"Str0ng!Pass1\",\n  \"role\": \"consultant\",\n  \"trust_device\": false\n}",
@@ -1324,7 +1345,7 @@
           ]
         },
         {
-          "name": "Second leg of a two-factor sign-in (same role as step 1)",
+          "name": "Second leg of a two-factor sign-in",
           "request": {
             "method": "POST",
             "header": [
@@ -1346,7 +1367,7 @@
                 "2fa"
               ]
             },
-            "description": "Second leg of a two-factor sign-in (same role as step 1)",
+            "description": "Second leg of a two-factor sign-in",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"email\": \"sarah.jenkins@jenkinslaw.com\",\n  \"code\": \"{{otp_code}}\",\n  \"role\": \"consultant\"\n}",
@@ -1680,7 +1701,7 @@
       "name": "AI Assistant",
       "item": [
         {
-          "name": "Ask the AI assistant (Consultant only)",
+          "name": "Ask the AI assistant (answers are shaped to the caller's role)",
           "request": {
             "method": "POST",
             "header": [
@@ -1701,7 +1722,7 @@
                 "chat"
               ]
             },
-            "description": "Ask the AI assistant (Consultant only)",
+            "description": "Ask the AI assistant (answers are shaped to the caller's role)",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"message\": \"The upload fails at 90% on the mobile app.\",\n  \"conversation_id\": \"<conversation_id>\",\n  \"case_id\": \"{{case_id}}\",\n  \"client_id\": \"{{user_id}}\"\n}",
@@ -1732,7 +1753,7 @@
           ]
         },
         {
-          "name": "Assistant history (Consultant only)",
+          "name": "Your assistant history",
           "request": {
             "method": "GET",
             "header": [],
@@ -1762,12 +1783,12 @@
                 }
               ]
             },
-            "description": "Assistant history (Consultant only)"
+            "description": "Your assistant history"
           },
           "response": []
         },
         {
-          "name": "Get conversation messages (Consultant only)",
+          "name": "Get conversation messages",
           "request": {
             "method": "GET",
             "header": [],
@@ -1784,7 +1805,7 @@
                 "{{conversation_id}}"
               ]
             },
-            "description": "Get conversation messages (Consultant only)"
+            "description": "Get conversation messages"
           },
           "response": []
         },
@@ -2262,9 +2283,14 @@
           "name": "Progress a data request",
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": {
-              "raw": "{{base_url}}/api/v1/privacy/admin/requests/{{request_id}}/status?status=pending",
+              "raw": "{{base_url}}/api/v1/privacy/admin/requests/{{request_id}}/status",
               "host": [
                 "{{base_url}}"
               ],
@@ -2276,23 +2302,18 @@
                 "requests",
                 "{{request_id}}",
                 "status"
-              ],
-              "query": [
-                {
-                  "key": "status",
-                  "value": "pending",
-                  "description": "",
-                  "disabled": false
-                },
-                {
-                  "key": "note",
-                  "value": "<note>",
-                  "description": "",
-                  "disabled": true
-                }
               ]
             },
-            "description": "Progress a data request"
+            "description": "Progress a data request",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"pending\",\n  \"note\": \"<note>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
           },
           "response": []
         }
@@ -2635,6 +2656,27 @@
           "response": []
         },
         {
+          "name": "Withdraw a document request (consultant)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/documents/{{document_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "documents",
+                "{{document_id}}"
+              ]
+            },
+            "description": "Withdraw a document request (consultant)"
+          },
+          "response": []
+        },
+        {
           "name": "Upload a requested document (runs AI analysis)",
           "request": {
             "method": "POST",
@@ -2826,6 +2868,24 @@
             "auth": {
               "type": "noauth"
             }
+          },
+          "response": []
+        },
+        {
+          "name": "Ping",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/ping",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "ping"
+              ]
+            },
+            "description": "Ping"
           },
           "response": []
         },
@@ -3566,7 +3626,7 @@
             "description": "Consultant requests the documents this client needs",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"documents\": [\n    {\n      \"name\": \"<name>\",\n      \"category\": \"identity\",\n      \"why\": \"<why>\",\n      \"due_date\": \"2026-09-01T10:00:00Z\"\n    }\n  ],\n  \"message\": \"The upload fails at 90% on the mobile app.\"\n}",
+              "raw": "{\n  \"documents\": [\n    {\n      \"name\": \"<name>\",\n      \"category\": \"identity\",\n      \"why\": \"<why>\",\n      \"is_required\": true,\n      \"due_date\": \"2026-09-01T10:00:00Z\"\n    }\n  ],\n  \"message\": \"The upload fails at 90% on the mobile app.\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3636,6 +3696,85 @@
           "response": []
         },
         {
+          "name": "Attach supporting material to a request",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/requests/{{request_id}}/attachments",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "requests",
+                "{{request_id}}",
+                "attachments"
+              ]
+            },
+            "description": "Attach supporting material to a request",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Pick a file: PDF, JPG, PNG, WEBP, DOC or DOCX (max 25 MB)"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Stream one attachment out of GridFS",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/requests/{{request_id}}/attachments/{{file_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "requests",
+                "{{request_id}}",
+                "attachments",
+                "{{file_id}}"
+              ]
+            },
+            "description": "Stream one attachment out of GridFS"
+          },
+          "response": []
+        },
+        {
+          "name": "Remove an attachment",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/requests/{{request_id}}/attachments/{{file_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "requests",
+                "{{request_id}}",
+                "attachments",
+                "{{file_id}}"
+              ]
+            },
+            "description": "Remove an attachment"
+          },
+          "response": []
+        },
+        {
           "name": "Complete consultation and open the immigration case",
           "request": {
             "method": "POST",
@@ -3661,7 +3800,7 @@
             "description": "Complete consultation and open the immigration case",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"case_type\": \"<case_type>\",\n  \"deadline\": \"2026-09-01T10:00:00Z\"\n}",
+              "raw": "{\n  \"outcome\": {\n    \"summary\": \"<summary>\",\n    \"guidance\": \"<guidance>\",\n    \"next_steps\": [],\n    \"notes\": \"Eligibility confirmed; awaiting bank statement.\",\n    \"timeline\": \"<timeline>\",\n    \"recommendations\": \"<recommendations>\"\n  },\n  \"case_type\": \"<case_type>\",\n  \"deadline\": \"2026-09-01T10:00:00Z\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3895,6 +4034,121 @@
           "response": []
         },
         {
+          "name": "One policy version, for the editor (super admin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/legal/admin/policies/{{policy_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "legal",
+                "admin",
+                "policies",
+                "{{policy_id}}"
+              ]
+            },
+            "description": "One policy version, for the editor (super admin)"
+          },
+          "response": []
+        },
+        {
+          "name": "Edit an unpublished draft (super admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/legal/admin/policies/{{policy_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "legal",
+                "admin",
+                "policies",
+                "{{policy_id}}"
+              ]
+            },
+            "description": "Edit an unpublished draft (super admin)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": \"2.1\",\n  \"title\": \"Translate Employment Contract (ES to EN)\",\n  \"body_markdown\": \"Adding more detail here.\",\n  \"effective_from\": \"<effective_from>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Discard an unpublished draft (super admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/legal/admin/policies/{{policy_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "legal",
+                "admin",
+                "policies",
+                "{{policy_id}}"
+              ]
+            },
+            "description": "Discard an unpublished draft (super admin)"
+          },
+          "response": []
+        },
+        {
+          "name": "Start a new draft from an existing version (super admin)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/legal/admin/policies/{{policy_id}}/duplicate?version=2.0",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "legal",
+                "admin",
+                "policies",
+                "{{policy_id}}",
+                "duplicate"
+              ],
+              "query": [
+                {
+                  "key": "version",
+                  "value": "2.0",
+                  "description": "",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Start a new draft from an existing version (super admin)"
+          },
+          "response": []
+        },
+        {
           "name": "Make one version the live policy (super admin)",
           "request": {
             "method": "POST",
@@ -3924,7 +4178,49 @@
       "name": "Messages",
       "item": [
         {
-          "name": "Create or reuse a conversation thread",
+          "name": "Who I am allowed to message",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages/contacts",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "contacts"
+              ]
+            },
+            "description": "Who I am allowed to message"
+          },
+          "response": []
+        },
+        {
+          "name": "Unread messages across every conversation",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages/unread",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "unread"
+              ]
+            },
+            "description": "Unread messages across every conversation"
+          },
+          "response": []
+        },
+        {
+          "name": "Open, or reuse, a conversation",
           "request": {
             "method": "POST",
             "header": [
@@ -3945,7 +4241,7 @@
                 "threads"
               ]
             },
-            "description": "Create or reuse a conversation thread",
+            "description": "Open, or reuse, a conversation",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"participant_ids\": [\n    \"<participant_ids>\"\n  ],\n  \"case_id\": \"{{case_id}}\",\n  \"subject\": \"Cannot upload a document\"\n}",
@@ -3976,7 +4272,7 @@
           ]
         },
         {
-          "name": "List all conversation threads for the current user",
+          "name": "My conversations, most recent first",
           "request": {
             "method": "GET",
             "header": [],
@@ -4006,12 +4302,12 @@
                 }
               ]
             },
-            "description": "List all conversation threads for the current user"
+            "description": "My conversations, most recent first"
           },
           "response": []
         },
         {
-          "name": "Get messages in a conversation thread",
+          "name": "The messages in one conversation",
           "request": {
             "method": "GET",
             "header": [],
@@ -4042,12 +4338,12 @@
                 }
               ]
             },
-            "description": "Get messages in a conversation thread"
+            "description": "The messages in one conversation"
           },
           "response": []
         },
         {
-          "name": "Send a message in a conversation",
+          "name": "Send a message",
           "request": {
             "method": "POST",
             "header": [
@@ -4069,10 +4365,10 @@
                 "{{thread_id}}"
               ]
             },
-            "description": "Send a message in a conversation",
+            "description": "Send a message",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"body\": \"Adding more detail here.\",\n  \"attachment_url\": \"<attachment_url>\",\n  \"attachment_type\": \"<attachment_type>\"\n}",
+              "raw": "{\n  \"body\": \"\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -4083,7 +4379,74 @@
           "response": []
         },
         {
-          "name": "Mark all messages in a thread as read",
+          "name": "Send a photo or a document",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages/threads/{{thread_id}}/attachment",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "threads",
+                "{{thread_id}}",
+                "attachment"
+              ]
+            },
+            "description": "Send a photo or a document",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Pick a file: PDF, JPG, PNG, WEBP, DOC or DOCX (max 25 MB)"
+                },
+                {
+                  "key": "body",
+                  "type": "text",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Download what was sent",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages/attachments/:message_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "attachments",
+                ":message_id"
+              ],
+              "variable": [
+                {
+                  "key": "message_id",
+                  "value": "<message_id>"
+                }
+              ]
+            },
+            "description": "Download what was sent"
+          },
+          "response": []
+        },
+        {
+          "name": "Mark a conversation as read",
           "request": {
             "method": "POST",
             "header": [],
@@ -4101,7 +4464,7 @@
                 "read"
               ]
             },
-            "description": "Mark all messages in a thread as read"
+            "description": "Mark a conversation as read"
           },
           "response": []
         }
@@ -4168,6 +4531,211 @@
               ]
             },
             "description": "Unread Count"
+          },
+          "response": []
+        },
+        {
+          "name": "Devices receiving push for this account",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/notifications/devices",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "devices"
+              ]
+            },
+            "description": "Devices receiving push for this account"
+          },
+          "response": []
+        },
+        {
+          "name": "Register this device for push notifications",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/notifications/devices",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "devices"
+              ]
+            },
+            "description": "Register this device for push notifications",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{invite_token}}\",\n  \"platform\": \"unknown\",\n  \"device_id\": \"<device_id>\",\n  \"device_name\": \"<device_name>\",\n  \"app_version\": \"2.0\",\n  \"locale\": \"<locale>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Stop pushing to every device on this account",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/notifications/devices",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "devices"
+              ]
+            },
+            "description": "Stop pushing to every device on this account"
+          },
+          "response": []
+        },
+        {
+          "name": "Stop pushing to this device",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/notifications/devices/unregister",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "devices",
+                "unregister"
+              ]
+            },
+            "description": "Stop pushing to this device",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{invite_token}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Push preferences for this account",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/notifications/preferences",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "preferences"
+              ]
+            },
+            "description": "Push preferences for this account"
+          },
+          "response": []
+        },
+        {
+          "name": "Update push preferences",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/notifications/preferences",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "preferences"
+              ]
+            },
+            "description": "Update push preferences",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"enabled\": true,\n  \"muted_types\": [\n    \"<muted_types>\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Send a test push to this account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/notifications/devices/test",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "devices",
+                "test"
+              ]
+            },
+            "description": "Send a test push to this account",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Test notification\",\n  \"body\": \"Push notifications are working.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
           },
           "response": []
         },
@@ -5823,7 +6391,7 @@
           ]
         },
         {
-          "name": "Get Client profile detail for consultant view",
+          "name": "Client profile - the consultant's full view, or the part a delegated partner needs",
           "request": {
             "method": "GET",
             "header": [],
@@ -5839,7 +6407,7 @@
                 "{{client_id}}"
               ]
             },
-            "description": "Get Client profile detail for consultant view"
+            "description": "Client profile - the consultant's full view, or the part a delegated partner needs"
           },
           "response": []
         },
@@ -6359,6 +6927,227 @@
               ]
             },
             "description": "Collected revenue grouped by month"
+          },
+          "response": []
+        },
+        {
+          "name": "Every platform invoice \u2014 the Invoices tab",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/billing/invoices",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "billing",
+                "invoices"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "pending",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "tenant_id",
+                  "value": "<tenant_id>",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Every platform invoice \u2014 the Invoices tab"
+          },
+          "response": []
+        },
+        {
+          "name": "Record a payment taken outside Stripe (bank transfer)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/billing/invoices",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "billing",
+                "invoices"
+              ]
+            },
+            "description": "Record a payment taken outside Stripe (bank transfer)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tenant_id\": \"<tenant_id>\",\n  \"amount\": 100.0,\n  \"billing_cycle\": \"monthly\",\n  \"plan_code\": \"starter\",\n  \"payment_method\": \"Bank transfer\",\n  \"status\": \"pending\",\n  \"notes\": \"Eligibility confirmed; awaiting bank statement.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "One invoice",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/billing/invoices/{{invoice_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "billing",
+                "invoices",
+                "{{invoice_id}}"
+              ]
+            },
+            "description": "One invoice"
+          },
+          "response": []
+        },
+        {
+          "name": "Settle a failed or pending invoice by hand",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/billing/invoices/{{invoice_id}}/mark-paid",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "billing",
+                "invoices",
+                "{{invoice_id}}",
+                "mark-paid"
+              ]
+            },
+            "description": "Settle a failed or pending invoice by hand",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"<note>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Give up on an invoice without taking the money",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/billing/invoices/{{invoice_id}}/write-off",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "billing",
+                "invoices",
+                "{{invoice_id}}",
+                "write-off"
+              ]
+            },
+            "description": "Give up on an invoice without taking the money",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"No longer using the service.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Refund a paid invoice through Stripe",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/billing/invoices/{{invoice_id}}/refund",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "billing",
+                "invoices",
+                "{{invoice_id}}",
+                "refund"
+              ]
+            },
+            "description": "Refund a paid invoice through Stripe",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 100.0,\n  \"reason\": \"No longer using the service.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
           },
           "response": []
         }
@@ -7482,6 +8271,144 @@
               ]
             },
             "description": "Delete Admin"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Super Admin \u00b7 Profile",
+      "item": [
+        {
+          "name": "My administrator profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/profile",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "profile"
+              ]
+            },
+            "description": "My administrator profile"
+          },
+          "response": []
+        },
+        {
+          "name": "Update my administrator profile",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/profile",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "profile"
+              ]
+            },
+            "description": "Update my administrator profile",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"Sarah Jenkins\",\n  \"email\": \"sarah.jenkins@jenkinslaw.com\",\n  \"title\": \"Translate Employment Contract (ES to EN)\",\n  \"phone\": \"<phone>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "My profile picture",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/profile/avatar",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "profile",
+                "avatar"
+              ]
+            },
+            "description": "My profile picture"
+          },
+          "response": []
+        },
+        {
+          "name": "Upload or replace my profile picture",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/profile/avatar",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "profile",
+                "avatar"
+              ]
+            },
+            "description": "Upload or replace my profile picture",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Pick a file: PDF, JPG, PNG, WEBP, DOC or DOCX (max 25 MB)"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Remove my profile picture",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/profile/avatar",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "profile",
+                "avatar"
+              ]
+            },
+            "description": "Remove my profile picture"
           },
           "response": []
         }

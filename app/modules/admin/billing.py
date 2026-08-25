@@ -3,11 +3,19 @@ from datetime import timedelta
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field, model_validator
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Body, Depends, Query
 
 from app.core.deps import CurrentUser, page_params, require_super_admin
-from app.core.enums import AuditAction, BillingCycle, PlanCode, TenantStatus
-from app.core.utils import utcnow
+from app.core.enums import (
+    OPEN_PLATFORM_INVOICE_STATUSES,
+    AuditAction,
+    BillingCycle,
+    PlanCode,
+    PlatformInvoiceStatus,
+    TenantStatus,
+)
+from app.core.exceptions import BadRequest, Conflict, NotFound
+from app.core.utils import oid, serialize, utcnow
 from app.db.mongo import platform_db
 from app.modules.admin.deps import require_billing_admin
 from app.modules.subscriptions.plans import (
@@ -17,7 +25,7 @@ from app.modules.subscriptions.plans import (
     save_plan_overrides,
 )
 from app.schemas.common import PageParams
-from app.services import audit, stripe_service
+from app.services import audit, invoices as invoice_service, stripe_service
 from app.services.pagination import paginate
 
 router = APIRouter(prefix="/billing", tags=["Super Admin · Billing"])
@@ -313,3 +321,211 @@ async def revenue_by_month(months: int = Query(12, ge=1, le=36),
     return {"items": [{"year": r["_id"]["y"], "month": r["_id"]["m"],
                        "total": round(r["total"] or 0, 2), "count": r["count"]}
                       async for r in cursor]}
+
+
+# --------------------------------------------------------------------------- #
+# Invoices — admin/Billing.tsx "Invoices" tab
+#
+# What an organization owes the platform. Rows come from the Stripe webhook;
+# an administrator adds one only for money taken outside Stripe.
+#
+# The tab is not a read-only ledger. A failed payment puts the workspace into
+# PAST_DUE, which makes it read-only for the consultant, their partners and
+# their clients - so resolving the invoice is how a paying customer gets their
+# workspace back, and these are the endpoints behind that.
+# --------------------------------------------------------------------------- #
+
+
+class ManualInvoice(BaseModel):
+    """An invoice for money taken outside Stripe - a bank transfer, usually."""
+
+    tenant_id: str
+    amount: float = Field(gt=0)
+    billing_cycle: BillingCycle = BillingCycle.MONTHLY
+    plan_code: Optional[PlanCode] = None
+    payment_method: str = Field(default="Bank transfer", max_length=60)
+    status: PlatformInvoiceStatus = PlatformInvoiceStatus.PENDING
+    notes: Optional[str] = Field(None, max_length=500)
+
+
+async def _load_invoice(invoice_id: str) -> Dict[str, Any]:
+    doc = await platform_db().platform_invoices.find_one({"_id": oid(invoice_id)})
+    if not doc:
+        raise NotFound("Invoice not found")
+    return doc
+
+
+async def _settle(invoice: Dict[str, Any], *, status: PlatformInvoiceStatus,
+                  user: CurrentUser, detail: str,
+                  extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Move an invoice to a closed state, and say so in the audit trail.
+
+    Every one of these is a money decision made by a person, so none of them
+    happens without a record of who made it.
+    """
+    db = platform_db()
+    updates = {"status": status.value, "updated_at": utcnow(),
+               "resolved_by": user.id, "resolved_at": utcnow(), **(extra or {})}
+    await db.platform_invoices.update_one({"_id": invoice["_id"]}, {"$set": updates})
+    await audit.record(
+        action=AuditAction.ADMIN_ACTION, actor_id=user.id, actor_email=user.email,
+        actor_role="super_admin", tenant_id=invoice.get("tenant_id"),
+        subject=f"Invoice {invoice.get('reference')}", detail=detail,
+    )
+    return serialize({**invoice, **updates})
+
+
+@router.get("/invoices", summary="Every platform invoice — the Invoices tab")
+async def list_invoices(status: Optional[PlatformInvoiceStatus] = Query(None),
+                        tenant_id: Optional[str] = Query(None),
+                        params: PageParams = Depends(page_params),
+                        user: CurrentUser = Depends(require_billing_admin)):
+    query: Dict[str, Any] = {}
+    if status:
+        query["status"] = status.value
+    if tenant_id:
+        query["tenant_id"] = tenant_id
+
+    db = platform_db()
+    page = await paginate(db, "platform_invoices", query, params,
+                          sort=[("created_at", -1)])
+    # The counters in the page header. Computed over every invoice, not the
+    # current page, or paging would change the headline numbers.
+    page["summary"] = {
+        "paying_organizations": len(
+            await db.platform_invoices.distinct(
+                "tenant_id", {"status": PlatformInvoiceStatus.PAID.value})
+        ),
+        "failed_payments": await db.platform_invoices.count_documents(
+            {"status": PlatformInvoiceStatus.FAILED.value}),
+        "pending_payments": await db.platform_invoices.count_documents(
+            {"status": PlatformInvoiceStatus.PENDING.value}),
+    }
+    return page
+
+
+@router.get("/invoices/{invoice_id}", summary="One invoice")
+async def get_invoice(invoice_id: str,
+                      user: CurrentUser = Depends(require_billing_admin)):
+    return serialize(await _load_invoice(invoice_id))
+
+
+@router.post("/invoices", status_code=201,
+             summary="Record a payment taken outside Stripe (bank transfer)")
+async def create_manual_invoice(payload: ManualInvoice,
+                                user: CurrentUser = Depends(require_billing_admin)):
+    db = platform_db()
+    tenant = await db.tenants.find_one({"_id": oid(payload.tenant_id)})
+    if not tenant:
+        raise NotFound("Organization not found")
+
+    now = utcnow()
+    doc: Dict[str, Any] = {
+        "reference": await invoice_service.next_reference(),
+        "tenant_id": payload.tenant_id,
+        "organization_name": tenant.get("name"),
+        "amount": round(payload.amount, 2),
+        "currency": (stripe_service.settings.STRIPE_CURRENCY or "usd").lower(),
+        "status": payload.status.value,
+        "plan_code": payload.plan_code.value if payload.plan_code else tenant.get("plan_code"),
+        "billing_cycle": payload.billing_cycle.value,
+        "payment_method": payload.payment_method,
+        "notes": payload.notes,
+        # No Stripe ids on purpose: this money never went through Stripe, so a
+        # refund here has nothing to call and must be a write-off instead.
+        "created_by": user.id,
+        "issued_at": now,
+        "created_at": now,
+        "updated_at": now,
+    }
+    if payload.status is PlatformInvoiceStatus.PAID:
+        doc["paid_at"] = now
+    doc["_id"] = (await db.platform_invoices.insert_one(doc)).inserted_id
+
+    await audit.record(
+        action=AuditAction.ADMIN_ACTION, actor_id=user.id, actor_email=user.email,
+        actor_role="super_admin", tenant_id=payload.tenant_id,
+        subject=f"Invoice {doc['reference']}",
+        detail=f"raised manually for {payload.amount} ({payload.payment_method})",
+    )
+    return serialize(doc)
+
+
+@router.post("/invoices/{invoice_id}/mark-paid",
+             summary="Settle a failed or pending invoice by hand")
+async def mark_invoice_paid(invoice_id: str,
+                            note: Optional[str] = Body(None, embed=True),
+                            user: CurrentUser = Depends(require_billing_admin)):
+    """For money that arrived outside Stripe, or a failure resolved directly
+    with the customer.
+
+    Deliberately does **not** reactivate the organization. Settling the invoice
+    and reopening a workspace are two decisions - the customer may owe more than
+    this one invoice - so reactivation stays an explicit call to
+    `POST /admin/organizations/{id}/status`, which is what the UI banner
+    describes.
+    """
+    invoice = await _load_invoice(invoice_id)
+    if invoice["status"] not in {s.value for s in OPEN_PLATFORM_INVOICE_STATUSES}:
+        raise Conflict(f"This invoice is already {invoice['status']}")
+    return await _settle(
+        invoice, status=PlatformInvoiceStatus.PAID, user=user,
+        detail=f"marked paid by hand{f' - {note}' if note else ''}",
+        extra={"paid_at": utcnow(), "notes": note or invoice.get("notes")},
+    )
+
+
+@router.post("/invoices/{invoice_id}/write-off",
+             summary="Give up on an invoice without taking the money")
+async def write_off_invoice(invoice_id: str,
+                            reason: str = Body(embed=True, min_length=3, max_length=500),
+                            user: CurrentUser = Depends(require_billing_admin)):
+    """The other half of the banner's "resolve or write off".
+
+    A reason is required rather than optional: this is revenue being given up,
+    and six months later the only explanation will be this field.
+    """
+    invoice = await _load_invoice(invoice_id)
+    if invoice["status"] not in {s.value for s in OPEN_PLATFORM_INVOICE_STATUSES}:
+        raise Conflict(f"This invoice is already {invoice['status']}")
+    return await _settle(
+        invoice, status=PlatformInvoiceStatus.WRITTEN_OFF, user=user,
+        detail=f"written off: {reason}", extra={"write_off_reason": reason},
+    )
+
+
+@router.post("/invoices/{invoice_id}/refund",
+             summary="Refund a paid invoice through Stripe")
+async def refund_invoice(invoice_id: str,
+                         amount: Optional[float] = Body(None, embed=True, gt=0),
+                         reason: Optional[str] = Body(None, embed=True),
+                         user: CurrentUser = Depends(require_billing_admin)):
+    """Refund at Stripe first, and only then mark our own row.
+
+    The other order is the one failure the customer notices on their statement:
+    an invoice showing "refunded" here while Stripe never returned the money.
+    """
+    invoice = await _load_invoice(invoice_id)
+    if invoice["status"] != PlatformInvoiceStatus.PAID.value:
+        raise Conflict(f"Only a paid invoice can be refunded; this one is "
+                       f"{invoice['status']}")
+    if amount is not None and amount > invoice["amount"]:
+        raise BadRequest(
+            f"Cannot refund {amount} against an invoice of {invoice['amount']}")
+
+    result = await stripe_service.refund_invoice(
+        payment_intent_id=invoice.get("stripe_payment_intent_id"),
+        charge_id=invoice.get("stripe_charge_id"),
+        amount=amount, reason=reason,
+    )
+    if not result["success"]:
+        raise BadRequest(result["message"])
+
+    refunded = amount if amount is not None else invoice["amount"]
+    return await _settle(
+        invoice, status=PlatformInvoiceStatus.REFUNDED, user=user,
+        detail=f"refunded {refunded} {invoice.get('currency', 'usd').upper()}"
+               f"{f' - {reason}' if reason else ''}",
+        extra={"refunded_at": utcnow(), "refunded_amount": refunded,
+               "stripe_refund_id": result.get("refund_id")},
+    )

@@ -14,7 +14,7 @@ from app.core.utils import build_reference, oid, serialize, utcnow
 from app.db.indexes import next_sequence
 from app.schemas.common import PageParams
 from app.services.events import log_activity, notify
-from app.services.openai_service import suggest_required_documents
+from app.services.ai_service import suggest_required_documents
 from app.services.pagination import paginate
 from app.services import storage
 
