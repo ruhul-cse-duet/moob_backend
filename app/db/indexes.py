@@ -77,6 +77,15 @@ async def ensure_platform_indexes() -> None:
         # Unique: acceptance is recorded against a version *string*, so two
         # rows sharing (kind, version) make "this user accepted Privacy
         # Policy 2.0" ambiguous about which 2.0 they actually saw.
+        # Platform invoices: the Invoices tab lists newest first and filters by
+        # status, and the Stripe id is what makes webhook delivery idempotent -
+        # the same invoice.paid event arriving twice must not bill twice.
+        db.platform_invoices.create_index([("created_at", -1)]),
+        db.platform_invoices.create_index([("status", 1), ("created_at", -1)]),
+        db.platform_invoices.create_index([("tenant_id", 1), ("created_at", -1)]),
+        db.platform_invoices.create_index("reference", unique=True),
+        db.platform_invoices.create_index("stripe_invoice_id", unique=True, sparse=True),
+
         db.policies.create_index([("kind", 1), ("version", -1)], unique=True),
         db.policy_acceptances.create_index([("user_email", 1), ("kind", 1)]),
         db.platform_settings.create_index("key", unique=True),

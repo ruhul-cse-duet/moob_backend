@@ -42,7 +42,35 @@ def _request_id(request: Request) -> Optional[str]:
     return getattr(request.state, "request_id", None) or request.headers.get("X-Request-ID")
 
 
-def baseline_headers(request_id: Optional[str] = None) -> dict[str, str]:
+# The API answers with JSON and streams back documents somebody else uploaded,
+# so it loads nothing and must be allowed to load nothing - that is what stops a
+# stored HTML or SVG file executing when it is opened.
+_API_CSP = "default-src 'none'; frame-ancestors 'none'"
+
+# Swagger and ReDoc are real HTML applications: they pull their bundle from a
+# CDN, run an inline configuration script and fetch the schema. Under _API_CSP
+# every one of those is blocked and the page renders blank - the HTML arrives,
+# nothing else does. Relaxed only as far as those pages actually need.
+_DOCS_CSP = (
+    "default-src 'none'; "
+    "script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; "
+    "style-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; "
+    "img-src 'self' https://fastapi.tiangolo.com data:; "
+    "font-src 'self' https://cdn.jsdelivr.net; "
+    "connect-src 'self'; "
+    "frame-ancestors 'none'"
+)
+
+
+def is_docs_path(path: str) -> bool:
+    """Whether this request is for the API reference rather than the API."""
+    if not settings.docs_enabled:
+        return False
+    return path.rstrip("/") in {"/docs", "/redoc", "/docs/oauth2-redirect"}
+
+
+def baseline_headers(request_id: Optional[str] = None, *,
+                     docs: bool = False) -> dict[str, str]:
     """Headers every response carries, error or not.
 
     Defined here rather than only in the middleware because an unhandled
@@ -60,8 +88,7 @@ def baseline_headers(request_id: Optional[str] = None) -> dict[str, str]:
             "Referrer-Policy": "no-referrer",
             "Cross-Origin-Resource-Policy": "same-site",
             "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
-            # A stored document must never render as active content.
-            "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+            "Content-Security-Policy": _DOCS_CSP if docs else _API_CSP,
         })
         if settings.is_production:
             headers["Strict-Transport-Security"] = (

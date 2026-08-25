@@ -15,7 +15,7 @@ from app.core.utils import oid, serialize, utcnow
 from app.schemas.common import PageParams
 from app.services import storage
 from app.services.events import log_activity, notify
-from app.services.openai_service import analyze_document
+from app.services.ai_service import analyze_document
 from app.services.ownership import assert_client_access, assigned_client_ids, resolve_consultant_id
 from app.services.pagination import paginate
 

@@ -231,6 +231,28 @@ class PayoutStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class PlatformInvoiceStatus(str, Enum):
+    """What an organization owes the *platform* - admin/Billing.tsx Invoices tab.
+
+    Distinct from InvoiceStatus below, which is the consultant billing their own
+    client. These two never mix: this one is driven by Stripe, that one by a
+    consultant filling in a form.
+    """
+    PENDING = "pending"          # issued, not settled - an offline/bank transfer
+    PAID = "paid"
+    FAILED = "failed"            # the card was declined; the workspace goes read-only
+    REFUNDED = "refunded"
+    WRITTEN_OFF = "written_off"  # admin decided not to pursue it
+
+
+#: Statuses an administrator can still act on. A refunded or written-off
+#: invoice is closed - re-refunding one would take the money twice.
+OPEN_PLATFORM_INVOICE_STATUSES = {
+    PlatformInvoiceStatus.PENDING,
+    PlatformInvoiceStatus.FAILED,
+}
+
+
 class InvoiceStatus(str, Enum):
     """client/ClientBilling.tsx - consultant bills the client"""
     DRAFT = "draft"

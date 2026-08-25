@@ -15,7 +15,7 @@ from app.db.indexes import next_sequence
 from app.schemas.common import PageParams
 from app.services.case_progress import APPROVED, apply_progress, attach_case_progress
 from app.services.events import log_activity, notify
-from app.services.openai_service import case_guidance
+from app.services.ai_service import case_guidance
 from app.services.ownership import assert_case_access, assigned_client_ids, attach_consultant
 from app.services.pagination import paginate
 

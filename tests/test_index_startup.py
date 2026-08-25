@@ -1,7 +1,7 @@
 """Index creation on boot.
 
-Every `create_index` is a network round trip to Atlas, and there are 35 of them
-on the platform database. Awaited one after another they are paid for
+Every `create_index` is a network round trip to Atlas, and there are dozens of
+them on the platform database. Awaited one after another they are paid for
 sequentially before the API answers its first request - which on a free cluster,
 on a free Render instance that has just been woken up, is the difference between
 a cold start a person waits through and one they give up on.
@@ -10,6 +10,11 @@ They do not depend on each other, so they are gathered. What is asserted here is
 that they genuinely overlap: `asyncio.gather` over coroutines that were awaited
 inside a loop would still be sequential, and the difference is invisible without
 counting.
+
+The counts are compared against each other - peak versus total - rather than
+against a hard-coded number. Pinning the literal count would mean every added
+index broke this file, which trains people to update the number rather than read
+what it is telling them.
 """
 import asyncio
 
@@ -46,7 +51,7 @@ class RecordingDb:
 
 
 async def test_platform_indexes_are_created_concurrently(monkeypatch):
-    """35 round trips overlapping, not queueing.
+    """Every round trip overlapping, not queueing.
 
     The peak is what proves it. If these were awaited in a loop the peak would
     be 1, the total would be the same, and nothing else about the code would
@@ -57,9 +62,10 @@ async def test_platform_indexes_are_created_concurrently(monkeypatch):
 
     await indexes.ensure_platform_indexes()
 
-    assert db.tracker["total"] == 35
-    assert db.tracker["peak"] == 35, (
-        "index creation serialised - the boot cost is back to 35 round trips"
+    assert db.tracker["total"] > 30, "suspiciously few indexes - did a block get dropped?"
+    assert db.tracker["peak"] == db.tracker["total"], (
+        f"index creation serialised - the boot cost is back to "
+        f"{db.tracker['total']} sequential round trips"
     )
     # Nothing left running.
     assert db.tracker["in_flight"] == 0
@@ -71,8 +77,8 @@ async def test_tenant_indexes_are_created_concurrently():
 
     await indexes.ensure_tenant_indexes(db)
 
-    assert db.tracker["total"] == 38
-    assert db.tracker["peak"] == 38
+    assert db.tracker["total"] > 30
+    assert db.tracker["peak"] == db.tracker["total"]
     assert db.tracker["in_flight"] == 0
 
 
@@ -81,7 +87,7 @@ async def test_one_failing_index_does_not_abandon_the_rest(monkeypatch, caplog):
 
     `gather` without `return_exceptions` would raise on the first failure and
     skip whatever had not been scheduled yet - so one bad index would quietly
-    cost the other 34, and every query they served would go to a collection
+    cost all the others, and every query they served would go to a collection
     scan. Booting degraded is right; booting half-indexed and silent is not.
     """
     db = RecordingDb()
@@ -101,7 +107,7 @@ async def test_one_failing_index_does_not_abandon_the_rest(monkeypatch, caplog):
         await indexes.ensure_platform_indexes()
 
     # Every one was attempted, not just those before the failure.
-    assert calls["n"] == 35
+    assert calls["n"] == db.tracker["total"] + 1  # +1: the one that raised
     # And the failure is on the record rather than swallowed.
     assert any("could not be created" in r.message for r in caplog.records)
 

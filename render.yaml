@@ -85,37 +85,29 @@ services:
         value: Platform Admin
 
       # ---- Email ----
-      - key: SMTP_HOST
-        value: smtp.gmail.com
-      - key: SMTP_PORT
-        value: "587"
-      - key: SMTP_USERNAME
-        sync: false
-      - key: SMTP_PASSWORD
-        sync: false
       - key: SMTP_FROM
         sync: false
       - key: SMTP_FROM_NAME
         value: WebImove
-      - key: SMTP_USE_TLS
-        value: "true"
-      - key: SMTP_STARTTLS
-        value: "true"
 
       # Where invitation and password-reset links point. This must be the app,
       # not this API, or every invited user lands on a JSON error.
       - key: FRONTEND_URL
         sync: false
 
-      # ---- OpenAI ----
-      - key: OPENAI_API_KEY
+      # ---- Anthropic (Claude) ----
+      - key: ANTHROPIC_API_KEY
         sync: false
-      - key: OPENAI_MODEL
-        value: gpt-4o-mini
-      - key: OPENAI_VISION_MODEL
-        value: gpt-4o-mini
-      - key: OPENAI_MAX_TOKENS
-        value: "1500"
+      # One model covers text and documents alike - Claude reads an uploaded
+      # PDF or image directly, so there is no separate vision model.
+      - key: ANTHROPIC_MODEL
+        value: claude-opus-5
+      - key: ANTHROPIC_MAX_TOKENS
+        value: "4096"
+      # The main cost dial: how hard the model thinks before answering.
+      # low | medium | high | xhigh | max
+      - key: ANTHROPIC_EFFORT
+        value: medium
 
       # ---- Stripe ----
       - key: STRIPE_SECRET_KEY
@@ -132,22 +124,27 @@ services:
       - key: STRIPE_PRICES
         value: "{}"
 
-      # ---- Email transport ----
-      # Render blocks outbound ports 25, 465 and 587, and Gmail offers only 465
-      # and 587 - so the SMTP_* settings above cannot work from here and every
-      # send times out with SMTPConnectTimeoutError. An HTTP API goes over 443.
+      # ---- Email provider ----
+      # Mail goes over the provider's HTTPS API. There is no SMTP transport:
+      # Render blocks outbound 25, 465 and 587, and Gmail offers only 465 and
+      # 587, so SMTP cannot work from here at all - it fails as a connect
+      # timeout that reads like bad credentials.
       #
-      # Paste ONE of these keys and mail starts working; the app picks the
-      # transport from whichever is filled in. Leave EMAIL_PROVIDER unset unless
-      # you need to force one.
+      # BREVO_API_KEY is the one to fill in: https://app.brevo.com ->
+      # SMTP & API -> API Keys. 300 emails a day free, and no domain
+      # verification needed to start.
       #
-      # Sending as your own domain requires verifying it with the provider. Until
-      # then, with Resend, set SMTP_FROM to onboarding@resend.dev.
+      # Resend and SendGrid are kept as alternatives - paste a different key and
+      # the app switches, with no code change. EMAIL_PROVIDER only matters when
+      # more than one key is present and you need to force the choice.
+      #
+      # SMTP_FROM above must be an address the provider has verified, or every
+      # send is refused.
+      - key: BREVO_API_KEY
+        sync: false
       - key: EMAIL_PROVIDER
         value: ""
       - key: RESEND_API_KEY
-        sync: false
-      - key: BREVO_API_KEY
         sync: false
       - key: SENDGRID_API_KEY
         sync: false
