@@ -1,106 +1,150 @@
-# Pings the API from outside, so it stays awake — and, unlike the keep-alive
-# inside the app, can bring it back when it has already gone to sleep.
+# Wakes the API if it has gone to sleep.
 #
-# The two are halves of one job:
+# This is the *recovery net*, not the main keep-alive. The two are different
+# jobs, and it matters which is which:
 #
-#   app/services/keepalive.py   holds a *running* instance up. It is the process
-#                               that gets stopped, so it cannot revive itself.
-#   this workflow               runs on GitHub's machines, so it still fires
-#                               when the service is down — the request itself is
-#                               what wakes it.
+#   app/services/keepalive.py   pings every 12 minutes from inside the running
+#                               container. This is what actually keeps the
+#                               service up - it is frequent enough to sit inside
+#                               Render's 15-minute idle window. But it is the
+#                               process that gets stopped, so it cannot revive
+#                               itself.
+#   this workflow               runs on GitHub's machines, so it still fires when
+#                               the service is down. That is the one thing the
+#                               in-app pinger cannot do, and the only reason this
+#                               exists.
 #
-# Free on GitHub: public repos have unlimited Actions minutes, private repos get
-# 2000 a month and this uses roughly 150 of them.
+# Because its job is recovery rather than prevention, it runs every 30 minutes
+# instead of every 10 - which also keeps it inside the free Actions allowance.
+# See the note on minutes below before shortening that interval.
 #
-# ── Two things that will bite you ──────────────────────────────────────────
+# ── This job never fails ──────────────────────────────────────────────────
 #
-# 1. GitHub's scheduler is best-effort, not a real cron. Under load a job can
-#    fire 10–30 minutes late, which is longer than Render's 15-minute idle
-#    window — so this alone will not keep the service up every single time. That
-#    is exactly why the in-app keep-alive exists as well: between them, a late
-#    tick is covered.
+# On purpose. GitHub emails the repository owner every time a *scheduled* run
+# fails, and a keep-alive that pings on a timer forever will fail sometimes:
+# mid-deploy, during a cold start, whenever Render has a bad minute. Reporting
+# each of those as a build failure means an inbox full of alerts that are not
+# actionable, which is how real alerts get ignored.
 #
-#    Want it actually reliable? Use a dedicated free pinger instead — a
-#    cron-job.org or UptimeRobot monitor on https://<your-service>/ping every 10
-#    minutes fires on time, every time, and needs no repo at all.
+# So the outcome goes to the run summary and to warning annotations instead, and
+# the step exits 0 either way. Open the Actions tab to see what happened; look at
+# `uptime_seconds` in the summary to see whether the pinging is working at all.
 #
-# 2. GitHub disables scheduled workflows on a repo with no commits for 60 days,
-#    and emails you when it does. If pinging stops for no apparent reason, this
-#    is why: re-enable it in the Actions tab.
+# ── Actions minutes ───────────────────────────────────────────────────────
 #
-# ── Setup ─────────────────────────────────────────────────────────────────
+# Public repo: unlimited and free, ignore this.
 #
-# Set the URL once, in the repo: Settings → Secrets and variables → Actions →
-# *Variables* tab → New repository variable.
+# Private repo: 2,000 minutes a month free, and GitHub bills each run rounded UP
+# to a whole minute no matter how fast it was. So the interval is a budget:
 #
-#     Name:  API_URL
-#     Value: https://moob.onrender.com
+#     every 30 min → ~1,440 runs → ~1,440 min/month  ✅ fits
+#     every 15 min → ~2,880 runs → over budget       ❌
+#     every 10 min → ~4,320 runs → well over         ❌
 #
-# A variable, not a secret: the URL is public anyway, and a secret would be
-# masked in the logs, which makes a failing ping much harder to read.
+# Which is the real reason this cannot be the primary keep-alive on a private
+# repo. If you want a reliable 10-minute ping, use a free uptime monitor -
+# cron-job.org or UptimeRobot on https://moob.onrender.com/ping. They fire on
+# time, cost nothing, and have no minute budget.
+#
+# ── Configuration ─────────────────────────────────────────────────────────
+#
+# None required - the URL below matches what the app is built against. To point
+# it somewhere else, set an API_URL repository variable: Settings → Secrets and
+# variables → Actions → Variables → New repository variable. A variable rather
+# than a secret, because a masked URL makes a failing ping much harder to read.
 name: Keep the API awake
 
 on:
   schedule:
-    # Every 10 minutes, leaving margin under Render's 15-minute idle window for
-    # a tick that arrives late.
-    - cron: '*/10 * * * *'
-  # So you can prove it works without waiting for the schedule: Actions tab →
-  # this workflow → Run workflow.
+    - cron: '*/30 * * * *'
+  # Actions tab → this workflow → Run workflow, to test without waiting.
   workflow_dispatch:
 
-# If a run is somehow still going when the next is due, the newer one is what
-# matters — a queue of stale pings helps nobody.
 concurrency:
   group: keep-awake
   cancel-in-progress: true
 
+# Nothing here reads or writes the repository.
+permissions: {}
+
 jobs:
   ping:
     runs-on: ubuntu-latest
-    # A cold start on Render's free plan can take most of a minute; this is
-    # generous enough to cover it and still fail rather than hang.
+    # A cold start can take most of a minute; this bounds the retries without
+    # letting a hung request burn minutes.
     timeout-minutes: 5
     steps:
       - name: Ping the API
         env:
-          API_URL: ${{ vars.API_URL }}
+          # The repository variable when set, the app's production URL otherwise.
+          # Defaulting rather than failing is deliberate: the previous version
+          # exited 1 when the variable was missing, which turned a setup step
+          # nobody had done into a failure email every half hour.
+          API_URL: ${{ vars.API_URL || 'https://moob.onrender.com' }}
         run: |
           set -uo pipefail
-
-          if [ -z "${API_URL}" ]; then
-            echo "::error::The API_URL repository variable is not set."
-            echo "Settings → Secrets and variables → Actions → Variables →"
-            echo "New repository variable, named API_URL."
-            exit 1
-          fi
 
           target="${API_URL%/}/ping"
           echo "Pinging ${target}"
 
-          # Retries because the *first* request is the one that wakes a sleeping
+          status=""
+          payload=""
+          # Retries because the first request is the one that wakes a sleeping
           # instance, and it can time out while the container is still starting.
-          # Failing on that would report a working setup as broken.
           for attempt in 1 2 3; do
-            # --max-time, not --connect-timeout: waking is slow to *answer*, not
+            # --max-time, not --connect-timeout: waking is slow to answer, not
             # slow to connect.
-            body=$(curl --silent --show-error --location --max-time 90 \
-                        --write-out '\n%{http_code}' "${target}" 2>&1) && rc=0 || rc=$?
-            status=$(printf '%s' "${body}" | tail -n1)
-            payload=$(printf '%s' "${body}" | sed '$d')
+            response=$(curl --silent --show-error --location --max-time 90 \
+                            --write-out '\n%{http_code}' "${target}" 2>&1) && rc=0 || rc=$?
+            status=$(printf '%s' "${response}" | tail -n1)
+            payload=$(printf '%s' "${response}" | sed '$d')
 
             if [ "${rc}" -eq 0 ] && [ "${status}" = "200" ]; then
-              echo "Awake (HTTP ${status})"
-              echo "${payload}"
-              # uptime_seconds tells you whether the pinging is actually working:
-              # a value that keeps coming back near zero means every ping is
-              # waking a service that had already gone to sleep.
-              exit 0
+              break
             fi
-
-            echo "Attempt ${attempt} failed (curl ${rc}, HTTP ${status:-none})"
+            echo "Attempt ${attempt}: curl exit ${rc}, HTTP ${status:-none}"
             [ "${attempt}" -lt 3 ] && sleep 20
           done
 
-          echo "::error::${target} did not answer after 3 attempts."
-          exit 1
+          {
+            echo "### Keep-awake ping"
+            echo
+            echo "- Target: \`${target}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${status}" = "200" ]; then
+            echo "Awake (HTTP 200)"
+            echo "${payload}"
+
+            # uptime_seconds is the honest signal. Large and growing means the
+            # in-app keep-alive is holding the service up on its own. Small on
+            # every run means each of these pings is waking a service that had
+            # already gone back to sleep - the in-app pinger is not working, and
+            # a 10-minute external monitor is what you actually need.
+            uptime=$(printf '%s' "${payload}" \
+              | grep -o '"uptime_seconds":[0-9.]*' | cut -d: -f2 || true)
+
+            {
+              echo "- Result: **awake** (HTTP 200)"
+              [ -n "${uptime}" ] && echo "- Uptime: \`${uptime}s\`"
+              echo
+              echo '```json'
+              echo "${payload}"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            # A warning, not an error: an unreachable API for one tick is not a
+            # broken repository, and this must not become a failure email.
+            echo "::warning title=API did not answer::${target} returned no 200 after 3 attempts (last: HTTP ${status:-none}). If this repeats for hours, check the Render dashboard."
+            {
+              echo "- Result: **no answer** after 3 attempts (last HTTP \`${status:-none}\`)"
+              echo
+              echo "If this repeats across several runs, check whether the Render"
+              echo "service is suspended - a free account gets 750 instance-hours"
+              echo "a month across all its free services, and they stop when it"
+              echo "runs out."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          # Always. See "This job never fails" at the top of this file.
+          exit 0
