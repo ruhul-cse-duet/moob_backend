@@ -46,7 +46,7 @@ async def create_appointment(payload: AppointmentCreate,
     if payload.client_id:
         await notify(db, user_ids=[payload.client_id],
                      type=NotificationType.CASE_STAGE_CHANGED,
-                     title="Appointment scheduled", body=payload.title,
+                     title_key="notify.appointment_scheduled", body=payload.title,
                      data={"appointment_id": str(result.inserted_id)})
     return serialize({**doc, "_id": result.inserted_id})
 
