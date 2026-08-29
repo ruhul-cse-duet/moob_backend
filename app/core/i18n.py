@@ -243,6 +243,31 @@ CATALOGUE: Dict[str, Dict[str, Any]] = {
     "stage.approved": {"en": 'Approved', "pt": 'Aprovado', "es": 'Aprobado'},
     "stage.completed": {"en": 'Completed', "pt": 'Concluído', "es": 'Completado'},
 
+
+    # ---- privacy centre toggles ----
+    "consent.terms_of_service": {"en": 'Terms of Service', "pt": 'Termos de Serviço', "es": 'Términos del Servicio'},
+    "consent.terms_of_service.description": {"en": 'The agreement that governs your use of WebImove.', "pt": 'O acordo que rege a sua utilização do WebImove.', "es": 'El acuerdo que rige su uso de WebImove.'},
+    "consent.privacy_policy": {"en": 'Privacy Policy', "pt": 'Política de Privacidade', "es": 'Política de Privacidad'},
+    "consent.privacy_policy.description": {"en": 'How your personal data is collected, stored and erased.', "pt": 'Como os seus dados pessoais são recolhidos, guardados e apagados.', "es": 'Cómo se recopilan, almacenan y eliminan sus datos personales.'},
+    "consent.data_processing": {"en": 'Data processing', "pt": 'Tratamento de dados', "es": 'Procesamiento de datos'},
+    "consent.data_processing.description": {"en": 'Lets your consultant process your documents to prepare your case.', "pt": 'Permite que o seu consultor trate os seus documentos para preparar o processo.', "es": 'Permite a su consultor procesar sus documentos para preparar su caso.'},
+    "consent.immigration_case_handling": {"en": 'Immigration case handling', "pt": 'Gestão do processo de imigração', "es": 'Gestión del caso migratorio'},
+    "consent.immigration_case_handling.description": {"en": 'Lets your consultant open and run an immigration case on your behalf.', "pt": 'Permite ao seu consultor abrir e conduzir um processo de imigração em seu nome.', "es": 'Permite a su consultor abrir y gestionar un caso migratorio en su nombre.'},
+    "consent.sensitive_data_processing": {"en": 'Sensitive data', "pt": 'Dados sensíveis', "es": 'Datos sensibles'},
+    "consent.sensitive_data_processing.description": {"en": 'Covers health, biometric and other special-category data your case may need.', "pt": 'Abrange dados de saúde, biométricos e outras categorias especiais que o processo possa exigir.', "es": 'Cubre datos de salud, biométricos y otras categorías especiales que su caso pueda requerir.'},
+    "consent.document_sharing_with_partners": {"en": 'Sharing with partners', "pt": 'Partilha com parceiros', "es": 'Compartir con socios'},
+    "consent.document_sharing_with_partners.description": {"en": 'Allows approved partners — translators, notaries — to see the files they need for their task.', "pt": 'Permite que parceiros aprovados — tradutores, notários — vejam apenas os ficheiros de que precisam.', "es": 'Permite que los socios aprobados — traductores, notarios — vean solo los archivos que necesitan.'},
+    "consent.ai_document_analysis": {"en": 'AI document analysis', "pt": 'Análise de documentos por IA', "es": 'Análisis de documentos con IA'},
+    "consent.ai_document_analysis.description": {"en": 'Runs an automatic read of each upload to catch missing or expired details before your consultant sees it.', "pt": 'Faz uma leitura automática de cada envio para detetar dados em falta ou expirados antes de o consultor os ver.', "es": 'Realiza una lectura automática de cada archivo para detectar datos faltantes o vencidos antes de que su consultor los vea.'},
+    "consent.ai_legal_assistant": {"en": 'AI assistant', "pt": 'Assistente de IA', "es": 'Asistente de IA'},
+    "consent.ai_legal_assistant.description": {"en": 'Lets the in-app assistant answer questions using your case details.', "pt": 'Permite que o assistente responda a perguntas usando os dados do seu processo.', "es": 'Permite que el asistente responda preguntas usando los datos de su caso.'},
+    "consent.email_notifications": {"en": 'Email notifications', "pt": 'Notificações por email', "es": 'Notificaciones por correo'},
+    "consent.email_notifications.description": {"en": 'Updates about your case by email.', "pt": 'Novidades sobre o seu processo por email.', "es": 'Novedades sobre su caso por correo electrónico.'},
+    "consent.whatsapp_notifications": {"en": 'WhatsApp notifications', "pt": 'Notificações por WhatsApp', "es": 'Notificaciones por WhatsApp'},
+    "consent.whatsapp_notifications.description": {"en": 'Updates about your case on WhatsApp.', "pt": 'Novidades sobre o seu processo no WhatsApp.', "es": 'Novedades sobre su caso por WhatsApp.'},
+    "consent.marketing_emails": {"en": 'Marketing emails', "pt": 'Emails de marketing', "es": 'Correos de marketing'},
+    "consent.marketing_emails.description": {"en": 'Occasional product news. Never required, and never affects your case.', "pt": 'Novidades ocasionais do produto. Nunca obrigatório, e nunca afeta o seu processo.', "es": 'Novedades ocasionales del producto. Nunca es obligatorio y nunca afecta a su caso.'},
+
     "language.saved": {
         "en": "Workspace language updated",
         "pt": "Idioma do espaço de trabalho atualizado",
