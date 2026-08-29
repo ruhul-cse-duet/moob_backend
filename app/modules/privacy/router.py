@@ -79,7 +79,8 @@ async def my_consents(user: CurrentUser = Depends(get_current_user),
 @router.put("/consents", summary="Grant or revoke a consent")
 async def set_consent(payload: ConsentSet, request: Request,
                       user: CurrentUser = Depends(get_current_user),
-                      db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+                      db: AsyncIOMotorDatabase = Depends(get_tenant_db),
+                      lang: str = Depends(request_language)):
     await consent_service.record(
         db, user_id=user.id, consent_type=payload.type, granted=payload.granted,
         source="privacy_centre", policy_version=payload.policy_version,
@@ -87,8 +88,13 @@ async def set_consent(payload: ConsentSet, request: Request,
     )
     # Read back rather than returning what was written: this is the value the
     # toggle will be redrawn from, so it has to be what the next GET would say.
-    return serialize(await db.consents.find_one({"user_id": user.id,
-                                                 "type": payload.type.value}))
+    doc = await db.consents.find_one({"user_id": user.id,
+                                      "type": payload.type.value})
+    out = serialize(doc or {"type": payload.type.value, "granted": payload.granted})
+    out["label"] = translate(f"consent.{payload.type.value}", lang)
+    out["description"] = translate(f"consent.{payload.type.value}.description", lang)
+    out["required"] = payload.type in REQUIRED_CONSENTS
+    return out
 
 
 @router.get("/consents/history", summary="Full consent audit trail")

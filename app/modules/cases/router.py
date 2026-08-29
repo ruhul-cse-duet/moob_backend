@@ -36,8 +36,9 @@ async def list_cases(stage: Optional[CaseStage] = Query(None),
                          None, description="Only this consultant's cases"),
                      params: PageParams = Depends(page_params),
                      user: CurrentUser = Depends(get_current_user),
-                     db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
-    return await service.list_cases(db, user, params, stage, search, consultant_id)
+                     db: AsyncIOMotorDatabase = Depends(get_tenant_db),
+                     lang: str = Depends(request_language)):
+    return await service.list_cases(db, user, params, stage, search, consultant_id, lang)
 
 
 @router.get("/stage-counts", summary="Counts for the stage filter chips")
@@ -50,8 +51,9 @@ async def stage_counts(consultant_id: Optional[str] = Query(None),
 @router.get("/{case_id}", summary="Case detail with documents, tasks and timeline")
 async def get_case(case_id: str,
                    user: CurrentUser = Depends(get_current_user),
-                   db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
-    return await service.get_case(db, user, case_id)
+                   db: AsyncIOMotorDatabase = Depends(get_tenant_db),
+                   lang: str = Depends(request_language)):
+    return await service.get_case(db, user, case_id, lang)
 
 
 @router.patch("/{case_id}", response_model=s.CaseOut)
