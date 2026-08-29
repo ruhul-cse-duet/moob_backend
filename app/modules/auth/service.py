@@ -36,7 +36,7 @@ from app.core.utils import (
 from app.db.indexes import ensure_tenant_indexes, next_sequence
 from app.db.mongo import drop_tenant_db, platform_db, tenant_db
 from app.modules.subscriptions.plans import order_summary, plan_by_code
-from app.services import audit, throttle
+from app.services import audit, consents as consent_service, throttle
 from app.services import invites
 from app.services import otp as otp_service
 from app.services import stripe_service
@@ -1143,6 +1143,12 @@ async def finalize_client_signup(token: str, data, session: Optional[Dict[str, A
         "updated_at": now,
     }
     user_id = str((await tdb.users.insert_one(user)).inserted_id)
+
+    # `agreements` above is the raw record of what was asked. This is the same
+    # answers in the store the Privacy Centre actually reads - without it a
+    # client who has just accepted the Terms sees the toggle switched off.
+    await consent_service.record_signup_agreements(
+        tdb, user_id=user_id, agreements=data.model_dump(), session=session)
 
     await db.user_directory.insert_one({
         "email": signup["email"],
