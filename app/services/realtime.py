@@ -109,8 +109,42 @@ async def disconnect(sid: str) -> None:
     logger.debug("Socket %s disconnected", sid)
 
 
-async def publish_message(message: Dict[str, Any], recipients: list[str]) -> None:
+async def sender_sids_in_room(user_id: str, room: str) -> list[str]:
+    """The sender's own sockets currently in a room.
+
+    Used to keep a sender from being told about the message they just sent: the
+    REST call already returned it, so an echo arrives as a second copy of the
+    same message and the app shows it twice.
+
+    Wrapped in a try/except because it reaches into the Socket.IO room manager,
+    and this whole module is best-effort - failing to work out who to skip must
+    degrade to a duplicate, never to a message that is not delivered at all.
+    """
+    try:
+        sids = []
+        for sid, _eio_sid in sio.manager.get_participants("/", room):
+            session = await sio.get_session(sid)
+            if session and str(session.get("id")) == str(user_id):
+                sids.append(sid)
+        return sids
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Could not resolve the sender's sockets in %s: %s", room, exc)
+        return []
+
+
+async def publish_message(message: Dict[str, Any], recipients: list[str], *,
+                          skip_sid: Optional[str] = None,
+                          sender_id: Optional[str] = None) -> None:
     """Tells the conversation, and the people in it, that a message landed.
+
+    ``skip_sid`` is the sending client's own socket id, when the app passes it.
+    That is the precise form: it silences the echo on the device that sent the
+    message while the same account's *other* devices still get it live.
+
+    Without it, ``sender_id`` is used to skip every socket that account has in
+    this thread. Slightly blunter - a second device of the sender's own will not
+    light up until the screen is reopened - but a duplicated message is visible
+    and this is not.
 
     Best effort by design: the message is already stored before this runs, and
     a socket failure must never turn a delivered message into an error.
@@ -123,7 +157,11 @@ async def publish_message(message: Dict[str, Any], recipients: list[str]) -> Non
     payload = jsonable_encoder(message)
     try:
         if thread_id:
-            await sio.emit("message", payload, room=thread_room(str(thread_id)))
+            room = thread_room(str(thread_id))
+            skip = [skip_sid] if skip_sid else []
+            if not skip and sender_id:
+                skip = await sender_sids_in_room(sender_id, room)
+            await sio.emit("message", payload, room=room, skip_sid=skip or None)
         for user_id in recipients:
             # Reaches the people not currently looking at the thread, so a
             # badge can move without the conversation being open.

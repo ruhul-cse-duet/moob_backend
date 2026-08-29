@@ -179,8 +179,8 @@ async def get_client_profile_detail(db, user: CurrentUser, client_id: str) -> Di
             "id": str(c["_id"]),
             "reference": c.get("reference"),
             "case_type": c.get("case_type"),
+            # `stage` is a CaseStage code; the app words it.
             "stage": c.get("stage"),
-            "status_label": "Under Review" if c.get("stage") == "consultant_review" else "Waiting for documents",
         })
 
     partner_name = None
@@ -198,9 +198,9 @@ async def get_client_profile_detail(db, user: CurrentUser, client_id: str) -> Di
         "consultant_id": client.get("consultant_id", user.id),
         "partner_id": client.get("partner_id"),
         "partner_name": partner_name,
-        "gdpr_consent_status": "Consent recorded",
+        "gdpr_consent_status": "recorded",
         "immigration_cases": cases,
-        "banner_notice": "New immigration cases are created after the client submits a request and a consultant approves the recommended process.",
+        "banner_notice_key": "cases_created_after_request_approved",
     }
 
 

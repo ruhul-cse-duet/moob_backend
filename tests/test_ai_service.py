@@ -175,6 +175,21 @@ class TestResponseHandling:
         assert (await ai.case_guidance(case_context={}))["risk_flags"] == ["a"]
 
     @pytest.mark.asyncio
+    async def test_a_truncated_answer_is_reported(self, call, caplog, monkeypatch):
+        """ANTHROPIC_MAX_TOKENS is an environment variable someone can set too
+        low. A cut-off answer looks complete to the caller - the assistant just
+        stops mid-thought - so the log is the only place it can show up."""
+        monkeypatch.setattr(ai.settings, "ANTHROPIC_MODEL", "claude-haiku-4-5", raising=False)
+        _, scripted = call
+        scripted["response"] = Response([Block("text", "half an ans")],
+                                        stop_reason="max_tokens")
+
+        with caplog.at_level("WARNING"):
+            await ai.case_guidance(case_context={})
+
+        assert any("max_tokens" in r.message for r in caplog.records)
+
+    @pytest.mark.asyncio
     async def test_a_refusal_is_not_read_as_content(self, call):
         """A declined request is a 200 with nothing useful in it."""
         _, scripted = call

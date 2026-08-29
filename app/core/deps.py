@@ -1,11 +1,12 @@
 from dataclasses import dataclass
 from typing import Optional, Sequence
 
-from fastapi import Depends, Query
+from fastapi import Depends, Header, Query
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.core.enums import CONSULTANT_ROLES, Role, TenantStatus
+from app.core.i18n import resolve as resolve_language
 from app.core.exceptions import Forbidden, PaymentRequired, Unauthorized
 from app.core.security import ACCESS, decode_token
 from app.core.utils import oid
@@ -125,3 +126,30 @@ def page_params(
     page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100)
 ) -> PageParams:
     return PageParams(page=page, page_size=page_size)
+
+
+async def language(
+    accept_language: Optional[str] = Header(None, alias="Accept-Language"),
+) -> str:
+    """The language for a response, from the request header.
+
+    Header-only on purpose. The app sets `Accept-Language` to whatever its UI is
+    currently showing, so a response can never come back in a different language
+    from the screen it is about to be drawn on - which is exactly what would
+    happen if the saved preference won and the two disagreed.
+
+    Works before sign-in too, which the role picker needs.
+    """
+    return resolve_language(header=accept_language)
+
+
+def language_for(user: Optional[CurrentUser],
+                 header: Optional[str] = None) -> str:
+    """The language to write to one person in.
+
+    Used where there is no header to read - an email, a push notification, a
+    scheduled reminder - and by authenticated routes that want the account's
+    saved preference as a fallback when the app sent no header.
+    """
+    stored = (user.raw or {}).get("language") if user is not None else None
+    return resolve_language(header=header, stored=stored)

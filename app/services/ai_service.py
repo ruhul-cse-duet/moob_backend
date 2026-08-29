@@ -232,6 +232,16 @@ async def _complete(
         logger.warning("Claude declined the request (%s)", category or "unspecified")
         return None
 
+    # A truncated answer looks exactly like a complete one to the caller: the
+    # assistant returns a sentence that stops mid-thought, and a JSON reply
+    # fails to parse and silently degrades to the empty shape. ANTHROPIC_MAX_TOKENS
+    # is an environment variable someone can set too low, so say so.
+    if response.stop_reason == "max_tokens":
+        logger.warning(
+            "Claude hit max_tokens (%d) - the answer is cut short. Raise "
+            "ANTHROPIC_MAX_TOKENS.", kwargs["max_tokens"],
+        )
+
     return _text_of(response) or None
 
 

@@ -1197,13 +1197,15 @@ async def finalize_client_signup(token: str, data, session: Optional[Dict[str, A
     return {
         "token_pair": tokens,
         "request_summary": {
-            "status": "Waiting for review",
+            "status": "waiting_for_review",
             "request_id": request_id,
             "request_number": request_doc["reference"],
             "organization_name": tenant["name"] if tenant else "",
             "consultant_name": (consultant or {}).get("full_name") or "",
-            "message": f"Your account is created and linked to {tenant['name'] if tenant else ''}. { (consultant or {}).get('full_name', '') } has received your immigration request.",
-            "next_steps": "Consultant review -> document requests -> case created",
+            # organization_name and consultant_name are already above; the app
+            # composes the sentence from them in the caller's own language.
+            "message_key": "account_created_request_received",
+            "next_steps_key": "review_then_documents_then_case",
         },
     }
 
