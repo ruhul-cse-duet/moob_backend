@@ -266,7 +266,8 @@ async def send(db, user: CurrentUser, thread_id: str, body: str,
 
     if recipients:
         await notify(db, user_ids=recipients, type=NotificationType.MESSAGE_RECEIVED,
-                     title=f"New message from {user.raw.get('full_name', 'your consultant')}",
+                     title_key="notify.message_received",
+                     params={"person": user.raw.get("full_name", "")},
                      body=_preview(body, attachment),
                      data={"thread_id": thread_id, "message_id": message_id})
 
