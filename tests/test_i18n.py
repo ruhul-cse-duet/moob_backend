@@ -214,3 +214,67 @@ class TestSuperAdminPanel:
 
         blank = _serialize({"_id": "1", "email": "a@b.c"}, "es")
         assert blank["title"] == "Administrador de la Plataforma"
+
+
+class TestResponseLanguageResolution:
+    """Which language a response comes back in.
+
+    Two sources, and the order between them is the whole design. The header is
+    what the app is showing right now; the saved preference is what the account
+    chose once. A response must never disagree with the screen it is about to be
+    drawn on, so the header wins - but a screen that forgets to send one should
+    not silently fall to English either.
+    """
+
+    @pytest.mark.asyncio
+    async def test_the_header_answers_without_touching_the_token(self):
+        """The normal path. No database read, no token decode."""
+        from app.core.deps import language
+
+        assert await language("es-419,es;q=0.9", None) == "es"
+
+    @pytest.mark.asyncio
+    async def test_no_header_and_no_credentials_is_english(self):
+        from app.core.deps import language
+
+        assert await language(None, None) == "en"
+
+    @pytest.mark.asyncio
+    async def test_the_saved_preference_covers_a_missing_header(self, monkeypatch):
+        """What makes "set it once" true. An app that forgets the header on one
+        screen still gets that screen in the right language."""
+        import app.core.deps as deps
+
+        class User:
+            raw = {"language": "pt"}
+
+        async def fake_user(creds):
+            return User()
+
+        monkeypatch.setattr(deps, "get_current_user", fake_user)
+
+        assert await deps.language(None, object()) == "pt"
+
+    @pytest.mark.asyncio
+    async def test_the_header_still_beats_the_saved_preference(self, monkeypatch):
+        import app.core.deps as deps
+
+        async def fake_user(creds):
+            raise AssertionError("must not be resolved when the header answers")
+
+        monkeypatch.setattr(deps, "get_current_user", fake_user)
+
+        assert await deps.language("es", object()) == "es"
+
+    @pytest.mark.asyncio
+    async def test_a_rejected_token_does_not_fail_the_request(self, monkeypatch):
+        """The language of a response is never worth a 500. An endpoint that
+        cares about the token will reject it on its own terms."""
+        import app.core.deps as deps
+
+        async def fake_user(creds):
+            raise RuntimeError("expired")
+
+        monkeypatch.setattr(deps, "get_current_user", fake_user)
+
+        assert await deps.language(None, object()) == "en"

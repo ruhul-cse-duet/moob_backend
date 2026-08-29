@@ -4368,7 +4368,7 @@
             "description": "Send a message",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"body\": \"\"\n}",
+              "raw": "{\n  \"body\": \"\",\n  \"socket_id\": \"<socket_id>\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -4411,6 +4411,11 @@
                   "key": "body",
                   "type": "text",
                   "value": ""
+                },
+                {
+                  "key": "socket_id",
+                  "type": "text",
+                  "value": "<socket_id>"
                 }
               ]
             }
@@ -6055,6 +6060,62 @@
               ]
             },
             "description": "Consultant User Profile Menu Overview"
+          },
+          "response": []
+        },
+        {
+          "name": "Workspace language, and the options",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/me/language",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "me",
+                "language"
+              ]
+            },
+            "description": "Workspace language, and the options"
+          },
+          "response": []
+        },
+        {
+          "name": "Save the workspace language",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/me/language",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "me",
+                "language"
+              ]
+            },
+            "description": "Save the workspace language",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"language\": \"en\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
           },
           "response": []
         },
@@ -8336,28 +8397,6 @@
           "response": []
         },
         {
-          "name": "My profile picture",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/admin/profile/avatar",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "admin",
-                "profile",
-                "avatar"
-              ]
-            },
-            "description": "My profile picture"
-          },
-          "response": []
-        },
-        {
           "name": "Upload or replace my profile picture",
           "request": {
             "method": "POST",
@@ -8387,6 +8426,28 @@
                 }
               ]
             }
+          },
+          "response": []
+        },
+        {
+          "name": "My profile picture",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/profile/avatar",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "profile",
+                "avatar"
+              ]
+            },
+            "description": "My profile picture"
           },
           "response": []
         },

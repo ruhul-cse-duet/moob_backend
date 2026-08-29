@@ -11,4 +11,7 @@ uploads/
 .DS_Store
 .idea
 .pytest_cache
-moob-fd3f0-firebase-adminsdk-fbsvc-8273fa2885.json
+# Any Google service account key, not just the one we happen to have.
+# Named by pattern because the next one will have a different filename.
+*firebase-adminsdk*.json
+*-service-account*.json

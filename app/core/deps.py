@@ -6,6 +6,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.core.enums import CONSULTANT_ROLES, Role, TenantStatus
+from app.core.i18n import DEFAULT_LANGUAGE, from_accept_language
 from app.core.i18n import resolve as resolve_language
 from app.core.exceptions import Forbidden, PaymentRequired, Unauthorized
 from app.core.security import ACCESS, decode_token
@@ -130,17 +131,33 @@ def page_params(
 
 async def language(
     accept_language: Optional[str] = Header(None, alias="Accept-Language"),
+    creds: Optional[HTTPAuthorizationCredentials] = Depends(bearer),
 ) -> str:
-    """The language for a response, from the request header.
+    """The language for a response.
 
-    Header-only on purpose. The app sets `Accept-Language` to whatever its UI is
-    currently showing, so a response can never come back in a different language
-    from the screen it is about to be drawn on - which is exactly what would
-    happen if the saved preference won and the two disagreed.
+    The header wins: the app sets it to whatever its UI is showing, so a
+    response can never come back in a different language from the screen it is
+    about to be drawn on. It also works before sign-in, which the role picker
+    needs.
 
-    Works before sign-in too, which the role picker needs.
+    Without a header, the language saved on the account is used - so a client
+    that sets it once and then forgets the header on one screen does not get
+    that screen in English. Resolved lazily and only on that path: when the
+    header answers, nothing here touches the token or the database.
     """
-    return resolve_language(header=accept_language)
+    from_header = from_accept_language(accept_language)
+    if from_header:
+        return from_header
+
+    if creds is not None:
+        try:
+            user = await get_current_user(creds)
+            return resolve_language(stored=(user.raw or {}).get("language"))
+        except Exception:  # noqa: BLE001
+            # Not signed in, or a token this endpoint would reject anyway. The
+            # language of an error is not worth failing the request over.
+            pass
+    return DEFAULT_LANGUAGE
 
 
 def language_for(user: Optional[CurrentUser],
