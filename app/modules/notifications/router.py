@@ -12,6 +12,8 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from pydantic import BaseModel, Field
 
 from app.core.deps import CurrentUser, get_current_user, get_tenant_db, page_params
+from app.core.deps import language as request_language
+from app.services.events import render as render_notification
 from app.core.enums import NotificationType
 from app.core.utils import oid, serialize, utcnow
 from app.schemas.common import Message, PageParams
@@ -64,11 +66,22 @@ class PushPreferences(BaseModel):
 async def list_notifications(unread_only: bool = False,
                              params: PageParams = Depends(page_params),
                              user: CurrentUser = Depends(get_current_user),
-                             db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+                             db: AsyncIOMotorDatabase = Depends(get_tenant_db),
+                             lang: str = Depends(request_language)):
+    """The feed, worded at read time.
+
+    A notification is stored as a key and its parameters, so the same record
+    reads in whatever language the person opening it is using - including one
+    they switched to after it was written.
+    """
     query = {"user_id": user.id}
     if unread_only:
         query["read"] = False
-    return await paginate(db, "notifications", query, params, sort=[("created_at", -1)])
+    page = await paginate(db, "notifications", query, params,
+                          sort=[("created_at", -1)])
+    for item in page["items"]:
+        item.update(render_notification(item, lang))
+    return page
 
 
 @router.get("/unread-count")
