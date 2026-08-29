@@ -13,6 +13,8 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, Query
 
 from app.core.deps import CurrentUser, require_super_admin
+from app.core.deps import language as request_language
+from app.core.i18n import translate
 from app.core.enums import (
     AuditAction,
     DocumentStatus,
@@ -92,7 +94,8 @@ async def _sum_across_tenants(collection: str, query: Dict[str, Any]) -> int:
 
 @router.get("/dashboard", tags=["Super Admin · Dashboard"],
             summary="Platform Overview — metrics, attention, revenue, queues")
-async def dashboard(user: CurrentUser = Depends(require_super_admin)):
+async def dashboard(user: CurrentUser = Depends(require_super_admin),
+                    lang: str = Depends(request_language)):
     db = platform_db()
     now = utcnow()
     first_name = (user.raw.get("full_name") or user.email or "Admin").split()[0]
@@ -191,12 +194,7 @@ async def dashboard(user: CurrentUser = Depends(require_super_admin)):
         client_count = await tenant_db(tid).users.count_documents(
             {"role": Role.CLIENT.value})
         status = t.get("status")
-        label = {
-            TenantStatus.SUSPENDED.value: "Suspended",
-            TenantStatus.EXPIRED.value: "Subscription expired",
-            TenantStatus.PAST_DUE.value: "Failed payment",
-            TenantStatus.CANCELLED.value: "Cancelled",
-        }.get(status, status)
+        label = translate(f"risk.{status}", lang)
         at_risk.append({
             "id": tid,
             "name": t.get("name"),
@@ -266,7 +264,7 @@ async def dashboard(user: CurrentUser = Depends(require_super_admin)):
             "full_name": user.raw.get("full_name"),
             "email": user.email,
             "admin_role": user.raw.get("admin_role", "super_admin"),
-            "title": "Platform Administrator",
+            "title": translate("admin.platform_administrator", lang),
         },
         "activity_totals": {
             "requests": requests_visible,
@@ -281,23 +279,23 @@ async def dashboard(user: CurrentUser = Depends(require_super_admin)):
             "organizations": {
                 "active": orgs_active,
                 "total": orgs_total,
-                "label": "Organizations",
+                "label": translate("metric.organizations", lang),
             },
             "monthly_revenue": {
                 "mrr": round(mrr, 2),
                 "arr": round(mrr * 12, 2),
                 "currency": "USD",
-                "label": "Monthly revenue",
+                "label": translate("metric.monthly_revenue", lang),
             },
             "platform_users": {
                 "total": accounts_total,
                 "consultants": consultants,
-                "label": "Platform users",
+                "label": translate("metric.platform_users", lang),
             },
             "active_cases": {
                 "total": active_cases,
                 "docs_pending": docs_pending,
-                "label": "Active cases",
+                "label": translate("metric.active_cases", lang),
             },
         },
         "needs_attention": {
@@ -327,21 +325,21 @@ async def dashboard(user: CurrentUser = Depends(require_super_admin)):
         "role_distribution": [
             {
                 "role": "consultants",
-                "label": "Consultants",
+                "label": translate("role_card.consultants", lang),
                 "count": consultants,
-                "description": "Own an organization, run the caseload.",
+                "description": translate("role_card.consultants.description", lang),
             },
             {
                 "role": "partners",
-                "label": "Partners",
+                "label": translate("role_card.partners", lang),
                 "count": partners,
-                "description": "Invited into an organization, deliver tasks.",
+                "description": translate("role_card.partners.description", lang),
             },
             {
                 "role": "clients",
-                "label": "Clients",
+                "label": translate("role_card.clients", lang),
                 "count": clients,
-                "description": "Submit requests, upload documents.",
+                "description": translate("role_card.clients.description", lang),
             },
         ],
         "organizations_at_risk": at_risk,
