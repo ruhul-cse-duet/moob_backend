@@ -39,11 +39,33 @@ def clean_settings(monkeypatch):
 
 
 class TestTransportChoice:
-    def test_no_key_means_mail_is_logged_not_sent(self):
-        """The local development path. Signup still completes end to end and the
-        verification code goes to the console."""
+    def test_nothing_configured_means_mail_is_logged_not_sent(self, monkeypatch):
+        """The local path before you have any credentials. Signup still
+        completes end to end and the verification code goes to the console."""
+        monkeypatch.setattr(email.settings, "SMTP_HOST", "localhost", raising=False)
+
         assert email.active_provider() == ""
         assert "logged" in email.describe_transport()
+
+    def test_smtp_is_used_when_a_real_host_is_configured(self):
+        """Gmail SMTP is the easiest thing to point at while developing."""
+        assert email.active_provider() == "smtp"
+        assert "smtp.gmail.com:587" in email.describe_transport()
+
+    def test_an_http_key_wins_over_smtp(self, monkeypatch):
+        """SMTP is auto-detected last: it is the one that cannot work on every
+        host, so a configured API key is the safer default."""
+        monkeypatch.setattr(email.settings, "RESEND_API_KEY", "re_x", raising=False)
+
+        assert email.active_provider() == "resend"
+
+    def test_smtp_can_be_forced_over_a_present_api_key(self, monkeypatch):
+        """Local development against Gmail while the production keys sit in the
+        same .env."""
+        monkeypatch.setattr(email.settings, "RESEND_API_KEY", "re_x", raising=False)
+        monkeypatch.setattr(email.settings, "EMAIL_PROVIDER", "smtp", raising=False)
+
+        assert email.active_provider() == "smtp"
 
     def test_brevo_wins_when_several_keys_are_present(self, monkeypatch):
         """Brevo is the deployment default, so it is first in the search order."""
@@ -91,7 +113,10 @@ class TestUnconfiguredWarning:
     201, the account exists, and the code is written to a log nobody reads.
     """
 
-    def test_no_provider_in_production_is_reported(self):
+    def test_no_provider_in_production_is_reported(self, monkeypatch):
+        # No API key and no real SMTP host: nothing to send with at all.
+        monkeypatch.setattr(email.settings, "SMTP_HOST", "localhost", raising=False)
+
         warning = email.mail_is_not_configured()
 
         assert warning is not None
@@ -101,6 +126,7 @@ class TestUnconfiguredWarning:
     def test_no_provider_locally_is_fine(self, monkeypatch):
         """Warning on every local boot would train the operator to ignore the
         message that matters."""
+        monkeypatch.setattr(email.settings, "SMTP_HOST", "localhost", raising=False)
         monkeypatch.setattr(email.settings, "ENVIRONMENT", "development", raising=False)
 
         assert email.mail_is_not_configured() is None
@@ -112,19 +138,36 @@ class TestUnconfiguredWarning:
         assert email.mail_is_not_configured() is None
         assert "brevo" in email.describe_transport()
 
-    def test_a_leftover_smtp_provider_is_reported(self, monkeypatch):
-        """Regression: EMAIL_PROVIDER=smtp was valid before the SMTP transport
-        was removed, so an older .env carries it forward. It matched no API key,
-        so every send failed silently and the boot log cheerfully announced
-        "smtp HTTP API" - a transport that does not exist."""
+    def test_gmail_on_a_paas_is_reported(self, monkeypatch):
+        """The easy choice being the wrong one. Render drops outbound 587 and
+        Gmail offers nothing else, so this configuration cannot work there - and
+        the symptom is a connect timeout that reads like bad credentials."""
         monkeypatch.setattr(email.settings, "EMAIL_PROVIDER", "smtp", raising=False)
+        monkeypatch.setattr(type(email.settings), "is_paas",
+                            property(lambda self: True))
 
         warning = email.mail_is_not_configured()
 
-        assert warning is not None
-        assert "smtp" in warning
-        assert "removed" in warning
-        assert "UNKNOWN" in email.describe_transport()
+        assert warning is not None and "587" in warning
+        # Actionable, not just a diagnosis.
+        assert "BREVO_API_KEY" in warning
+
+    def test_the_same_smtp_configuration_locally_is_fine(self, monkeypatch):
+        """Gmail on 587 from a laptop works. Warning about it would train the
+        operator to ignore the message that matters."""
+        monkeypatch.setattr(email.settings, "EMAIL_PROVIDER", "smtp", raising=False)
+
+        assert email.mail_is_not_configured() is None
+
+    def test_an_unblocked_smtp_port_is_fine_on_a_paas(self, monkeypatch):
+        """2525 is the escape hatch Brevo and SendGrid offer, and it is not
+        blocked - so someone using it must not be told it will fail."""
+        monkeypatch.setattr(email.settings, "EMAIL_PROVIDER", "smtp", raising=False)
+        monkeypatch.setattr(email.settings, "SMTP_PORT", 2525, raising=False)
+        monkeypatch.setattr(type(email.settings), "is_paas",
+                            property(lambda self: True))
+
+        assert email.mail_is_not_configured() is None
 
     def test_an_unrecognised_provider_is_reported_in_any_environment(self, monkeypatch):
         """Unlike a missing key, a wrong name is always a mistake - reporting it
