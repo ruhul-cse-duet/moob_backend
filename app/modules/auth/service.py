@@ -1186,7 +1186,8 @@ async def finalize_client_signup(token: str, data, session: Optional[Dict[str, A
     request_id = str((await tdb.requests.insert_one(request_doc)).inserted_id)
 
     await notify(tdb, user_ids=[consultant_id], type=NotificationType.REQUEST_SUBMITTED,
-                 title=f"{signup.get('full_name')} joined and raised a request",
+                 title_key="notify.client_joined",
+                 params={"client": signup.get("full_name") or ""},
                  body=f"{visa_type} · {request_doc['reference']}",
                  data={"request_id": request_id})
 

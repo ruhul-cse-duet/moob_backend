@@ -153,7 +153,10 @@ async def send_invoice(invoice_id: str,
     if not doc:
         raise BadRequest("Only draft invoices can be sent")
     await notify(db, user_ids=[doc["client_id"]], type=NotificationType.SUBSCRIPTION,
-                 title=f"Invoice {doc['reference']} — {doc['currency']} {doc['total']:.2f}",
+                 title_key="notify.invoice_sent",
+                 params={"reference": doc["reference"],
+                         "currency": doc["currency"],
+                         "amount": f"{doc['total']:.2f}"},
                  body="Due " + doc["due_at"].strftime("%d %b %Y") if doc.get("due_at") else "",
                  data={"invoice_id": invoice_id})
     return serialize(doc)

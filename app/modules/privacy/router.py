@@ -129,7 +129,9 @@ async def create_data_request(payload: DataRequestCreate,
     owner = await db.users.find_one({"role": Role.CONSULTANT_OWNER.value})
     if owner:
         await notify(db, user_ids=[str(owner["_id"])], type=NotificationType.SUBSCRIPTION,
-                     title=f"{payload.type.value.title()} request from {user.raw.get('full_name')}",
+                     title_key="notify.data_request_raised",
+                     params={"person": user.raw.get("full_name") or ""},
+                     param_keys={"kind": f"data_request.{payload.type.value}"},
                      body="GDPR requires a response within 30 days.",
                      data={"data_request_id": request_id})
     await audit.record(
@@ -199,7 +201,10 @@ async def set_data_request_status(request_id: str, payload: DataRequestDecision,
     if not result:
         raise NotFound("Data request not found")
     await notify(db, user_ids=[result["user_id"]], type=NotificationType.SUBSCRIPTION,
-                 title=f"Your {result['type']} request is {payload.status.value.replace('_', ' ')}",
+                 title_key="notify.data_request_status",
+                 param_keys={
+                     "kind": f"data_request.{result['type']}",
+                     "status": f"data_request_status.{payload.status.value}"},
                  body=payload.note or "",
                  data={"data_request_id": request_id})
     await audit.record(action=AuditAction.DATA_REQUEST_HANDLED, actor_id=user.id,
