@@ -3,6 +3,15 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
+from pydantic import BaseModel
+
+from app.core.i18n import (
+    DEFAULT_LANGUAGE,
+    LANGUAGE_NAMES,
+    Language,
+    translate,
+)
+from app.core.i18n import normalize as normalize_language
 from app.core.deps import (
     CurrentUser,
     get_current_user,
@@ -71,6 +80,45 @@ async def consultant_profile_overview(user: CurrentUser = Depends(require_consul
     }
 
 
+# --------------------------------------------------------------------------- #
+# Workspace language — the Settings screen picker
+# --------------------------------------------------------------------------- #
+class LanguageChoice(BaseModel):
+    language: Language
+
+
+@router.get("/me/language", summary="Workspace language, and the options")
+async def get_language(user: CurrentUser = Depends(get_current_user)):
+    """What the picker renders.
+
+    Each option is named in its own language: someone looking for Portuguese
+    should not have to read English to find it.
+    """
+    return {
+        "language": normalize_language(user.raw.get("language")) or DEFAULT_LANGUAGE,
+        "options": [{"code": lang.value, "name": LANGUAGE_NAMES[lang]}
+                    for lang in Language],
+    }
+
+
+@router.put("/me/language", summary="Save the workspace language")
+async def set_language(payload: LanguageChoice,
+                       user: CurrentUser = Depends(get_current_user),
+                       db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+    """Saved on the account, not just held in the app.
+
+    That is the point of storing it server-side: an email or a push notification
+    is written when the app is not running and there is no header to read, so
+    without this they would always go out in English.
+    """
+    await db.users.update_one(
+        {"_id": oid(user.id)},
+        {"$set": {"language": payload.language.value, "updated_at": utcnow()}},
+    )
+    return {"success": True, "language": payload.language.value,
+            "message": translate("language.saved", payload.language.value)}
+
+
 @router.get("/client/settings", response_model=s.NotificationSettings, summary="Get client settings toggle states")
 async def get_client_settings(user: CurrentUser = Depends(get_current_user),
                               db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
@@ -102,8 +150,8 @@ async def get_client_gdpr_consent(user: CurrentUser = Depends(get_current_user))
             "Sharing data with relevant government authorities",
             "Processing sensitive data for your immigration case",
         ],
-        "status": "Consent Provided",
-        "badge_status": "Active",
+        "status": "provided",
+        "badge_status": "active",
         "is_active": True,
         "granted_at": user.raw.get("created_at") or utcnow(),
     }

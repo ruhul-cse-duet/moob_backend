@@ -55,8 +55,9 @@ class RequestOut(BaseModel):
     origin_country: Optional[str] = None
     purpose: str
     status: RequestStatus
-    status_label: Optional[str] = None
-    header_status_label: Optional[str] = "With your consultant"
+    # No `status_label` here on purpose. `status` is the enum code; the app
+    # holds the wording for it in each language. A label built server-side
+    # arrives as opaque English text that no translation file can reach.
     status_steps: List[dict] = []
     client_id: str
     client_name: Optional[str] = None

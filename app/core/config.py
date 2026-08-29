@@ -130,11 +130,18 @@ class Settings(BaseSettings):
     # 100 a day free.
     SENDGRID_API_KEY: str = ""
 
-    # OpenAI
-    OPENAI_API_KEY: str = ""
-    OPENAI_MODEL: str = "gpt-4o-mini"
-    OPENAI_VISION_MODEL: str = "gpt-4o-mini"
-    OPENAI_MAX_TOKENS: int = 1500
+    # Anthropic (Claude)
+    ANTHROPIC_API_KEY: str = ""
+    # Claude reads the uploaded PDF or image directly, so one model covers both
+    # document analysis and text - there is no separate vision model to set.
+    ANTHROPIC_MODEL: str = "claude-opus-5"
+    # Thinking tokens are output tokens, so this has to leave room for the
+    # reasoning as well as the JSON. The old 1500 was sized for a model that did
+    # not think and would truncate answers here.
+    ANTHROPIC_MAX_TOKENS: int = 4096
+    # low | medium | high | xhigh | max. Governs how hard the model thinks, and
+    # is the main cost dial: drop to "low" for cheaper, shallower answers.
+    ANTHROPIC_EFFORT: str = "medium"
 
     # Storage - files live in GridFS inside each tenant database, not on disk
     MAX_UPLOAD_MB: int = 25

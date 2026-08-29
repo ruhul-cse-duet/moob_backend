@@ -2,6 +2,7 @@ from datetime import timedelta
 from typing import Any, Dict, List, Optional
 
 from app.core.deps import CurrentUser
+from app.core.i18n import DEFAULT_LANGUAGE, translate
 from app.core.enums import (
     CaseStage,
     DocumentStatus,
@@ -14,7 +15,7 @@ from app.core.utils import build_reference, oid, serialize, utcnow
 from app.db.indexes import next_sequence
 from app.schemas.common import PageParams
 from app.services.events import log_activity, notify
-from app.services.openai_service import suggest_required_documents
+from app.services.ai_service import suggest_required_documents
 from app.services.pagination import paginate
 from app.services import storage
 
@@ -70,7 +71,8 @@ async def create_request(db, user: CurrentUser, data) -> Dict[str, Any]:
 
     if not data.is_draft:
         await notify(db, user_ids=[consultant_id], type=NotificationType.REQUEST_SUBMITTED,
-                     title=f"{doc['client_name']} submitted a request",
+                     title_key="notify.request_submitted",
+                     params={"client": doc["client_name"]},
                      body=f"{doc['visa_type']} · {doc['reference']}",
                      data={"request_id": request_id})
         await log_activity(db, actor_id=user.id, actor_name=doc["client_name"] or "Client",
@@ -79,7 +81,8 @@ async def create_request(db, user: CurrentUser, data) -> Dict[str, Any]:
     return serialize({**doc, "_id": result.inserted_id})
 
 
-async def get_client_dashboard(db, user: CurrentUser) -> Dict[str, Any]:
+async def get_client_dashboard(db, user: CurrentUser,
+                               lang: str = DEFAULT_LANGUAGE) -> Dict[str, Any]:
     if user.role != Role.CLIENT:
         raise Forbidden("Only client users can access client dashboard")
 
@@ -121,20 +124,24 @@ async def get_client_dashboard(db, user: CurrentUser) -> Dict[str, Any]:
         needed = hero_req.get("documents_action_required", 0)
         if needed > 0:
             action_next = {
+                # `type` is the code and `count` the number. Building the
+                # plural here gets English right and every other language
+                # wrong - Spanish and Portuguese do not pluralise this way.
                 "type": "upload_documents",
-                "title": f"Upload {needed} requested document" + ("s" if needed != 1 else ""),
+                "count": needed,
+                "title": translate("action.upload_documents", lang, count=needed),
                 "action_url": f"/documents?request_id={hero_req['id']}",
             }
         elif hero_req.get("status") == RequestStatus.COMPLETED.value:
             action_next = {
                 "type": "view_outcome",
-                "title": "Your consultation summary is ready",
+                "title": translate("action.view_outcome", lang),
                 "action_url": f"/requests/{hero_req['id']}",
             }
         else:
             action_next = {
                 "type": "wait",
-                "title": "Nothing to do — we will let you know",
+                "title": translate("action.wait", lang),
                 "action_url": None,
             }
 
@@ -146,7 +153,10 @@ async def get_client_dashboard(db, user: CurrentUser) -> Dict[str, Any]:
             "reference": r["reference"],
             "visa_type": r["visa_type"],
             "status": r["status"],
-            "status_label": r["status"].replace("_", " ").title(),
+            # Both: the code for the app to branch on, the words for it to show.
+            # A client that would rather do its own wording is never forced
+            # through the catalogue.
+            "status_label": translate(f"status.{r['status']}", lang),
             "destination_country": r.get("destination_country", ""),
             "created_at": r.get("created_at"),
             "purpose": r.get("purpose", ""),
@@ -177,18 +187,24 @@ async def get_client_dashboard(db, user: CurrentUser) -> Dict[str, Any]:
     }
 
 
-async def get_client_categories() -> List[Dict[str, Any]]:
-    return [
-        {"id": "student_visa", "name": "Student Visa", "icon": "academic_cap", "description": "Study abroad visas"},
-        {"id": "work_permit", "name": "Work Permit", "icon": "briefcase", "description": "Employment & work visas"},
-        {"id": "family_reunification", "name": "Family Reunification", "icon": "heart", "description": "Spouse & family visas"},
-        {"id": "residency", "name": "Residency", "icon": "home", "description": "Permanent & temporary residence"},
-        {"id": "citizenship", "name": "Citizenship", "icon": "user_check", "description": "Naturalization & citizenship"},
-        {"id": "digital_nomad_visa", "name": "Digital Nomad Visa", "icon": "airplane", "description": "Remote work visas"},
-        {"id": "business_visa", "name": "Business Visa", "icon": "building", "description": "Business & investor visas"},
-        {"id": "investor_visa", "name": "Investor Visa", "icon": "bank", "description": "Golden visa & investment"},
-        {"id": "others", "name": "Others", "icon": "document", "description": "Other visa types"},
-    ]
+async def get_client_categories(lang: str = DEFAULT_LANGUAGE) -> List[Dict[str, Any]]:
+    """The visa categories offered on the new-request screen.
+
+    Ids and icon tokens only. The name and blurb for each are copy, and a
+    catalogue that ships its own English is a catalogue that is English in
+    every locale - "Student Visa" has to become "Visa de Estudiante" somewhere,
+    and the app is the only place that knows which language it is running in.
+    """
+    ids = ("student_visa", "work_permit", "family_reunification", "residency",
+           "citizenship", "digital_nomad_visa", "business_visa", "investor_visa",
+           "others")
+    icons = {"student_visa": "academic_cap", "work_permit": "briefcase",
+             "family_reunification": "heart", "residency": "home",
+             "citizenship": "user_check", "digital_nomad_visa": "airplane",
+             "business_visa": "building", "investor_visa": "bank",
+             "others": "document"}
+    return [{"id": vid, "icon": icons[vid], "name": translate(f"visa.{vid}", lang)}
+            for vid in ids]
 
 
 
@@ -236,7 +252,8 @@ async def counts(db, user: CurrentUser) -> Dict[str, int]:
     return out
 
 
-async def get_request(db, user: CurrentUser, request_id: str) -> Dict[str, Any]:
+async def get_request(db, user: CurrentUser, request_id: str,
+                      lang: str = DEFAULT_LANGUAGE) -> Dict[str, Any]:
     doc = await _get(db, request_id)
     if user.role == Role.CLIENT and doc["client_id"] != user.id:
         raise Forbidden("This request is not yours")
@@ -257,20 +274,28 @@ async def get_request(db, user: CurrentUser, request_id: str) -> Dict[str, Any]:
     is_reviewed = total > 0 and (approved + under_review) == total
     is_complete = st == RequestStatus.COMPLETED.value
 
-    out["status_label"] = "Under Review" if st in [RequestStatus.NEW.value, RequestStatus.UNDER_REVIEW.value] else st.replace("_", " ").title()
-    out["header_status_label"] = "With your consultant"
+    # Codes, not sentences. `key` is what the app looks up in its own strings
+    # file, so the same response renders in Spanish, Portuguese or English
+    # without the server knowing which.
+    out["status_label"] = translate(f"status.{st}", lang)
     out["status_steps"] = [
-        {"key": "submitted", "label": "Request submitted", "completed": True},
-        {"key": "documents_requested", "label": "Documents requested", "completed": is_requested},
-        {"key": "documents_reviewed", "label": "Documents reviewed", "completed": is_reviewed},
-        {"key": "consultation_complete", "label": "Consultation complete", "completed": is_complete},
+        {"key": key, "label": translate(f"step.{key}", lang), "completed": done}
+        for key, done in (
+            ("submitted", True),
+            ("documents_requested", is_requested),
+            ("documents_reviewed", is_reviewed),
+            ("consultation_complete", is_complete),
+        )
     ]
 
     # Document stats section (Image 2)
     progress_pct = int((approved / total * 100)) if total > 0 else 0
     out["progress_percentage"] = progress_pct
     out["document_stats"] = {
-        "summary_text": f"{approved} of {total} approved" if total > 0 else "No document requests yet",
+        "summary_text": (translate("documents.summary", lang,
+                                   approved=approved, total=total)
+                         if total > 0 else
+                         translate("documents.none_requested", lang)),
         "total": total,
         "approved": approved,
         "under_review": under_review,
@@ -322,7 +347,8 @@ async def update_request(db, user: CurrentUser, request_id: str, data) -> Dict[s
     # notification and activity entry a fresh submission would.
     if doc.get("is_draft") and payload.get("is_draft") is False:
         await notify(db, user_ids=[doc.get("consultant_id")], type=NotificationType.REQUEST_SUBMITTED,
-                     title=f"{doc.get('client_name')} submitted a request",
+                     title_key="notify.request_submitted",
+                     params={"client": doc.get("client_name") or ""},
                      body=f"{payload.get('visa_type') or doc['visa_type']} · {doc['reference']}",
                      data={"request_id": request_id})
         await log_activity(db, actor_id=doc["client_id"], actor_name=doc.get("client_name") or "Client",
@@ -409,7 +435,7 @@ async def request_documents(db, user: CurrentUser, request_id: str, data) -> Dic
         {"$set": {"status": RequestStatus.WAITING_FOR_CLIENT.value, "updated_at": now}},
     )
     await notify(db, user_ids=[doc["client_id"]], type=NotificationType.DOCUMENTS_REQUESTED,
-                 title="Your consultant requested documents",
+                 title_key="notify.documents_requested",
                  body=data.message or f"{len(inserts)} document(s) needed for {doc['reference']}",
                  data={"request_id": request_id})
     await log_activity(db, actor_id=user.id, actor_name=user.raw.get("full_name", ""),
@@ -487,7 +513,7 @@ async def complete_consultation(db, user: CurrentUser, request_id: str, data) ->
     )
     await db.documents.update_many({"request_id": request_id}, {"$set": {"case_id": case_id}})
     await notify(db, user_ids=[doc["client_id"]], type=NotificationType.CASE_STAGE_CHANGED,
-                 title="Your case has been opened",
+                 title_key="notify.case_opened",
                  body=f"{case['reference']} · {case['case_type']}",
                  data={"case_id": case_id})
     await log_activity(db, actor_id=user.id, actor_name=user.raw.get("full_name", ""),
@@ -496,17 +522,8 @@ async def complete_consultation(db, user: CurrentUser, request_id: str, data) ->
     return {**serialize({**case, "_id": oid(case_id)}), "case_id": case_id}
 
 
-# What the queue card says about a request, per status.
-_QUEUE_BADGE = {
-    RequestStatus.NEW.value: "New request",
-    RequestStatus.WAITING_FOR_CLIENT.value: "Waiting for documents",
-    RequestStatus.DOCUMENTS_RECEIVED.value: "Documents received",
-    RequestStatus.UNDER_REVIEW.value: "Under review",
-    RequestStatus.COMPLETED.value: "Completed",
-}
-
-
-async def get_consultant_dashboard(db, user: CurrentUser) -> Dict[str, Any]:
+async def get_consultant_dashboard(db, user: CurrentUser,
+                                   lang: str = DEFAULT_LANGUAGE) -> Dict[str, Any]:
     cid = user.id if user.role in [Role.CONSULTANT, Role.CONSULTANT_OWNER] else None
     query = {"consultant_id": cid} if cid else {}
 
@@ -522,10 +539,17 @@ async def get_consultant_dashboard(db, user: CurrentUser) -> Dict[str, Any]:
     to_review_count = docs_received + under_review
     waiting_count = waiting
 
+    # The count travels as a number, not baked into a sentence. Spanish and
+    # Portuguese pluralise differently from English, so only the app can write
+    # this line correctly - and it cannot if it is handed a finished string.
     banner = {
-        "title": "Client request queue",
-        "subtitle": f"{to_review_count} client-submitted requests ready for review.",
-        "cta_label": "Review requests",
+        "key": "client_request_queue",
+        "count": to_review_count,
+        # Pluralised in the target language, not by bolting an "s" on.
+        "subtitle": translate("banner.client_request_queue", lang,
+                              count=to_review_count),
+        "cta": "review_requests",
+        "cta_label": translate("cta.review_requests", lang),
         "action_route": "/requests/queue",
     }
 
@@ -535,14 +559,13 @@ async def get_consultant_dashboard(db, user: CurrentUser) -> Dict[str, Any]:
     async for req in cursor:
         client_name = req.get("client_name") or "Client"
         status_val = req.get("status", "new")
-        badge_label = _QUEUE_BADGE.get(status_val, status_val.replace("_", " ").title())
         open_reqs.append({
+            "status_label": translate(f"status.{status_val}", lang),
             "id": str(req["_id"]),
             "reference": req.get("reference", ""),
             "client_name": client_name,
             "visa_type": req.get("visa_type", ""),
             "status": status_val,
-            "status_label": badge_label,
             "updated_at": req.get("updated_at"),
         })
 

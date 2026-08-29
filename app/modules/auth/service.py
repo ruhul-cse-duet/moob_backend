@@ -36,7 +36,7 @@ from app.core.utils import (
 from app.db.indexes import ensure_tenant_indexes, next_sequence
 from app.db.mongo import drop_tenant_db, platform_db, tenant_db
 from app.modules.subscriptions.plans import order_summary, plan_by_code
-from app.services import audit, throttle
+from app.services import audit, consents as consent_service, throttle
 from app.services import invites
 from app.services import otp as otp_service
 from app.services import stripe_service
@@ -1144,6 +1144,12 @@ async def finalize_client_signup(token: str, data, session: Optional[Dict[str, A
     }
     user_id = str((await tdb.users.insert_one(user)).inserted_id)
 
+    # `agreements` above is the raw record of what was asked. This is the same
+    # answers in the store the Privacy Centre actually reads - without it a
+    # client who has just accepted the Terms sees the toggle switched off.
+    await consent_service.record_signup_agreements(
+        tdb, user_id=user_id, agreements=data.model_dump(), session=session)
+
     await db.user_directory.insert_one({
         "email": signup["email"],
         "tenant_id": tid,
@@ -1180,7 +1186,8 @@ async def finalize_client_signup(token: str, data, session: Optional[Dict[str, A
     request_id = str((await tdb.requests.insert_one(request_doc)).inserted_id)
 
     await notify(tdb, user_ids=[consultant_id], type=NotificationType.REQUEST_SUBMITTED,
-                 title=f"{signup.get('full_name')} joined and raised a request",
+                 title_key="notify.client_joined",
+                 params={"client": signup.get("full_name") or ""},
                  body=f"{visa_type} · {request_doc['reference']}",
                  data={"request_id": request_id})
 
@@ -1197,13 +1204,15 @@ async def finalize_client_signup(token: str, data, session: Optional[Dict[str, A
     return {
         "token_pair": tokens,
         "request_summary": {
-            "status": "Waiting for review",
+            "status": "waiting_for_review",
             "request_id": request_id,
             "request_number": request_doc["reference"],
             "organization_name": tenant["name"] if tenant else "",
             "consultant_name": (consultant or {}).get("full_name") or "",
-            "message": f"Your account is created and linked to {tenant['name'] if tenant else ''}. { (consultant or {}).get('full_name', '') } has received your immigration request.",
-            "next_steps": "Consultant review -> document requests -> case created",
+            # organization_name and consultant_name are already above; the app
+            # composes the sentence from them in the caller's own language.
+            "message_key": "account_created_request_received",
+            "next_steps_key": "review_then_documents_then_case",
         },
     }
 

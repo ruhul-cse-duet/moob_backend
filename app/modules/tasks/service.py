@@ -119,7 +119,9 @@ async def set_status(db, user: CurrentUser, task_id: str, data) -> Dict[str, Any
                                                      "by": user.id, "note": data.note}}})
     if data.status in {TaskStatus.COMPLETED, TaskStatus.SUBMITTED} and doc.get("assigned_by"):
         await notify(db, user_ids=[doc["assigned_by"]], type=NotificationType.TASK_COMPLETED,
-                     title=f"{doc['assignee_name']} marked '{doc['title']}' as {data.status.value}",
+                     title_key="notify.task_status_changed",
+                     params={"person": doc["assignee_name"], "task": doc["title"]},
+                     param_keys={"status": f"task_status.{data.status.value}"},
                      body=doc.get("case_reference", ""), data={"task_id": task_id})
     return serialize(await _get(db, task_id))
 
@@ -208,7 +210,9 @@ async def mark_completed(db, user: CurrentUser, task_id: str,
     if doc.get("assigned_by"):
         await notify(db, user_ids=[doc["assigned_by"]],
                      type=NotificationType.TASK_COMPLETED,
-                     title=f"{doc['assignee_name']} completed '{doc['title']}'",
+                     title_key="notify.task_completed",
+                     params={"person": doc["assignee_name"],
+                             "task": doc["title"]},
                      body=doc.get("case_reference", ""),
                      data={"task_id": task_id, "case_id": doc.get("case_id")})
     return serialize(await _get(db, task_id))

@@ -4,6 +4,8 @@ from fastapi import APIRouter, Body, Depends, Header, Query, Request, status
 
 from app.core.config import settings
 from app.core.deps import CurrentUser, get_current_user
+from app.core.deps import language as request_language
+from app.core.i18n import translate
 from app.core.enums import BillingCycle, PlanCode
 from app.core.utils import client_ip
 from app.modules.auth import schemas as s
@@ -204,27 +206,23 @@ def _session(request: Request) -> dict:
 
 
 @router.get("/login/roles", summary="Select Your Role — options before sign-in")
-async def login_roles():
-    """Static chips for the app/website role picker (Consultant / Partner / Client)."""
+async def login_roles(lang: str = Depends(request_language)):
+    """The role chips shown before sign-in.
+
+    Ids only. This screen is the first thing an unauthenticated user sees, so
+    it is also the first place a server-side English label would show through -
+    and the picker is the one screen where the app definitely already knows
+    every option, because it has to draw an icon for each.
+    """
     return {
         "success": True,
-        "message": "Select your role to continue",
         "roles": [
             {
-                "id": "consultant",
-                "label": "Consultant",
-                "description": "Manage clients, cases, partners and your firm workspace",
-            },
-            {
-                "id": "partner",
-                "label": "Partner",
-                "description": "Complete assigned partner tasks and collaborate on cases",
-            },
-            {
-                "id": "client",
-                "label": "Client",
-                "description": "Track your immigration request, documents and messages",
-            },
+                "id": role_id,
+                "label": translate(f"role.{role_id}", lang),
+                "description": translate(f"role.{role_id}.description", lang),
+            }
+            for role_id in ("consultant", "partner", "client")
         ],
     }
 

@@ -229,6 +229,53 @@ async def create_subscription(
     }
 
 
+async def refund_invoice(*, payment_intent_id: Optional[str] = None,
+                         charge_id: Optional[str] = None,
+                         amount: Optional[float] = None,
+                         reason: Optional[str] = None) -> Dict[str, Any]:
+    """Refund a settled payment.
+
+    Takes the payment intent (or the charge, for older records) rather than the
+    invoice id, because that is what Stripe refunds against. ``amount`` is in
+    the account currency and omitted for a full refund.
+
+    Returns a result dict rather than raising, so the caller can record the
+    outcome on the invoice either way - a refund that failed at Stripe must not
+    leave our own row marked refunded.
+    """
+    api = _client()
+    if api is None:
+        return {"success": False, "message": "Stripe is not configured", "refund_id": None}
+    if not payment_intent_id and not charge_id:
+        return {"success": False, "refund_id": None,
+                "message": "This invoice has no Stripe payment to refund. "
+                           "Write it off instead if the money was never taken."}
+
+    params: Dict[str, Any] = {}
+    if payment_intent_id:
+        params["payment_intent"] = payment_intent_id
+    else:
+        params["charge"] = charge_id
+    if amount is not None:
+        params["amount"] = int(round(float(amount) * 100))
+    if reason in ("duplicate", "fraudulent", "requested_by_customer"):
+        params["reason"] = reason
+
+    try:
+        refund = await api.Refund.create_async(**params)
+    except stripe.InvalidRequestError as exc:
+        # Already refunded, or a charge that cannot be. The message is the
+        # useful part and none of it is secret.
+        return {"success": False, "refund_id": None, "message": str(exc)}
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Stripe refund failed for %s", payment_intent_id or charge_id)
+        return {"success": False, "refund_id": None, "message": str(exc)}
+
+    return {"success": refund.status in ("succeeded", "pending"),
+            "refund_id": refund.id, "status": refund.status,
+            "message": f"Refund {refund.status}"}
+
+
 async def cancel_subscription(subscription_id: str) -> bool:
     """Cancel at Stripe. The webhook is what updates our own records."""
     api = _client()

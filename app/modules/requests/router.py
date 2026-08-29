@@ -5,6 +5,7 @@ from fastapi import APIRouter, Body, Depends, File, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
+from app.core.deps import language as request_language
 from app.core.deps import (
     CurrentUser,
     get_current_user,
@@ -26,19 +27,21 @@ router = APIRouter(prefix="/requests", tags=["Immigration Requests"],
 
 @router.get("/client/dashboard", response_model=s.ClientDashboardSummary, summary="Get Client Home Dashboard overview")
 async def client_dashboard(user: CurrentUser = Depends(require_client),
-                           db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
-    return await service.get_client_dashboard(db, user)
+                           db: AsyncIOMotorDatabase = Depends(get_tenant_db),
+                           lang: str = Depends(request_language)):
+    return await service.get_client_dashboard(db, user, lang)
 
 
 @router.get("/consultant/dashboard", response_model=s.ConsultantDashboardSummary, summary="Get Consultant Home Dashboard overview")
 async def consultant_dashboard(user: CurrentUser = Depends(require_consultant),
-                               db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
-    return await service.get_consultant_dashboard(db, user)
+                               db: AsyncIOMotorDatabase = Depends(get_tenant_db),
+                               lang: str = Depends(request_language)):
+    return await service.get_consultant_dashboard(db, user, lang)
 
 
 @router.get("/client/categories", summary="Get list of available immigration request types")
-async def client_categories():
-    return await service.get_client_categories()
+async def client_categories(lang: str = Depends(request_language)):
+    return await service.get_client_categories(lang)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, summary="Client submits a request")
@@ -69,8 +72,9 @@ async def request_counts(user: CurrentUser = Depends(get_current_user),
 @router.get("/{request_id}", response_model=s.RequestOut, summary="Request details with client profile and documents")
 async def get_request(request_id: str,
                       user: CurrentUser = Depends(get_current_user),
-                      db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
-    return await service.get_request(db, user, request_id)
+                      db: AsyncIOMotorDatabase = Depends(get_tenant_db),
+                      lang: str = Depends(request_language)):
+    return await service.get_request(db, user, request_id, lang)
 
 
 @router.patch("/{request_id}")

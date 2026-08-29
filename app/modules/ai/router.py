@@ -16,7 +16,7 @@ from app.core.exceptions import NotFound
 from app.core.utils import oid, serialize, utcnow
 from app.modules.ai.context import workspace_snapshot
 from app.schemas.common import Message, PageParams
-from app.services.openai_service import assistant_reply
+from app.services.ai_service import assistant_reply
 from app.services.pagination import paginate
 
 router = APIRouter(prefix="/ai", tags=["AI Assistant"],
