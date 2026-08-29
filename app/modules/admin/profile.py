@@ -17,6 +17,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.core.deps import CurrentUser, require_super_admin
+from app.core.deps import language as request_language
+from app.core.i18n import DEFAULT_LANGUAGE, translate
 from app.core.enums import AuditAction
 from app.core.exceptions import Conflict, NotFound
 from app.core.utils import oid, utcnow
@@ -28,7 +30,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/profile", tags=["Super Admin · Profile"])
 
-DEFAULT_TITLE = "Platform Administrator"
+#: Only a fallback for an administrator who has not set their own title.
+#: A title they typed themselves is their words and is never translated.
+def default_title(lang: str = DEFAULT_LANGUAGE) -> str:
+    return translate("admin.platform_administrator", lang)
 
 
 # --------------------------------------------------------------------------- #
@@ -91,12 +96,14 @@ class AdminProfileUpdate(BaseModel):
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
-def _serialize(doc: Dict[str, Any]) -> Dict[str, Any]:
+def _serialize(doc: Dict[str, Any], lang: str = DEFAULT_LANGUAGE) -> Dict[str, Any]:
     return {
         "id": str(doc["_id"]),
         "email": doc["email"],
         "full_name": doc.get("full_name"),
-        "title": doc.get("title") or DEFAULT_TITLE,
+        # A title the administrator typed is their words; only the fallback
+        # is ours to translate.
+        "title": doc.get("title") or default_title(lang),
         "phone": doc.get("phone"),
         "admin_role": doc.get("admin_role", "super_admin"),
         "status": doc.get("status"),
@@ -116,13 +123,15 @@ async def _load(user: CurrentUser) -> Dict[str, Any]:
 # Profile
 # --------------------------------------------------------------------------- #
 @router.get("", response_model=AdminProfileOut, summary="My administrator profile")
-async def get_profile(user: CurrentUser = Depends(require_super_admin)):
-    return _serialize(await _load(user))
+async def get_profile(user: CurrentUser = Depends(require_super_admin),
+                      lang: str = Depends(request_language)):
+    return _serialize(await _load(user), lang)
 
 
 @router.patch("", response_model=AdminProfileOut, summary="Update my administrator profile")
 async def update_profile(payload: AdminProfileUpdate,
-                         user: CurrentUser = Depends(require_super_admin)):
+                         user: CurrentUser = Depends(require_super_admin),
+                         lang: str = Depends(request_language)):
     """Save the Edit Profile dialog.
 
     Changing the email is allowed but guarded twice over: it is the sign-in
@@ -162,7 +171,7 @@ async def update_profile(payload: AdminProfileUpdate,
             email_changed_from = doc["email"]
 
     if not updates:
-        return _serialize(doc)
+        return _serialize(doc, lang)
 
     updates["updated_at"] = utcnow()
     await db.platform_admins.update_one({"_id": doc["_id"]}, {"$set": updates})
@@ -177,7 +186,7 @@ async def update_profile(payload: AdminProfileUpdate,
             detail=f"{email_changed_from} -> {updates['email']}",
         )
 
-    return _serialize({**doc, **updates})
+    return _serialize({**doc, **updates}, lang)
 
 
 # --------------------------------------------------------------------------- #
@@ -187,7 +196,8 @@ async def update_profile(payload: AdminProfileUpdate,
              status_code=status.HTTP_201_CREATED,
              summary="Upload or replace my profile picture")
 async def upload_avatar(file: UploadFile = File(...),
-                        user: CurrentUser = Depends(require_super_admin)):
+                        user: CurrentUser = Depends(require_super_admin),
+                        lang: str = Depends(request_language)):
     db = platform_db()
     doc = await _load(user)
     previous = (doc.get("avatar") or {}).get("file_id")
@@ -199,7 +209,7 @@ async def upload_avatar(file: UploadFile = File(...),
     await db.platform_admins.update_one(
         {"_id": doc["_id"]}, {"$set": {"avatar": saved, "updated_at": utcnow()}}
     )
-    return _serialize({**doc, "avatar": saved})
+    return _serialize({**doc, "avatar": saved}, lang)
 
 
 @router.get("/avatar", summary="My profile picture")

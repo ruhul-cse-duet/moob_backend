@@ -200,13 +200,37 @@ class TicketCategory(str, Enum):
 
 
 class ConsentType(str, Enum):
-    """client/ClientConsent.tsx + client/PrivacyCentre.tsx"""
+    """Every toggle in the Privacy Centre.
+
+    One entry per question signup asks. They were two lists before - six here
+    and eleven on the signup form - so five things a client agreed to had
+    nowhere to be shown, changed or withdrawn.
+    """
+    # Required to hold an account at all.
     TERMS_OF_SERVICE = "terms_of_service"
     PRIVACY_POLICY = "privacy_policy"
     DATA_PROCESSING = "data_processing"
+    IMMIGRATION_CASE_HANDLING = "immigration_case_handling"
+    SENSITIVE_DATA_PROCESSING = "sensitive_data_processing"
+    # Optional.
     DOCUMENT_SHARING_WITH_PARTNERS = "document_sharing_with_partners"
     AI_DOCUMENT_ANALYSIS = "ai_document_analysis"
+    AI_LEGAL_ASSISTANT = "ai_legal_assistant"
+    EMAIL_NOTIFICATIONS = "email_notifications"
+    WHATSAPP_NOTIFICATIONS = "whatsapp_notifications"
     MARKETING_EMAILS = "marketing_emails"
+
+
+#: The ones the service cannot run without. Withdrawing one is still allowed -
+#: GDPR gives that right unconditionally - but the app has to be able to say so
+#: before the person taps, which is what the flag on each row is for.
+REQUIRED_CONSENTS = {
+    ConsentType.TERMS_OF_SERVICE,
+    ConsentType.PRIVACY_POLICY,
+    ConsentType.DATA_PROCESSING,
+    ConsentType.IMMIGRATION_CASE_HANDLING,
+    ConsentType.SENSITIVE_DATA_PROCESSING,
+}
 
 
 class DataRequestType(str, Enum):
@@ -229,6 +253,28 @@ class PayoutStatus(str, Enum):
     APPROVED = "approved"
     PAID = "paid"
     CANCELLED = "cancelled"
+
+
+class PlatformInvoiceStatus(str, Enum):
+    """What an organization owes the *platform* - admin/Billing.tsx Invoices tab.
+
+    Distinct from InvoiceStatus below, which is the consultant billing their own
+    client. These two never mix: this one is driven by Stripe, that one by a
+    consultant filling in a form.
+    """
+    PENDING = "pending"          # issued, not settled - an offline/bank transfer
+    PAID = "paid"
+    FAILED = "failed"            # the card was declined; the workspace goes read-only
+    REFUNDED = "refunded"
+    WRITTEN_OFF = "written_off"  # admin decided not to pursue it
+
+
+#: Statuses an administrator can still act on. A refunded or written-off
+#: invoice is closed - re-refunding one would take the money twice.
+OPEN_PLATFORM_INVOICE_STATUSES = {
+    PlatformInvoiceStatus.PENDING,
+    PlatformInvoiceStatus.FAILED,
+}
 
 
 class InvoiceStatus(str, Enum):

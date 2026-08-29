@@ -67,7 +67,9 @@ async def accrue(payload: EarningCreate,
     }
     earning_id = str((await db.earnings.insert_one(doc)).inserted_id)
     await notify(db, user_ids=[task["assignee_id"]], type=NotificationType.TASK_COMPLETED,
-                 title=f"{payload.currency} {payload.amount:.2f} accrued",
+                 title_key="notify.earning_accrued",
+                 params={"currency": payload.currency,
+                         "amount": f"{payload.amount:.2f}"},
                  body=task["title"], data={"earning_id": earning_id})
     return serialize({**doc, "_id": oid(earning_id)})
 
@@ -170,7 +172,9 @@ async def create_payout(partner_id: str = Body(embed=True),
         {"$set": {"status": PayoutStatus.PAID.value, "payout_id": payout_id,
                   "paid_at": now, "updated_at": now}})
     await notify(db, user_ids=[partner_id], type=NotificationType.TASK_COMPLETED,
-                 title=f"Payout of {payout['currency']} {total:.2f} sent",
+                 title_key="notify.payout_sent",
+                 params={"currency": payout["currency"],
+                         "amount": f"{total:.2f}"},
                  data={"payout_id": payout_id})
     return serialize({**payout, "_id": oid(payout_id)})
 

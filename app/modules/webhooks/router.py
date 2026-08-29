@@ -23,11 +23,11 @@ import stripe
 from fastapi import APIRouter, Header, Request
 from pymongo.errors import DuplicateKeyError
 
-from app.core.enums import AuditAction, TenantStatus
+from app.core.enums import AuditAction, PlatformInvoiceStatus, TenantStatus
 from app.core.exceptions import BadRequest
 from app.core.utils import oid, utcnow
 from app.db.mongo import platform_db
-from app.services import audit, stripe_service
+from app.services import audit, invoices, stripe_service
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +99,10 @@ async def _on_invoice_paid(obj: Dict[str, Any]) -> str:
     if not tenant:
         return "no matching organization"
     db = platform_db()
+    # The Invoices tab has no other source: without this the billing history is
+    # empty however many renewals Stripe has taken.
+    await invoices.record_from_stripe(tenant=tenant, obj=obj,
+                                      status=PlatformInvoiceStatus.PAID)
     period_end = (obj.get("lines", {}).get("data") or [{}])[0].get("period", {}).get("end")
     renews_on = _from_epoch(period_end)
 
@@ -121,6 +125,10 @@ async def _on_invoice_failed(obj: Dict[str, Any]) -> str:
     tenant = await _find_tenant(obj)
     if not tenant:
         return "no matching organization"
+    # Recorded before the status change, so the invoice an administrator has to
+    # resolve exists by the time the workspace goes read-only.
+    await invoices.record_from_stripe(tenant=tenant, obj=obj,
+                                      status=PlatformInvoiceStatus.FAILED)
     await platform_db().subscriptions.update_many(
         {"tenant_id": str(tenant["_id"]), "status": "active"},
         {"$set": {"last_payment_failed_at": utcnow()}},

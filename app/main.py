@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import api_router
 from app.core.config import settings
-from app.core.errors import baseline_headers, register_exception_handlers
+from app.core.errors import baseline_headers, is_docs_path, register_exception_handlers
 from app.core.logging import setup_logging
 from app.db.indexes import ensure_platform_indexes
 from app.db.mongo import close, connect
@@ -72,12 +72,12 @@ async def lifespan(app: FastAPI):
     # Which transport mail will actually use, stated once. An operator who has
     # pasted an API key deserves to see it took effect without sending a test.
     logger.info("Email transport: %s", email.describe_transport())
-    blocked = email.smtp_is_probably_blocked()
-    if blocked:
-        # ERROR, not a warning: this configuration cannot work at all, and the
-        # symptom otherwise is a verification code that never arrives with the
-        # real cause buried in an aiosmtplib stack trace.
-        logger.error("EMAIL WILL NOT SEND: %s", blocked)
+    unconfigured = email.mail_is_not_configured()
+    if unconfigured:
+        # ERROR, not a warning: the symptom otherwise is a signup that appears
+        # to succeed and a verification code that never arrives, with nothing
+        # in the log to say why.
+        logger.error("EMAIL WILL NOT SEND: %s", unconfigured)
     # Holds a free-tier instance up between requests. No-op when there is no
     # external URL to ping, which is every local run.
     keepalive.start()
@@ -124,7 +124,8 @@ async def request_context(request: Request, call_next):
     request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
     request.state.request_id = request_id
     response = await call_next(request)
-    for header, value in baseline_headers(request_id).items():
+    headers = baseline_headers(request_id, docs=is_docs_path(request.url.path))
+    for header, value in headers.items():
         response.headers.setdefault(header, value)
     return response
 

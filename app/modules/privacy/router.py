@@ -13,7 +13,10 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from pydantic import BaseModel, Field
 
 from app.core.deps import CurrentUser, get_current_user, get_tenant_db, page_params
+from app.core.deps import language as request_language
+from app.core.i18n import translate
 from app.core.enums import (
+    REQUIRED_CONSENTS,
     AuditAction,
     ConsentType,
     DataRequestStatus,
@@ -22,9 +25,10 @@ from app.core.enums import (
     Role,
 )
 from app.core.exceptions import BadRequest, Forbidden, NotFound
-from app.core.utils import oid, serialize, utcnow
+from app.core.utils import client_ip, oid, serialize, utcnow
 from app.schemas.common import PageParams
 from app.services import audit
+from app.services import consents as consent_service
 from app.services.events import notify
 from app.services.pagination import paginate
 
@@ -50,11 +54,24 @@ class DataRequestDecision(BaseModel):
 
 @router.get("/consents", summary="My consent state, one row per consent type")
 async def my_consents(user: CurrentUser = Depends(get_current_user),
-                      db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+                      db: AsyncIOMotorDatabase = Depends(get_tenant_db),
+                      lang: str = Depends(request_language)):
+    """Everything the Privacy Centre draws, in one call.
+
+    Each row carries its own wording and whether it is required, so the screen
+    needs no table of its own to stay in step with this enum - adding a consent
+    here makes a toggle appear rather than an unlabelled row.
+    """
     stored = {c["type"]: serialize(c) async for c in db.consents.find({"user_id": user.id})}
     return {"consents": [
-        stored.get(t.value, {"type": t.value, "granted": False, "granted_at": None,
-                             "revoked_at": None, "policy_version": None})
+        {
+            **stored.get(t.value, {"type": t.value, "granted": False,
+                                   "granted_at": None, "revoked_at": None,
+                                   "policy_version": None}),
+            "label": translate(f"consent.{t.value}", lang),
+            "description": translate(f"consent.{t.value}.description", lang),
+            "required": t in REQUIRED_CONSENTS,
+        }
         for t in ConsentType
     ]}
 
@@ -63,21 +80,13 @@ async def my_consents(user: CurrentUser = Depends(get_current_user),
 async def set_consent(payload: ConsentSet, request: Request,
                       user: CurrentUser = Depends(get_current_user),
                       db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
-    now = utcnow()
-    update = {
-        "user_id": user.id,
-        "type": payload.type.value,
-        "granted": payload.granted,
-        "policy_version": payload.policy_version,
-        "ip": request.client.host if request.client else None,
-        "user_agent": request.headers.get("user-agent"),
-        "updated_at": now,
-    }
-    update["granted_at" if payload.granted else "revoked_at"] = now
-    await db.consents.update_one({"user_id": user.id, "type": payload.type.value},
-                                 {"$set": update, "$setOnInsert": {"created_at": now}},
-                                 upsert=True)
-    await db.consent_history.insert_one({**update, "created_at": now})
+    await consent_service.record(
+        db, user_id=user.id, consent_type=payload.type, granted=payload.granted,
+        source="privacy_centre", policy_version=payload.policy_version,
+        ip=client_ip(request), user_agent=request.headers.get("user-agent"),
+    )
+    # Read back rather than returning what was written: this is the value the
+    # toggle will be redrawn from, so it has to be what the next GET would say.
     return serialize(await db.consents.find_one({"user_id": user.id,
                                                  "type": payload.type.value}))
 
@@ -120,7 +129,9 @@ async def create_data_request(payload: DataRequestCreate,
     owner = await db.users.find_one({"role": Role.CONSULTANT_OWNER.value})
     if owner:
         await notify(db, user_ids=[str(owner["_id"])], type=NotificationType.SUBSCRIPTION,
-                     title=f"{payload.type.value.title()} request from {user.raw.get('full_name')}",
+                     title_key="notify.data_request_raised",
+                     params={"person": user.raw.get("full_name") or ""},
+                     param_keys={"kind": f"data_request.{payload.type.value}"},
                      body="GDPR requires a response within 30 days.",
                      data={"data_request_id": request_id})
     await audit.record(
@@ -190,7 +201,10 @@ async def set_data_request_status(request_id: str, payload: DataRequestDecision,
     if not result:
         raise NotFound("Data request not found")
     await notify(db, user_ids=[result["user_id"]], type=NotificationType.SUBSCRIPTION,
-                 title=f"Your {result['type']} request is {payload.status.value.replace('_', ' ')}",
+                 title_key="notify.data_request_status",
+                 param_keys={
+                     "kind": f"data_request.{result['type']}",
+                     "status": f"data_request_status.{payload.status.value}"},
                  body=payload.note or "",
                  data={"data_request_id": request_id})
     await audit.record(action=AuditAction.DATA_REQUEST_HANDLED, actor_id=user.id,

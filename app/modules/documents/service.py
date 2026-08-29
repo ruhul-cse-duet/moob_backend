@@ -15,7 +15,7 @@ from app.core.utils import oid, serialize, utcnow
 from app.schemas.common import PageParams
 from app.services import storage
 from app.services.events import log_activity, notify
-from app.services.openai_service import analyze_document
+from app.services.ai_service import analyze_document
 from app.services.ownership import assert_client_access, assigned_client_ids, resolve_consultant_id
 from app.services.pagination import paginate
 
@@ -100,7 +100,9 @@ async def upload(db, user: CurrentUser, document_id: str,
                                      {"$set": {"status": new_status, "updated_at": now}})
 
     await notify(db, user_ids=[consultant_id], type=NotificationType.DOCUMENT_UPLOADED,
-                 title=f"{user.raw.get('full_name')} uploaded {doc['name']}",
+                 title_key="notify.document_uploaded",
+                 params={"person": user.raw.get("full_name") or "",
+                         "document": doc["name"]},
                  body=f"Document uploaded: {file.filename or doc['name']}",
                  data={"document_id": document_id, "request_id": doc.get("request_id")})
     await log_activity(db, actor_id=user.id, actor_name=user.raw.get("full_name", ""),
@@ -108,14 +110,14 @@ async def upload(db, user: CurrentUser, document_id: str,
                        request_id=doc.get("request_id"), case_id=doc.get("case_id"))
 
     updated_doc = serialize(await _get(db, document_id))
-    # Pop-up modal details for mobile app ("Submit to Consultant")
+    # The confirmation sheet the app shows after an upload. Codes and data
+    # only: the file name is data, everything a person reads is the app's.
     updated_doc["popup_modal"] = {
-        "title": "Upload document",
+        "key": "upload_document",
         "document_name": doc["name"],
         "file_name": file.filename or doc["name"],
-        "status_label": "ready",
-        "cta_label": "Submit to Consultant",
-        "message": f"{file.filename or doc['name']} is ready to be submitted to your consultant.",
+        "status": "ready",
+        "cta": "submit_to_consultant",
     }
     return updated_doc
 
@@ -147,7 +149,9 @@ async def approve(db, user: CurrentUser, document_id: str) -> Dict[str, Any]:
                   "approved_at": now, "consultant_feedback": None, "updated_at": now}},
     )
     await notify(db, user_ids=[doc["client_id"]], type=NotificationType.DOCUMENT_APPROVED,
-                 title=f"{doc['name']} approved", body="No further action needed.",
+                 title_key="notify.document_approved",
+                 body_key="notify.document_approved.body",
+                 params={"document": doc["name"]},
                  # Enough to open something: the app has no screen for a
                  # document on its own, so a bare document_id is a dead tap.
                  data={"document_id": document_id,
@@ -172,7 +176,8 @@ async def reject(db, user: CurrentUser, document_id: str, feedback: str) -> Dict
                   "rejected_at": now, "updated_at": now}},
     )
     await notify(db, user_ids=[doc["client_id"]], type=NotificationType.DOCUMENT_REJECTED,
-                 title=f"{doc['name']} needs a re-upload", body=feedback,
+                 title_key="notify.document_rejected",
+                 params={"document": doc["name"]}, body=feedback,
                  data={"document_id": document_id,
                        "request_id": doc.get("request_id"),
                        "case_id": doc.get("case_id")})
@@ -270,7 +275,8 @@ async def delete_document(db, user: CurrentUser, document_id: str) -> Dict[str, 
         await notify(
             db, user_ids=[doc["client_id"]],
             type=NotificationType.DOCUMENT_REJECTED,
-            title=f"{doc['name']} is no longer required",
+            title_key="notify.document_withdrawn",
+            params={"document": doc["name"]},
             body="Your consultant has withdrawn this request.",
             data={"request_id": doc.get("request_id"), "case_id": doc.get("case_id")},
         )

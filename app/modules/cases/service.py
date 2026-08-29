@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional
 
 from app.core.deps import CurrentUser
+from app.core.i18n import DEFAULT_LANGUAGE, translate
 from app.core.enums import (
     CASE_STAGE_ORDER,
     CaseStage,
@@ -15,7 +16,7 @@ from app.db.indexes import next_sequence
 from app.schemas.common import PageParams
 from app.services.case_progress import APPROVED, apply_progress, attach_case_progress
 from app.services.events import log_activity, notify
-from app.services.openai_service import case_guidance
+from app.services.ai_service import case_guidance
 from app.services.ownership import assert_case_access, assigned_client_ids, attach_consultant
 from app.services.pagination import paginate
 
@@ -180,7 +181,9 @@ async def advance_stage(db, user: CurrentUser, case_id: str, data) -> Dict[str, 
                                 "by": user.id, "note": data.note}}},
     )
     await notify(db, user_ids=[doc["client_id"]], type=NotificationType.CASE_STAGE_CHANGED,
-                 title=f"{doc['reference']} moved to {target.value.replace('_', ' ')}",
+                 title_key="notify.case_stage_changed",
+                 params={"reference": doc["reference"],
+                         "stage": target.value.replace("_", " ")},
                  body=data.note or "", data={"case_id": case_id})
     await log_activity(db, actor_id=user.id, actor_name=user.raw.get("full_name", ""),
                        action=f"advanced to {target.value}", subject=doc["reference"],
@@ -234,17 +237,20 @@ async def generate_guidance(db, user: CurrentUser, case_id: str, create_tasks: b
             await db.tasks.insert_many(rows)
             await notify(db, user_ids=[doc["client_id"]],
                          type=NotificationType.TASK_ASSIGNED,
-                         title=f"{len(rows)} new task(s) on {doc['reference']}",
+                         title_key="notify.case_tasks_added",
+                         params={"count": len(rows),
+                                 "reference": doc["reference"]},
                          data={"case_id": case_id})
     return guidance
 
 
-async def timeline(db, case_id: str) -> List[Dict[str, Any]]:
+async def timeline(db, case_id: str,
+                   lang: str = DEFAULT_LANGUAGE) -> List[Dict[str, Any]]:
     doc = await _get(db, case_id)
     done = {entry["stage"]: entry for entry in doc.get("timeline", [])}
     return [
         {"stage": st.value,
-         "label": st.value.replace("_", " ").title(),
+         "label": translate(f"stage.{st.value}", lang),
          "completed": st.value in done,
          "at": done.get(st.value, {}).get("at"),
          "current": doc["stage"] == st.value}

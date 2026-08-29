@@ -232,7 +232,8 @@ async def mark_read(db, user: CurrentUser, thread_id: str) -> Dict[str, Any]:
 
 # ── sending ────────────────────────────────────────────────────────────────
 async def send(db, user: CurrentUser, thread_id: str, body: str,
-               attachment: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+               attachment: Optional[Dict[str, Any]] = None,
+               socket_id: Optional[str] = None) -> Dict[str, Any]:
     thread = await _thread_for(db, user, thread_id)
 
     body = (body or "").strip()
@@ -265,7 +266,8 @@ async def send(db, user: CurrentUser, thread_id: str, body: str,
 
     if recipients:
         await notify(db, user_ids=recipients, type=NotificationType.MESSAGE_RECEIVED,
-                     title=f"New message from {user.raw.get('full_name', 'your consultant')}",
+                     title_key="notify.message_received",
+                     params={"person": user.raw.get("full_name", "")},
                      body=_preview(body, attachment),
                      data={"thread_id": thread_id, "message_id": message_id})
 
@@ -274,7 +276,11 @@ async def send(db, user: CurrentUser, thread_id: str, body: str,
     # After the write, and deliberately unable to fail it: the message is
     # already saved, so a socket that is down costs live delivery and nothing
     # else. The app falls back to what it fetches when the screen opens.
-    await publish_message(sent, recipients)
+    #
+    # The sender is skipped: they are in this thread's room, so without it the
+    # message they just sent arrives back over the socket as well as in this
+    # response, and the app shows it twice.
+    await publish_message(sent, recipients, skip_sid=socket_id, sender_id=user.id)
     return sent
 
 
@@ -289,7 +295,8 @@ def _preview(body: str, attachment: Optional[Dict[str, Any]]) -> str:
 
 
 async def send_attachment(db, user: CurrentUser, thread_id: str,
-                          file: UploadFile, body: str = "") -> Dict[str, Any]:
+                          file: UploadFile, body: str = "",
+                          socket_id: Optional[str] = None) -> Dict[str, Any]:
     """Stores the file, then posts it as a message in one round trip."""
     await _thread_for(db, user, thread_id)
 
@@ -305,7 +312,8 @@ async def send_attachment(db, user: CurrentUser, thread_id: str,
         "size": stored.get("size", 0),
         "kind": stored.get("kind"),
     }
-    return await send(db, user, thread_id, body, attachment=attachment)
+    return await send(db, user, thread_id, body, attachment=attachment,
+                      socket_id=socket_id)
 
 
 async def attachment_for(db, user: CurrentUser, message_id: str) -> Dict[str, Any]:
