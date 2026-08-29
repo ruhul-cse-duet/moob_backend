@@ -100,7 +100,9 @@ async def upload(db, user: CurrentUser, document_id: str,
                                      {"$set": {"status": new_status, "updated_at": now}})
 
     await notify(db, user_ids=[consultant_id], type=NotificationType.DOCUMENT_UPLOADED,
-                 title=f"{user.raw.get('full_name')} uploaded {doc['name']}",
+                 title_key="notify.document_uploaded",
+                 params={"person": user.raw.get("full_name") or "",
+                         "document": doc["name"]},
                  body=f"Document uploaded: {file.filename or doc['name']}",
                  data={"document_id": document_id, "request_id": doc.get("request_id")})
     await log_activity(db, actor_id=user.id, actor_name=user.raw.get("full_name", ""),
@@ -147,7 +149,9 @@ async def approve(db, user: CurrentUser, document_id: str) -> Dict[str, Any]:
                   "approved_at": now, "consultant_feedback": None, "updated_at": now}},
     )
     await notify(db, user_ids=[doc["client_id"]], type=NotificationType.DOCUMENT_APPROVED,
-                 title=f"{doc['name']} approved", body="No further action needed.",
+                 title_key="notify.document_approved",
+                 body_key="notify.document_approved.body",
+                 params={"document": doc["name"]},
                  # Enough to open something: the app has no screen for a
                  # document on its own, so a bare document_id is a dead tap.
                  data={"document_id": document_id,
@@ -172,7 +176,8 @@ async def reject(db, user: CurrentUser, document_id: str, feedback: str) -> Dict
                   "rejected_at": now, "updated_at": now}},
     )
     await notify(db, user_ids=[doc["client_id"]], type=NotificationType.DOCUMENT_REJECTED,
-                 title=f"{doc['name']} needs a re-upload", body=feedback,
+                 title_key="notify.document_rejected",
+                 params={"document": doc["name"]}, body=feedback,
                  data={"document_id": document_id,
                        "request_id": doc.get("request_id"),
                        "case_id": doc.get("case_id")})
@@ -270,7 +275,8 @@ async def delete_document(db, user: CurrentUser, document_id: str) -> Dict[str, 
         await notify(
             db, user_ids=[doc["client_id"]],
             type=NotificationType.DOCUMENT_REJECTED,
-            title=f"{doc['name']} is no longer required",
+            title_key="notify.document_withdrawn",
+            params={"document": doc["name"]},
             body="Your consultant has withdrawn this request.",
             data={"request_id": doc.get("request_id"), "case_id": doc.get("case_id")},
         )
