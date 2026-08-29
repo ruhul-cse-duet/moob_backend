@@ -63,7 +63,8 @@ async def create_case(db, user: CurrentUser, data) -> Dict[str, Any]:
 async def list_cases(db, user: CurrentUser, params: PageParams,
                      stage: Optional[CaseStage] = None,
                      search: Optional[str] = None,
-                     consultant_id: Optional[str] = None) -> Dict[str, Any]:
+                     consultant_id: Optional[str] = None,
+                     lang: str = DEFAULT_LANGUAGE) -> Dict[str, Any]:
     query: Dict[str, Any] = {}
     if consultant_id:
         query["consultant_id"] = consultant_id
@@ -96,6 +97,9 @@ async def list_cases(db, user: CurrentUser, params: PageParams,
     # Progress is derived from documents, so a list has to say the same thing
     # the detail screen does - one aggregation for the page, not two per case.
     page["items"] = await attach_case_progress(db, page["items"])
+    for item in page["items"]:
+        if "stage" in item:
+            item["stage_label"] = translate(f"stage.{item['stage']}", lang)
     return page
 
 
@@ -119,7 +123,8 @@ async def stage_counts(db, user: CurrentUser,
     return out
 
 
-async def get_case(db, user: CurrentUser, case_id: str) -> Dict[str, Any]:
+async def get_case(db, user: CurrentUser, case_id: str,
+                   lang: str = DEFAULT_LANGUAGE) -> Dict[str, Any]:
     doc = await _get(db, case_id)
     if user.role == Role.CLIENT and doc["client_id"] != user.id:
         raise Forbidden("This case is not yours")
@@ -130,9 +135,13 @@ async def get_case(db, user: CurrentUser, case_id: str) -> Dict[str, Any]:
         if not has_task:
             await assert_case_access(db, user, doc)
     out = await attach_consultant(db, serialize(doc))
+    out["stage_label"] = translate(f"stage.{doc.get('stage')}", lang)
     out["documents"] = [
         serialize(d) async for d in db.documents.find({"case_id": case_id}).sort("created_at", 1)
     ]
+    for doc_item in out["documents"]:
+        if "status" in doc_item:
+            doc_item["status_label"] = translate(f"document_status.{doc_item['status']}", lang)
     out["client_tasks"] = [
         serialize(t) async for t in db.tasks.find(
             {"case_id": case_id, "assignee_type": TaskAssigneeType.CLIENT.value}
@@ -143,6 +152,9 @@ async def get_case(db, user: CurrentUser, case_id: str) -> Dict[str, Any]:
             {"case_id": case_id, "assignee_type": TaskAssigneeType.PARTNER.value}
         ).sort("created_at", 1)
     ]
+    for task_item in out["client_tasks"] + out["partner_tasks"]:
+        if "status" in task_item:
+            task_item["status_label"] = translate(f"task_status.{task_item['status']}", lang)
     out["stage_order"] = [st.value for st in CASE_STAGE_ORDER]
     apply_progress(
         out,

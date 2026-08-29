@@ -150,12 +150,22 @@ answer questions about their own caseload - who is waiting on what, which cases 
 what a client still owes - directly from the workspace data."""
 
 
-def assistant_prompt(role: Optional[str] = None) -> str:
+_LANG_NAMES = {
+    "pt": "Português (Portuguese)",
+    "es": "Español (Spanish)",
+    "en": "English",
+}
+
+
+def assistant_prompt(role: Optional[str] = None, lang: Optional[str] = None) -> str:
     tail = _ASSISTANT_BY_ROLE.get(role or "", _ASSISTANT_CONSULTANT)
-    return f"{_ASSISTANT_BASE}\n\n{tail}"
+    lang_name = _LANG_NAMES.get(str(lang).lower(), "English")
+    lang_instruction = f"LANGUAGE INSTRUCTION: You MUST respond in {lang_name} unless the user explicitly asks for a different language."
+    return f"{_ASSISTANT_BASE}\n\n{tail}\n\n{lang_instruction}"
 
 
 ASSISTANT_PROMPT = assistant_prompt()
+
 
 
 # --------------------------------------------------------------------------- #
@@ -341,7 +351,10 @@ async def assistant_reply(*, history: List[Dict[str, str]], message: str,
     # conversation re-reads the prompt from cache instead of paying for it.
     system: List[Dict[str, Any]] = [{
         "type": "text",
-        "text": assistant_prompt((context or {}).get("role")),
+        "text": assistant_prompt(
+            role=(context or {}).get("role"),
+            lang=(context or {}).get("language"),
+        ),
         "cache_control": {"type": "ephemeral"},
     }]
     if context:

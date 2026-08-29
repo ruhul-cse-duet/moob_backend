@@ -8,6 +8,7 @@ from app.core.deps import (
     CurrentUser,
     get_current_user,
     get_tenant_db,
+    language as request_language,
     page_params,
     require_active_tenant,
 )
@@ -64,7 +65,8 @@ async def _case_context(db, user: CurrentUser, case_id: str) -> Dict[str, Any]:
              summary="Ask the AI assistant (answers are shaped to the caller's role)")
 async def chat(payload: ChatRequest,
                user: CurrentUser = Depends(get_current_user),
-               db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+               db: AsyncIOMotorDatabase = Depends(get_tenant_db),
+               lang: str = Depends(request_language)):
     now = utcnow()
     consultant_id = user.consultant_id
     convo = None
@@ -97,6 +99,7 @@ async def chat(payload: ChatRequest,
     context: Dict[str, Any] = {
         "user_name": user.raw.get("full_name", "there"),
         "role": user.role.value if isinstance(user.role, Role) else user.role,
+        "language": lang,
         "today": now.date().isoformat(),
         # The records this account could open in the app, and no others. Without
         # them the assistant answers questions about the caller's own clients
