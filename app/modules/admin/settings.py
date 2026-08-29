@@ -5,6 +5,8 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from app.core.deps import CurrentUser, require_super_admin
+from app.core.deps import language as request_language
+from app.core.i18n import translate
 from app.core.enums import AuditAction
 from app.core.exceptions import BadRequest
 from app.core.utils import utcnow
@@ -19,73 +21,53 @@ SETTING_SPECS: Dict[str, Dict[str, Any]] = {
         "type": "bool",
         "default": True,
         "section": "access_registration",
-        "label": "Consultants can create their own organization",
-        "description": "Turning this off makes every new organization admin-created.",
     },
     "clients_can_register_self": {
         "type": "bool",
         "default": True,
         "section": "access_registration",
-        "label": "Clients can register themselves",
-        "description": "Clients choose a consultant from the directory during sign-up.",
     },
     "partners_join_by_invitation_only": {
         "type": "bool",
         "default": True,
         "section": "access_registration",
-        "label": "Partners join by invitation only",
-        "description": "Enforced by the platform — partners never self-register.",
     },
     "auto_approve_new_organizations": {
         "type": "bool",
         "default": False,
         "section": "access_registration",
-        "label": "Auto-approve new organizations",
-        "description": "Skips the manual verification step in the approval queue.",
     },
     "ai_assistant_enabled": {
         "type": "bool",
         "default": True,
         "section": "features_operations",
-        "label": "AI assistant and document checks",
-        "description": "Powers OCR, extracted fields and the assistant in all three apps.",
     },
     "document_checks_enabled": {
         "type": "bool",
         "default": True,
         "section": "features_operations",
-        "label": "Document checks",
-        "description": "Runs document OCR and automated review on uploads.",
     },
     "maintenance_mode": {
         "type": "bool",
         "default": False,
         "section": "features_operations",
-        "label": "Maintenance mode",
-        "description": "Makes every workspace read-only during a deployment window.",
     },
     "max_document_size_mb": {
         "type": "int",
         "default": 10,
         "min": 1,
         "section": "limits_contact",
-        "label": "Maximum document size (MB)",
-        "description": "Uploaded files larger than this are rejected.",
     },
     "document_retention_months": {
         "type": "int",
         "default": 24,
         "min": 1,
         "section": "limits_contact",
-        "label": "Document retention after case closure (months)",
-        "description": "Controls how long closed-case files stay available.",
     },
     "support_email": {
         "type": "string",
         "default": "support@webimove.com",
         "section": "limits_contact",
-        "label": "Support email",
-        "description": "Recipient address for support and platform notifications.",
     },
     "maintenance_message": {
         "type": "string",
@@ -97,8 +79,6 @@ SETTING_SPECS: Dict[str, Dict[str, Any]] = {
         "default": 0,
         "min": 0,
         "section": "limits_contact",
-        "label": "Free trial length (days)",
-        "description": "Zero means new organizations pay from day one.",
     },
     "otp_expire_minutes": {
         "type": "int",
@@ -121,7 +101,6 @@ SETTING_ALIASES = {
 SECTION_DEFINITIONS = [
     {
         "key": "access_registration",
-        "title": "Access & registration",
         "settings": [
             "consultants_can_create_organization",
             "clients_can_register_self",
@@ -131,7 +110,6 @@ SECTION_DEFINITIONS = [
     },
     {
         "key": "features_operations",
-        "title": "Features & operations",
         "settings": [
             "ai_assistant_enabled",
             "maintenance_mode",
@@ -139,7 +117,6 @@ SECTION_DEFINITIONS = [
     },
     {
         "key": "limits_contact",
-        "title": "Limits & contact",
         "settings": [
             "max_document_size_mb",
             "document_retention_months",
@@ -215,11 +192,10 @@ def _coerce_value(key: str, value: Any) -> Any:
 
 def _setting_meta(key: str, value: Any) -> Dict[str, Any]:
     spec = SETTING_SPECS.get(key, {})
+    # No label or description here: those live in the catalogue and are filled
+    # in by the endpoint, which knows the caller's language. Keeping an English
+    # copy alongside would be a second source of truth that silently loses.
     out = {"key": key, "value": value}
-    if spec.get("label"):
-        out["label"] = spec["label"]
-    if spec.get("description"):
-        out["description"] = spec["description"]
     if spec.get("type"):
         out["type"] = spec["type"]
     if spec.get("section"):
@@ -242,7 +218,8 @@ def _merge_aliases(settings: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @router.get("", summary="All platform settings (grouped UI sections and defaults)")
-async def get_settings(user: CurrentUser = Depends(require_super_admin)):
+async def get_settings(user: CurrentUser = Depends(require_super_admin),
+                       lang: str = Depends(request_language)):
     stored: Dict[str, Any] = {}
     async for row in platform_db().platform_settings.find():
         key = _canonical_key(row["key"])
@@ -251,13 +228,17 @@ async def get_settings(user: CurrentUser = Depends(require_super_admin)):
     settings = _merge_aliases({**DEFAULTS, **stored})
     sections = []
     for section in SECTION_DEFINITIONS:
-        items = [
-            _setting_meta(key, settings.get(key, DEFAULTS.get(key)))
-            for key in section["settings"]
-        ]
+        items = []
+        for key in section["settings"]:
+            meta = _setting_meta(key, settings.get(key, DEFAULTS.get(key)))
+            # The English in SETTING_SPECS is the fallback; the catalogue is
+            # what an operator actually reads, in their own language.
+            meta["label"] = translate(f"setting.{key}", lang)
+            meta["description"] = translate(f"setting.{key}.description", lang)
+            items.append(meta)
         sections.append({
             "key": section["key"],
-            "title": section["title"],
+            "title": translate(f"settings_section.{section['key']}", lang),
             "settings": items,
         })
 

@@ -139,3 +139,78 @@ class TestCatalogueCompleteness:
         assert LANGUAGE_NAMES[Language.PT] == "Português"
         assert LANGUAGE_NAMES[Language.ES] == "Español"
         assert set(LANGUAGE_NAMES) == set(Language)
+
+
+class TestSuperAdminPanel:
+    """The admin panel was English-only.
+
+    It was built after the apps and never went through the same pass, so it
+    still manufactured its own display text - metric card titles, organization
+    status badges, the fourteen platform settings and their descriptions. None
+    of it could be translated anywhere else, because what arrived was finished
+    English rather than a code.
+    """
+
+    @pytest.mark.parametrize("status", [
+        "awaiting_approval", "pending_verification", "pending_payment",
+        "active", "suspended", "expired", "past_due", "cancelled",
+    ])
+    def test_every_organization_status_is_translated(self, status):
+        """These are the badges on the Organizations list and its tabs."""
+        assert f"tenant_status.{status}" in CATALOGUE
+
+    def test_organization_status_reads_in_the_chosen_language(self):
+        from app.modules.admin.organizations import _status_label
+
+        assert _status_label("past_due", "en") == "Past due"
+        assert _status_label("past_due", "es") == "Vencida"
+        assert _status_label("past_due", "pt") == "Em atraso"
+
+    def test_signed_up_uses_the_right_plural(self):
+        """"Signed up 1 day ago" against "hace 1 día" - the same rule the apps
+        needed, in the panel too."""
+        from app.modules.admin.organizations import _signed_up_label
+        from datetime import timedelta
+
+        from app.core.utils import utcnow
+
+        # One day has its own wording in every language, so the plural branch
+        # only starts at two.
+        assert _signed_up_label(utcnow() - timedelta(hours=2), "es") == "Se registró hoy"
+        assert _signed_up_label(utcnow() - timedelta(days=1, hours=1), "es") == "Se registró ayer"
+        assert "2 días" in _signed_up_label(utcnow() - timedelta(days=2), "es")
+        assert "5 días" in _signed_up_label(utcnow() - timedelta(days=5), "es")
+        assert _signed_up_label(None, "es") is None
+
+    def test_every_platform_setting_has_a_label_and_a_description(self):
+        """Fourteen settings, each with a sentence explaining what it does.
+        A gap shows up in the panel as `setting.trial_days` next to a switch."""
+        from app.modules.admin.settings import SETTING_SPECS
+
+        for key in SETTING_SPECS:
+            assert f"setting.{key}" in CATALOGUE, key
+            assert f"setting.{key}.description" in CATALOGUE, key
+
+    def test_every_settings_section_has_a_title(self):
+        from app.modules.admin.settings import SECTION_DEFINITIONS
+
+        for section in SECTION_DEFINITIONS:
+            assert f"settings_section.{section['key']}" in CATALOGUE, section["key"]
+
+    def test_the_overview_cards_are_translated(self):
+        for key in ("metric.organizations", "metric.monthly_revenue",
+                    "metric.platform_users", "metric.active_cases"):
+            assert translate(key, "es") != translate(key, "en"), key
+
+    def test_an_administrators_own_title_is_only_translated_as_a_fallback(self):
+        """A title someone typed for themselves is their words. Only the
+        default we supply is ours to translate."""
+        from app.modules.admin.profile import _serialize, default_title
+
+        assert default_title("es") == "Administrador de la Plataforma"
+
+        typed = _serialize({"_id": "1", "email": "a@b.c", "title": "Head of Compliance"}, "es")
+        assert typed["title"] == "Head of Compliance"
+
+        blank = _serialize({"_id": "1", "email": "a@b.c"}, "es")
+        assert blank["title"] == "Administrador de la Plataforma"

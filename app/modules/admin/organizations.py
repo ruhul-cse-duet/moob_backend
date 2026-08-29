@@ -5,6 +5,8 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Body, Depends, Query
 
 from app.core.deps import CurrentUser, page_params, require_super_admin
+from app.core.deps import language as request_language
+from app.core.i18n import DEFAULT_LANGUAGE, translate
 from app.core.enums import (
     ORG_LIST_TAB_STATUSES,
     AuditAction,
@@ -32,20 +34,11 @@ def _location(tenant: dict) -> Optional[str]:
     return ", ".join(parts) if parts else None
 
 
-def _status_label(status: str) -> str:
-    return {
-        TenantStatus.AWAITING_APPROVAL.value: "Awaiting approval",
-        TenantStatus.PENDING_VERIFICATION.value: "Pending verification",
-        TenantStatus.PENDING_PAYMENT.value: "Pending payment",
-        TenantStatus.ACTIVE.value: "Active",
-        TenantStatus.SUSPENDED.value: "Suspended",
-        TenantStatus.EXPIRED.value: "Expired",
-        TenantStatus.PAST_DUE.value: "Past due",
-        TenantStatus.CANCELLED.value: "Cancelled",
-    }.get(status, status.replace("_", " ").title())
+def _status_label(status: str, lang: str = DEFAULT_LANGUAGE) -> str:
+    return translate(f"tenant_status.{status}", lang)
 
 
-def _signed_up_label(dt) -> Optional[str]:
+def _signed_up_label(dt, lang: str = DEFAULT_LANGUAGE) -> Optional[str]:
     if not dt:
         return None
     try:
@@ -53,15 +46,15 @@ def _signed_up_label(dt) -> Optional[str]:
     except TypeError:
         return None
     if days <= 0:
-        return "Signed up Today"
+        return translate("signed_up.today", lang)
     if days == 1:
-        return "Signed up Yesterday"
+        return translate("signed_up.yesterday", lang)
     if days < 14:
-        return f"Signed up {days} days ago"
+        return translate("signed_up.days_ago", lang, count=days)
     return f"Signed up {dt.strftime('%d %b %Y')}"
 
 
-async def _enrich_org_card(item: dict) -> dict:
+async def _enrich_org_card(item: dict, lang: str = DEFAULT_LANGUAGE) -> dict:
     """Shape one organization card for the Organizations list UI."""
     tid = item["id"]
     tdb = tenant_db(tid)
@@ -90,10 +83,11 @@ async def _enrich_org_card(item: dict) -> dict:
         "owner_name": item.get("owner_name"),
         "owner_email": item.get("owner_email"),
         "location": _location(item),
-        "status_label": _status_label(status) if status else None,
+        "status_label": _status_label(status, lang) if status else None,
         "plan_name": plan_name,
         "verified": verified,
-        "verification_label": "Verified" if verified else "Unverified",
+        "verification_label": translate(
+            "verification.verified" if verified else "verification.unverified", lang),
         "consultants": consultants,
         "partners": partners,
         "clients": clients,
@@ -101,7 +95,7 @@ async def _enrich_org_card(item: dict) -> dict:
         "currency": "USD",
         "can_approve": status == TenantStatus.AWAITING_APPROVAL.value,
         "signed_up_at": signed_up_at,
-        "signed_up_label": _signed_up_label(signed_up_at),
+        "signed_up_label": _signed_up_label(signed_up_at, lang),
         # Back-compat fields used by older clients
         "seats_used": consultants,
         "active_cases": await tdb.cases.count_documents({"stage": {"$ne": "completed"}}),
@@ -135,6 +129,7 @@ async def list_organizations(
         None, description="Search organization, owner or country"),
     params: PageParams = Depends(page_params),
     user: CurrentUser = Depends(require_super_admin),
+    lang: str = Depends(request_language),
 ):
     query: dict = {}
     if status:
@@ -158,14 +153,15 @@ async def list_organizations(
 
     page = await paginate(platform_db(), "tenants", query, params,
                           sort=[("created_at", -1)])
-    page["items"] = [await _enrich_org_card(item) for item in page["items"]]
+    page["items"] = [await _enrich_org_card(item, lang) for item in page["items"]]
     page["tab"] = tab
     return page
 
 
 @router.get("/{tenant_id}", summary="Organization detail with usage and health")
 async def organization_detail(tenant_id: str,
-                              user: CurrentUser = Depends(require_super_admin)):
+                              user: CurrentUser = Depends(require_super_admin),
+                              lang: str = Depends(request_language)):
     db = platform_db()
     tenant = await db.tenants.find_one({"_id": oid(tenant_id)})
     if not tenant:
@@ -178,7 +174,7 @@ async def organization_detail(tenant_id: str,
         except ValueError:
             plan = None
     since = utcnow() - timedelta(days=30)
-    card = await _enrich_org_card(serialize(tenant))
+    card = await _enrich_org_card(serialize(tenant), lang)
     
     owner = await tdb.users.find_one({"role": Role.CONSULTANT_OWNER.value})
     if owner:
