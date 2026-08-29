@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional
 
 from app.core.deps import CurrentUser
+from app.core.i18n import DEFAULT_LANGUAGE, translate
 from app.core.enums import (
     CASE_STAGE_ORDER,
     CaseStage,
@@ -239,12 +240,13 @@ async def generate_guidance(db, user: CurrentUser, case_id: str, create_tasks: b
     return guidance
 
 
-async def timeline(db, case_id: str) -> List[Dict[str, Any]]:
+async def timeline(db, case_id: str,
+                   lang: str = DEFAULT_LANGUAGE) -> List[Dict[str, Any]]:
     doc = await _get(db, case_id)
     done = {entry["stage"]: entry for entry in doc.get("timeline", [])}
     return [
         {"stage": st.value,
-         "label": st.value.replace("_", " ").title(),
+         "label": translate(f"stage.{st.value}", lang),
          "completed": st.value in done,
          "at": done.get(st.value, {}).get("at"),
          "current": doc["stage"] == st.value}

@@ -3,6 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
+from app.core.deps import language as request_language
 from app.core.deps import (
     CurrentUser,
     get_current_user,
@@ -63,8 +64,9 @@ async def update_case(case_id: str, payload: s.CaseUpdate,
 @router.get("/{case_id}/timeline", summary="Immigration timeline with completion state")
 async def case_timeline(case_id: str,
                         user: CurrentUser = Depends(get_current_user),
-                        db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
-    return {"timeline": await service.timeline(db, case_id)}
+                        db: AsyncIOMotorDatabase = Depends(get_tenant_db),
+                        lang: str = Depends(request_language)):
+    return {"timeline": await service.timeline(db, case_id, lang)}
 
 
 @router.post("/{case_id}/advance", response_model=s.CaseOut, summary="Advance stage")

@@ -108,14 +108,14 @@ async def upload(db, user: CurrentUser, document_id: str,
                        request_id=doc.get("request_id"), case_id=doc.get("case_id"))
 
     updated_doc = serialize(await _get(db, document_id))
-    # Pop-up modal details for mobile app ("Submit to Consultant")
+    # The confirmation sheet the app shows after an upload. Codes and data
+    # only: the file name is data, everything a person reads is the app's.
     updated_doc["popup_modal"] = {
-        "title": "Upload document",
+        "key": "upload_document",
         "document_name": doc["name"],
         "file_name": file.filename or doc["name"],
-        "status_label": "ready",
-        "cta_label": "Submit to Consultant",
-        "message": f"{file.filename or doc['name']} is ready to be submitted to your consultant.",
+        "status": "ready",
+        "cta": "submit_to_consultant",
     }
     return updated_doc
 

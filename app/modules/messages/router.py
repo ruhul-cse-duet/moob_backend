@@ -33,6 +33,10 @@ class ThreadCreate(BaseModel):
 
 class SendMessage(BaseModel):
     body: str = Field(default="", max_length=4000)
+    # The sending client's own Socket.IO id. Optional, and only ever used to
+    # leave that one socket out of the broadcast - the sender already has the
+    # message in this call's response, so an echo is a second copy of it.
+    socket_id: Optional[str] = Field(default=None, max_length=64)
 
 
 @router.get("/contacts", summary="Who I am allowed to message")
@@ -78,7 +82,15 @@ async def send_message(thread_id: str,
                        payload: SendMessage,
                        user: CurrentUser = Depends(get_current_user),
                        db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
-    return await service.send(db, user, thread_id, payload.body)
+    """The response *is* the sent message - the app should render this one.
+
+    Pass `socket_id` (the value the Socket.IO client reports as its own id) and
+    that socket is left out of the broadcast, so the sender's other devices
+    still get the message live while the sending device does not receive a
+    second copy of what it already has here.
+    """
+    return await service.send(db, user, thread_id, payload.body,
+                              socket_id=payload.socket_id)
 
 
 @router.post("/threads/{thread_id}/attachment", status_code=201,
@@ -86,11 +98,13 @@ async def send_message(thread_id: str,
 async def send_attachment(thread_id: str,
                           file: UploadFile = File(...),
                           body: str = Form(""),
+                          socket_id: Optional[str] = Form(None),
                           user: CurrentUser = Depends(get_current_user),
                           db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
     """One round trip: the file is stored and posted as a message together, so
     an upload that succeeds can never leave a message that never arrives."""
-    return await service.send_attachment(db, user, thread_id, file, body)
+    return await service.send_attachment(db, user, thread_id, file, body,
+                                         socket_id=socket_id)
 
 
 @router.get("/attachments/{message_id}", summary="Download what was sent")

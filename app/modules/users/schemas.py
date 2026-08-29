@@ -81,9 +81,11 @@ class ClientDetailView(BaseModel):
     consultant_id: str
     partner_id: Optional[str] = None
     partner_name: Optional[str] = None
-    gdpr_consent_status: str = "Consent recorded"
+    gdpr_consent_status: str = "recorded"
     immigration_cases: List[dict] = []
-    banner_notice: str = "New immigration cases are created after the client submits a request and a consultant approves the recommended process."
+    # A key, not the sentence. The app holds the wording, in every language it
+    # ships - a server-side sentence is English wherever it lands.
+    banner_notice_key: str = "cases_created_after_request_approved"
 
 
 
@@ -102,8 +104,8 @@ class GdprConsentView(BaseModel):
     title: str = "Data Processing Consent"
     description: str
     items: List[str]
-    status: str = "Consent Provided"
-    badge_status: str = "Active"
+    status: str = "provided"
+    badge_status: str = "active"
     is_active: bool = True
     granted_at: Optional[datetime] = None
 
