@@ -181,7 +181,9 @@ async def advance_stage(db, user: CurrentUser, case_id: str, data) -> Dict[str, 
                                 "by": user.id, "note": data.note}}},
     )
     await notify(db, user_ids=[doc["client_id"]], type=NotificationType.CASE_STAGE_CHANGED,
-                 title=f"{doc['reference']} moved to {target.value.replace('_', ' ')}",
+                 title_key="notify.case_stage_changed",
+                 params={"reference": doc["reference"],
+                         "stage": target.value.replace("_", " ")},
                  body=data.note or "", data={"case_id": case_id})
     await log_activity(db, actor_id=user.id, actor_name=user.raw.get("full_name", ""),
                        action=f"advanced to {target.value}", subject=doc["reference"],
@@ -235,7 +237,9 @@ async def generate_guidance(db, user: CurrentUser, case_id: str, create_tasks: b
             await db.tasks.insert_many(rows)
             await notify(db, user_ids=[doc["client_id"]],
                          type=NotificationType.TASK_ASSIGNED,
-                         title=f"{len(rows)} new task(s) on {doc['reference']}",
+                         title_key="notify.case_tasks_added",
+                         params={"count": len(rows),
+                                 "reference": doc["reference"]},
                          data={"case_id": case_id})
     return guidance
 

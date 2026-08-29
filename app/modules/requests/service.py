@@ -71,7 +71,8 @@ async def create_request(db, user: CurrentUser, data) -> Dict[str, Any]:
 
     if not data.is_draft:
         await notify(db, user_ids=[consultant_id], type=NotificationType.REQUEST_SUBMITTED,
-                     title=f"{doc['client_name']} submitted a request",
+                     title_key="notify.request_submitted",
+                     params={"client": doc["client_name"]},
                      body=f"{doc['visa_type']} · {doc['reference']}",
                      data={"request_id": request_id})
         await log_activity(db, actor_id=user.id, actor_name=doc["client_name"] or "Client",
@@ -346,7 +347,8 @@ async def update_request(db, user: CurrentUser, request_id: str, data) -> Dict[s
     # notification and activity entry a fresh submission would.
     if doc.get("is_draft") and payload.get("is_draft") is False:
         await notify(db, user_ids=[doc.get("consultant_id")], type=NotificationType.REQUEST_SUBMITTED,
-                     title=f"{doc.get('client_name')} submitted a request",
+                     title_key="notify.request_submitted",
+                     params={"client": doc.get("client_name") or ""},
                      body=f"{payload.get('visa_type') or doc['visa_type']} · {doc['reference']}",
                      data={"request_id": request_id})
         await log_activity(db, actor_id=doc["client_id"], actor_name=doc.get("client_name") or "Client",
@@ -433,7 +435,7 @@ async def request_documents(db, user: CurrentUser, request_id: str, data) -> Dic
         {"$set": {"status": RequestStatus.WAITING_FOR_CLIENT.value, "updated_at": now}},
     )
     await notify(db, user_ids=[doc["client_id"]], type=NotificationType.DOCUMENTS_REQUESTED,
-                 title="Your consultant requested documents",
+                 title_key="notify.documents_requested",
                  body=data.message or f"{len(inserts)} document(s) needed for {doc['reference']}",
                  data={"request_id": request_id})
     await log_activity(db, actor_id=user.id, actor_name=user.raw.get("full_name", ""),
@@ -511,7 +513,7 @@ async def complete_consultation(db, user: CurrentUser, request_id: str, data) ->
     )
     await db.documents.update_many({"request_id": request_id}, {"$set": {"case_id": case_id}})
     await notify(db, user_ids=[doc["client_id"]], type=NotificationType.CASE_STAGE_CHANGED,
-                 title="Your case has been opened",
+                 title_key="notify.case_opened",
                  body=f"{case['reference']} · {case['case_type']}",
                  data={"case_id": case_id})
     await log_activity(db, actor_id=user.id, actor_name=user.raw.get("full_name", ""),

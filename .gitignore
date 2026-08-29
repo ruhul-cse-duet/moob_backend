@@ -5,10 +5,12 @@ __pycache__/
 .env.*
 !.env.example
 uploads/
+temp_auto_push.bat
 .pytest_cache/
 .pytest_cache/
 *.egg-info/
 .DS_Store
 .idea
 .pytest_cache
-moob-fd3f0-firebase-adminsdk-fbsvc-8273fa2885.json
+moob-fd3f0-firebase-adminsdk-fbsvc-8273fa2885.json.gitignore
+branch_structure.json
