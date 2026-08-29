@@ -23,6 +23,7 @@ NOISY = {
     "motor": "MONGO_LOG_LEVEL",
     "httpx": "HTTP_LOG_LEVEL",
     "httpcore": "HTTP_LOG_LEVEL",
+    "aiosmtplib": "HTTP_LOG_LEVEL",
     "anthropic": "HTTP_LOG_LEVEL",
     "urllib3": "HTTP_LOG_LEVEL",
     "asyncio": "HTTP_LOG_LEVEL",

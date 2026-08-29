@@ -1,38 +1,56 @@
-"""Outgoing mail, over a provider's HTTP API.
+"""Outgoing mail: SMTP, or a provider's HTTP API.
 
-Why there is no SMTP transport
-------------------------------
-Render blocks outbound connections on ports 25, 465 and 587 to keep its
-platform from being used to send spam, and Gmail offers SMTP on 465 and 587 and
-nothing else - so `smtp.gmail.com` is unreachable from a Render service, full
-stop. The TCP handshake never completes; it surfaces as a connect timeout, which
-reads like bad credentials and is not. Rather than keep a transport that cannot
-work where this runs, mail goes over HTTPS on 443, which nothing blocks.
+Four transports, one send path. Which one runs is `EMAIL_PROVIDER`, or - left
+empty - whichever credential is filled in.
 
-Brevo is the default. Resend and SendGrid speak the same three-field shape and
-are kept as alternatives, so a provider outage or a sending-limit change is one
-environment variable rather than a code change.
+Why there is more than one
+--------------------------
+Gmail SMTP is the easiest thing to point at while developing: an app password
+and you are sending. It cannot be used in production *here*, though. Render
+blocks outbound 25, 465 and 587 to keep its platform from being used for spam,
+and Gmail offers 465 and 587 and nothing else - so `smtp.gmail.com` is
+unreachable from a Render service. The TCP handshake never completes and it
+surfaces as a connect timeout, which reads like bad credentials and is not.
 
-With no key configured at all, mail is logged instead of sent. That is the local
-development path: signup works end to end and the code is in the console.
+So SMTP stays for local work and for any host that permits it, and Brevo,
+Resend and SendGrid go over HTTPS on 443, which nothing blocks. Switching is one
+environment variable, not a code change - which is also what makes a provider
+outage or a sending-limit survivable.
+
+`smtp_is_probably_blocked()` is what keeps the easy choice from silently being
+the wrong one: choosing SMTP on a host that drops those ports is reported at
+boot rather than discovered as codes that never arrive.
+
+With nothing configured at all, mail is logged instead of sent. That is the
+local path when you have no credentials yet: signup works end to end and the
+code is in the console.
 
 Nothing here raises. Mail is a side effect of a request - a signup that cannot
 send its verification code should record the account and say so, not return a
 500 - so every path returns a bool and logs the reason.
 """
 import logging
+from email.message import EmailMessage
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+import aiosmtplib
 import httpx
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-#: Tried in this order when no explicit provider is named. Brevo first: it is
-#: the default for this deployment, and its free tier needs no verified domain
-#: to start sending.
+#: The ports Render (and most PaaS hosts) drop outbound. Kept here so the boot
+#: check and the failure message can name the same list.
+BLOCKED_SMTP_PORTS = {25, 465, 587}
+
+#: Tried in this order when no explicit provider is named. Brevo first: its free
+#: tier needs no verified domain to start sending. SMTP is not auto-detected -
+#: it is the one that cannot work everywhere, so it has to be asked for.
 _HTTP_PROVIDERS = ("brevo", "resend", "sendgrid")
+
+#: Everything `EMAIL_PROVIDER` may be set to.
+_PROVIDERS = _HTTP_PROVIDERS + ("smtp",)
 
 _client: Optional[httpx.AsyncClient] = None
 
@@ -76,6 +94,11 @@ def active_provider() -> str:
     for provider in _HTTP_PROVIDERS:
         if _api_key(provider):
             return provider
+    # SMTP last, and only when a host was actually configured: `localhost` is
+    # the default, and treating that as "mail is set up" would send every code
+    # into a connection refused.
+    if settings.SMTP_HOST and settings.SMTP_HOST != "localhost":
+        return "smtp"
     return ""
 
 
@@ -84,9 +107,34 @@ def describe_transport() -> str:
     provider = active_provider()
     if not provider:
         return "none configured - mail will be logged, not sent"
-    if provider not in _HTTP_PROVIDERS:
+    if provider not in _PROVIDERS:
         return f"UNKNOWN provider {provider!r} - nothing will be sent"
+    if provider == "smtp":
+        return (f"SMTP {settings.SMTP_HOST}:{settings.SMTP_PORT} "
+                f"(from {settings.SMTP_FROM_EMAIL})")
     return f"{provider} HTTP API (from {settings.SMTP_FROM_EMAIL})"
+
+
+def smtp_is_probably_blocked() -> Optional[str]:
+    """Whether this deployment is configured to do something that cannot work.
+
+    SMTP is the easy choice while developing and the wrong one on Render, and
+    the two are indistinguishable from the configuration alone. This is the
+    check that turns a silent production failure - codes that never arrive, one
+    connect timeout per attempt buried in the log - into a line at startup.
+    """
+    if active_provider() != "smtp":
+        return None
+    if settings.SMTP_PORT not in BLOCKED_SMTP_PORTS:
+        return None
+    if not settings.is_paas:
+        return None
+    return (
+        f"Email is configured for SMTP on port {settings.SMTP_PORT}, which this "
+        f"host blocks outbound - every send will time out. Set BREVO_API_KEY, "
+        f"RESEND_API_KEY or SENDGRID_API_KEY to send over HTTPS instead, or "
+        f"move to an SMTP provider offering port 2525."
+    )
 
 
 def mail_is_not_configured() -> Optional[str]:
@@ -100,19 +148,16 @@ def mail_is_not_configured() -> Optional[str]:
 
     # An EMAIL_PROVIDER nobody recognises. Reported in every environment, not
     # just production: it is always a mistake, and the symptom is identical to
-    # working mail right up until someone waits for a code. `smtp` is the one
-    # worth naming - it was a valid value before the SMTP transport was removed,
-    # so it is what an older .env carries forward.
-    if provider and provider not in _HTTP_PROVIDERS:
-        extra = (
-            " The SMTP transport was removed - Render blocks outbound 25/465/587,"
-            " so it could not work there anyway."
-            if provider == "smtp" else ""
-        )
+    # working mail right up until someone waits for a code.
+    if provider and provider not in _PROVIDERS:
         return (
             f"EMAIL_PROVIDER is {provider!r}, which is not one of "
-            f"{', '.join(_HTTP_PROVIDERS)}. No mail will be sent.{extra}"
+            f"{', '.join(_PROVIDERS)}. No mail will be sent."
         )
+
+    blocked = smtp_is_probably_blocked()
+    if blocked:
+        return blocked
 
     if provider:
         return None
@@ -168,6 +213,12 @@ async def send_email(
         )
         return False
 
+    if provider == "smtp":
+        return await _send_smtp(
+            recipients=recipients, subject=subject, html=html, text=body_text,
+            reply_to=reply_to, display_name=display_name,
+        )
+
     if provider not in _HTTP_PROVIDERS:
         logger.error(
             "EMAIL_PROVIDER is %r, which is not one of %s; cannot send %r",
@@ -214,6 +265,45 @@ async def send_email(
 # --------------------------------------------------------------------------- #
 # Transports
 # --------------------------------------------------------------------------- #
+
+
+async def _send_smtp(*, recipients: List[str], subject: str, html: str, text: str,
+                     reply_to: Optional[str], display_name: str) -> bool:
+    message = EmailMessage()
+    message["From"] = f"{display_name} <{settings.SMTP_FROM_EMAIL}>"
+    message["To"] = ", ".join(recipients)
+    message["Subject"] = subject
+    if reply_to:
+        message["Reply-To"] = reply_to
+    message.set_content(text)
+    message.add_alternative(html, subtype="html")
+
+    try:
+        await aiosmtplib.send(
+            message,
+            hostname=settings.SMTP_HOST,
+            port=settings.SMTP_PORT,
+            username=settings.SMTP_USER or None,
+            password=settings.SMTP_PASSWORD or None,
+            start_tls=settings.SMTP_STARTTLS,
+        )
+        logger.info("Sent %r to %s via SMTP", subject, recipients)
+        return True
+    except aiosmtplib.SMTPConnectTimeoutError:
+        # The one failure with a specific, actionable cause. Said plainly
+        # instead of as a stack trace, because the trace points at aiosmtplib
+        # and the answer has nothing to do with aiosmtplib.
+        hint = smtp_is_probably_blocked()
+        logger.error(
+            "Timed out connecting to %s:%s - %s",
+            settings.SMTP_HOST, settings.SMTP_PORT,
+            hint or "the mail server did not answer. Check the host and port, "
+                    "and whether this network permits outbound SMTP.",
+        )
+        return False
+    except Exception:  # noqa: BLE001 - never let mail failure break a request
+        logger.exception("Failed to send email to %s", recipients)
+        return False
 
 
 def _build_request(*, provider: str, key: str, recipients: List[str], subject: str,
