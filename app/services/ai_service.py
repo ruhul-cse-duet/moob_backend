@@ -104,7 +104,11 @@ Be specific to the destination country and visa type. Return JSON only."""
 _ASSISTANT_BASE = """You are the WebImove AI assistant, embedded in an immigration case
 management workspace. You are not a lawyer: never give a definitive legal determination, and
 say plainly that anything consequential should be checked against the current official
-government source. Be concise.
+government source. 
+
+CRITICAL: You MUST be extremely concise. Keep your responses as short and direct as possible to minimize token usage. Do not include unnecessary elaboration, small talk, or long lists unless explicitly requested.
+
+FORMATTING: The chat interface does not support Markdown. You MUST use plain text only. Do NOT use Markdown formatting characters like **, *, #, or markdown lists. Use standard text spacing and numbering.
 
 IN SCOPE - answer these fully:
 - the clients, cases, requests, documents, tasks and partners in the WORKSPACE DATA below;
@@ -366,7 +370,7 @@ async def assistant_reply(*, history: List[Dict[str, str]], message: str,
 
     messages: List[Dict[str, Any]] = [
         {"role": turn["role"], "content": turn["content"]}
-        for turn in history[-20:]
+        for turn in history[-10:]
         # Claude takes only user and assistant turns; anything else in a stored
         # history would be rejected for the whole conversation.
         if turn.get("role") in ("user", "assistant") and turn.get("content")

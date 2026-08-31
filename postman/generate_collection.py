@@ -382,7 +382,7 @@ collection = {
                              "}"]}},
     ],
     "variable": [
-        {"key": "base_url", "value": "http://localhost:8000"},
+        {"key": "base_url", "value": "http://10.10.28.184:8002"},
         {"key": "access_token", "value": ""},
         {"key": "refresh_token", "value": ""},
         {"key": "onboarding_token", "value": ""},
@@ -420,7 +420,7 @@ collection = {
 environment = {
     "name": "WebImove — Local",
     "values": [
-        {"key": "base_url", "value": "http://10.10.20.11:8002", "type": "default",
+        {"key": "base_url", "value": "http://10.10.28.184:8002", "type": "default",
          "enabled": True},
         {"key": "consultant_email", "value": "[EMAIL_ADDRESS]",
          "type": "default", "enabled": True},
