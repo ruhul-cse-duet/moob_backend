@@ -31,7 +31,7 @@
   "variable": [
     {
       "key": "base_url",
-      "value": "http://localhost:8000"
+      "value": "http://10.10.28.184:8002"
     },
     {
       "key": "access_token",
