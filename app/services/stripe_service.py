@@ -410,6 +410,104 @@ async def detach_payment_method(customer_id: str,
     return {"success": True, "message": "Card removed"}
 
 
+async def change_subscription_plan(
+    *,
+    subscription_id: str,
+    plan_code: PlanCode,
+    billing_cycle: BillingCycle,
+    amount: Optional[float] = None,
+    plan_name: Optional[str] = None,
+    idempotency_key: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+    charge_now: bool = True,
+) -> Dict[str, Any]:
+    """Move a live subscription onto the Price for another plan or cycle.
+
+    This is what makes an upgrade cost money. Stripe replaces the subscription
+    item's Price and - because of ``always_invoice`` - immediately bills the
+    prorated difference for the rest of the current period, rather than letting
+    the bigger plan ride free until the next renewal.
+
+    ``error_if_incomplete`` is the important half: if the card on file cannot
+    pay that proration invoice, Stripe raises instead of parking the
+    subscription in ``incomplete``. The caller gets ``success: False`` and must
+    leave its own records on the old plan - a workspace holding Enterprise
+    seats against a Starter subscription is the exact failure this avoids.
+
+    ``charge_now=False`` switches the Price without billing anything: the
+    subscription simply renews at the new plan next period. That is for the
+    super admin's override - a comp or a migration, where somebody has already
+    decided what this customer pays - and never for a customer-facing upgrade.
+
+    Returns a result dict rather than raising, so the route can turn a decline
+    into a 400 the owner can act on.
+    """
+    api = _client()
+    if api is None:
+        return {"success": False, "message": "Stripe is not configured",
+                "subscription_id": None, "price_id": None}
+    if not subscription_id:
+        return {"success": False, "subscription_id": None, "price_id": None,
+                "message": "This workspace has no Stripe subscription to move."}
+
+    price = price_id(plan_code, billing_cycle)
+    if not price and amount is not None:
+        price = await ensure_price(plan_code, billing_cycle, amount, plan_name)
+    if not price:
+        return {"success": False, "subscription_id": subscription_id, "price_id": None,
+                "message": (f"No Stripe Price is available for the {plan_code.value} plan "
+                            f"billed {billing_cycle.value}. The plan was not changed.")}
+
+    metadata = {"plan_code": plan_code.value, "billing_cycle": billing_cycle.value,
+                "tenant_id": tenant_id or ""}
+    try:
+        current = await api.Subscription.retrieve_async(subscription_id)
+        # ``current.items`` is dict.items on a StripeObject - subscript it.
+        items = (current["items"] or {}).get("data") or []
+        if not items:
+            return {"success": False, "subscription_id": subscription_id, "price_id": None,
+                    "message": "That Stripe subscription has no billable item."}
+        if items[0]["price"]["id"] == price:
+            # Same Price already - modifying would invoice a zero proration and
+            # muddy the billing history for what is, to Stripe, a no-op.
+            return {"success": True, "subscription_id": subscription_id, "price_id": price,
+                    "status": current["status"], "message": "Already on this price",
+                    "current_period_end": current.get("current_period_end"),
+                    "latest_invoice_id": None}
+
+        options: Dict[str, Any] = {}
+        if idempotency_key:
+            options["idempotency_key"] = idempotency_key
+        updated = await api.Subscription.modify_async(
+            subscription_id,
+            items=[{"id": items[0]["id"], "price": price}],
+            proration_behavior="always_invoice" if charge_now else "none",
+            payment_behavior="error_if_incomplete",
+            metadata=metadata,
+            expand=["latest_invoice"],
+            **options,
+        )
+    except stripe.CardError as exc:
+        return {"success": False, "subscription_id": subscription_id, "price_id": None,
+                "message": exc.user_message or "The card on file was declined."}
+    except Exception as exc:  # noqa: BLE001 - surface the reason, never leak a traceback
+        logger.exception("Could not move subscription %s onto %s", subscription_id, price)
+        return {"success": False, "subscription_id": subscription_id, "price_id": None,
+                "message": str(exc)}
+
+    invoice = updated.get("latest_invoice")
+    status = updated["status"]
+    return {
+        "success": status in ("active", "trialing"),
+        "message": f"Subscription {status}",
+        "subscription_id": subscription_id,
+        "price_id": price,
+        "status": status,
+        "current_period_end": updated.get("current_period_end"),
+        "latest_invoice_id": (invoice.get("id") if isinstance(invoice, dict) else invoice),
+    }
+
+
 async def cancel_subscription(subscription_id: str) -> bool:
     """Cancel at Stripe. The webhook is what updates our own records."""
     api = _client()

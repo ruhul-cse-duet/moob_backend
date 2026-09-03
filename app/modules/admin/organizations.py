@@ -19,9 +19,9 @@ from app.core.exceptions import BadRequest, Conflict, NotFound
 from app.core.utils import oid, serialize, utcnow
 from app.db.mongo import platform_db, tenant_db
 from app.modules.admin.billing import _monthly_value
-from app.modules.subscriptions.plans import PLANS, plan_by_code
+from app.modules.subscriptions.plans import PLANS, plan_by_code, plan_catalogue
 from app.schemas.common import Message, PageParams
-from app.services import audit
+from app.services import audit, stripe_service
 from app.services.pagination import paginate
 
 router = APIRouter(prefix="/organizations", tags=["Super Admin · Organizations"])
@@ -310,30 +310,63 @@ async def set_status(tenant_id: str, status: TenantStatus = Body(embed=True),
 async def override_plan(tenant_id: str, plan_code: PlanCode = Body(embed=True),
                         billing_cycle: BillingCycle = Body(embed=True),
                         note: Optional[str] = Body(None, embed=True),
+                        sync_stripe: bool = Body(False, embed=True),
                         user: CurrentUser = Depends(require_super_admin)):
+    """Set the plan by hand, without charging for it.
+
+    This is the comp and migration path, so nothing is billed and no proration
+    invoice goes out - the price was agreed elsewhere. That leaves Stripe still
+    renewing at the old amount, which is fine for a comp and wrong for a
+    migration, so ``sync_stripe`` moves the subscription onto the new plan's
+    Price for future renewals. The response says which of the two happened, so
+    the drift is never silent.
+    """
     db = platform_db()
-    result = await db.tenants.update_one(
-        {"_id": oid(tenant_id)},
-        {"$set": {"plan_code": plan_code.value, "plan_override_note": note,
-                  "updated_at": utcnow()}})
-    if not result.matched_count:
+    tenant = await db.tenants.find_one({"_id": oid(tenant_id)})
+    if not tenant:
         raise NotFound("Organization not found")
-        
-    # Also update the active subscription's plan and billing cycle
+
+    stripe_note = "Stripe was not touched; it keeps billing the current price."
+    subscription_id = tenant.get("stripe_subscription_id")
+    if sync_stripe:
+        if not (stripe_service.configured() and subscription_id):
+            raise BadRequest(
+                "This organization has no Stripe subscription to move. Set "
+                "sync_stripe to false to override the plan on our side only."
+            )
+        plan = (await plan_catalogue())[plan_code]
+        amount = (plan["annual_price"] if billing_cycle == BillingCycle.ANNUAL
+                  else plan["monthly_price"])
+        result = await stripe_service.change_subscription_plan(
+            subscription_id=subscription_id, plan_code=plan_code,
+            billing_cycle=billing_cycle, amount=amount, plan_name=plan.get("name"),
+            tenant_id=tenant_id,
+            # An override is not a sale: switch the Price, bill nothing today,
+            # and let the next renewal be the first at the new amount.
+            charge_now=False,
+        )
+        if not result["success"]:
+            raise BadRequest(result["message"])
+        stripe_note = "Stripe now renews at the new plan; nothing was charged today."
+
+    await db.tenants.update_one(
+        {"_id": oid(tenant_id)},
+        {"$set": {"plan_code": plan_code.value, "billing_cycle": billing_cycle.value,
+                  "plan_override_note": note, "updated_at": utcnow()}})
     await db.subscriptions.update_one(
         {"tenant_id": tenant_id, "status": "active"},
         {"$set": {
-            "plan_code": plan_code.value, 
+            "plan_code": plan_code.value,
             "billing_cycle": billing_cycle.value,
             "updated_at": utcnow()
         }}
     )
-    
+
     await audit.record(action=AuditAction.PLAN_CHANGED, actor_id=user.id,
-                       actor_email=user.email, tenant_id=tenant_id,
-                       subject=f"{plan_code.value} ({billing_cycle.value})", detail=note)
-    return {
-        "success": True,
-        "message": f"Plan set to {plan_code.value} ({billing_cycle.value})",
-        "detail": f"Plan set to {plan_code.value} ({billing_cycle.value})",
-    }
+                       actor_email=user.email, actor_role="super_admin",
+                       tenant_id=tenant_id,
+                       subject=f"{plan_code.value} ({billing_cycle.value})",
+                       detail=note, meta={"stripe_synced": bool(sync_stripe),
+                                          "from": tenant.get("plan_code")})
+    message = f"Plan set to {plan_code.value} ({billing_cycle.value}). {stripe_note}"
+    return {"success": True, "message": message, "detail": message}
