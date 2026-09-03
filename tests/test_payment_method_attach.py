@@ -30,6 +30,8 @@ class FakeStripe:
         # Set to make attach land somewhere other than the customer asked for,
         # which is the one thing the caller cannot detect from a success.
         self.attach_lands_on = None
+        # Stripe's test cards: using one produces a new PaymentMethod id.
+        self.aliases = {}
 
     @property
     def PaymentMethod(self):
@@ -51,9 +53,14 @@ class FakeStripe:
                 if owner and owner != customer:
                     raise StripeError("The payment method you supplied is "
                                       "already attached to a customer.")
-                outer.methods[pm_id] = outer.attach_lands_on or customer
-                outer.attached_calls.append((pm_id, customer))
-                return await _PM.retrieve_async(pm_id)
+                # A test alias mints a fresh PaymentMethod every time it is
+                # used, so what comes back is not what went in.
+                real_id = outer.aliases.get(pm_id, pm_id)
+                if pm_id in outer.aliases:
+                    outer.methods[real_id] = None
+                outer.methods[real_id] = outer.attach_lands_on or customer
+                outer.attached_calls.append((real_id, customer))
+                return await _PM.retrieve_async(real_id)
 
         return _PM
 
@@ -178,3 +185,34 @@ async def test_a_card_stripe_did_not_actually_attach_is_caught_here(stripe_ready
 
     assert result["success"] is False
     assert "did not save that card to this workspace" in result["message"]
+
+
+async def test_a_test_alias_is_saved_under_the_id_stripe_gives_back(stripe_ready):
+    """`pm_card_visa` mints a new PaymentMethod on every use.
+
+    Passing the alias on to the next call names a card nobody attached, and
+    Stripe answers "the customer does not have a payment method with the ID
+    pm_..." - naming an id the caller has never seen.
+    """
+    fake = stripe_ready(FakeStripe(methods={"pm_card_visa": None}))
+    fake.aliases = {"pm_card_visa": "pm_1RealCard"}
+
+    result = await stripe_service.attach_payment_method("cus_1", "pm_card_visa")
+
+    assert result["success"] is True, result["message"]
+    # The default is the card that exists, not the alias that made it.
+    assert fake.customers["cus_1"]["invoice_settings"] == {
+        "default_payment_method": "pm_1RealCard"}
+    assert result["card"]["id"] == "pm_1RealCard"
+    assert result["card"]["is_default"] is True
+
+
+async def test_choosing_by_alias_also_lands_on_the_real_card(stripe_ready):
+    fake = stripe_ready(FakeStripe(methods={"pm_card_visa": None}))
+    fake.aliases = {"pm_card_visa": "pm_1RealCard"}
+
+    result = await stripe_service.set_default_payment_method("cus_1", "pm_card_visa")
+
+    assert result["success"] is True, result["message"]
+    assert fake.customers["cus_1"]["invoice_settings"] == {
+        "default_payment_method": "pm_1RealCard"}
