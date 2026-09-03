@@ -16,12 +16,35 @@ from app.core.enums import BillingCycle, PlanCode
 from app.services import stripe_service
 
 
-class ListObject(dict):
-    """A stand-in for stripe.ListObject: `.data` yes, `.get` never."""
+class StripeObject:
+    """What stripe>=12 actually returns: attributes and `[...]`, no `.get`.
+
+    Modelling it as a dict - which it was, years ago - is what let
+    `.get("current_period_end")` reach production and raise
+    `AttributeError: get` on the first real call.
+    """
+
+    def __init__(self, fields):
+        self._fields = dict(fields)
+
+    def __getattr__(self, name):
+        try:
+            return self._fields[name]
+        except KeyError:
+            raise AttributeError(name) from None
+
+    def __getitem__(self, name):
+        return self._fields[name]
+
+    def __setitem__(self, name, value):
+        self._fields[name] = value
+
+
+class ListObject(StripeObject):
+    """`.data` yes, `.get` never - the wrapper raises on it deliberately."""
 
     def __init__(self, data):
-        super().__init__(data=data)
-        self.data = data
+        super().__init__({"data": data})
 
     def get(self, *args, **kwargs):
         raise TypeError(
@@ -30,8 +53,8 @@ class ListObject(dict):
         )
 
 
-class Subscription(dict):
-    """StripeObject is a dict subclass, so `.get` here is genuinely fine."""
+class Subscription(StripeObject):
+    """A subscription as the SDK hands it over."""
 
 
 def _subscription(price_id="price_old", *, period_end=1893456000, on_item=False):
