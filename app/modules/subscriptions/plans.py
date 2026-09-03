@@ -80,7 +80,16 @@ def is_downgrade(current: PlanCode, wanted: PlanCode) -> bool:
     return rank(wanted) < rank(current)
 
 
-TAX_RATE = 0.20  # design shows $258 tax on $1,290
+# No tax is added to the price, and none is charged: the plan price is what the
+# customer pays. The 20% that used to sit here came from a design mockup rather
+# than any tax authority, and it was never sent to Stripe - so the checkout
+# promised one number and billed a smaller one.
+#
+# When the business is actually registered for VAT/GST, do not put a rate back
+# here. Turn on Stripe Tax instead (`automatic_tax={"enabled": True}` on the
+# subscription): it works out the right rate from the customer's address,
+# country by country, and it is the amount Stripe genuinely collects.
+TAX_RATE = 0.0
 PLAN_PRICE_OVERRIDES_KEY = "plan_price_overrides"
 PLAN_OVERRIDES_KEY = "plan_overrides"
 
@@ -194,6 +203,12 @@ async def price_for(plan_code: PlanCode, cycle: BillingCycle) -> float:
 
 
 async def order_summary(plan_code: PlanCode, cycle: BillingCycle) -> dict:
+    """What the customer is told they will pay - and what Stripe then charges.
+
+    The two have to agree. ``estimated_tax`` and ``total_due_today`` stay in the
+    response so nothing downstream has to change; with no tax they simply read
+    zero and the subtotal.
+    """
     subtotal = await price_for(plan_code, cycle)
     tax = round(subtotal * TAX_RATE, 2)
     return {"subtotal": subtotal, "estimated_tax": tax, "total_due_today": round(subtotal + tax, 2)}

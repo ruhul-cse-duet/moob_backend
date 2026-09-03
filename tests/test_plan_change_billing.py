@@ -83,7 +83,10 @@ async def test_upgrade_bills_stripe_then_records_the_new_plan(seeded, monkeypatc
     assert calls[0]["subscription_id"] == SUBSCRIPTION_ID
     assert calls[0]["plan_code"] is PlanCode.PROFESSIONAL
     assert calls[0]["billing_cycle"] is BillingCycle.MONTHLY
-    assert calls[0]["amount"] == out["subtotal"] == 129.0
+    # The quoted total and the charge are the same number. A screen that
+    # promises $3,588 while Stripe takes $2,990 is the bug this pins shut.
+    assert calls[0]["amount"] == out["subtotal"] == out["total_due_today"] == 129.0
+    assert out["estimated_tax"] == 0
 
     tenant = await seeded.tenants.find_one({"_id": TENANT_ID})
     assert tenant["plan_code"] == PlanCode.PROFESSIONAL.value
@@ -239,3 +242,16 @@ async def test_sync_stripe_refuses_when_there_is_no_subscription_to_move(
 
     tenant = await seeded.tenants.find_one({"_id": TENANT_ID})
     assert tenant["plan_code"] == PlanCode.STARTER.value
+
+
+async def test_every_plan_quotes_exactly_what_stripe_will_charge(db):
+    """No tax is added anywhere, so the checkout total is the plan price.
+
+    Both halves matter: a tax we display but never send to Stripe undercharges,
+    and one we do send takes money from a customer for a tax nobody remits.
+    """
+    for plan_code in PlanCode:
+        for cycle in BillingCycle:
+            summary = await plans.order_summary(plan_code, cycle)
+            assert summary["estimated_tax"] == 0, (plan_code, cycle)
+            assert summary["total_due_today"] == summary["subtotal"], (plan_code, cycle)
