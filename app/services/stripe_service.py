@@ -40,6 +40,25 @@ def configured() -> bool:
     return not _is_placeholder(settings.STRIPE_SECRET_KEY)
 
 
+def client_config() -> Dict[str, Any]:
+    """What a browser needs before it can put a card form on screen.
+
+    The publishable key is meant to be public - it can only create tokens, not
+    read or charge anything. ``card_tokenization`` is the part that matters: it
+    is false when the client must not collect a card at all, because Stripe
+    would reject the result.
+
+    Both the signup step and the billing screen answer from here, so the two
+    can never disagree about whether cards can be taken.
+    """
+    key = settings.STRIPE_PUBLISHABLE_KEY
+    return {
+        "publishable_key": key or None,
+        "card_tokenization": bool(key) and configured(),
+        "currency": settings.STRIPE_CURRENCY,
+    }
+
+
 def _client() -> Optional[Any]:
     if not configured():
         return None

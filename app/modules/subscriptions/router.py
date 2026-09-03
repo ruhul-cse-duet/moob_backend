@@ -6,6 +6,7 @@ from app.core.enums import AuditAction, BillingCycle, PlanCode, TenantStatus
 from app.core.exceptions import BadRequest, NotFound
 from app.core.utils import oid, serialize, utcnow
 from app.db.mongo import platform_db
+from app.modules.auth.schemas import PaymentConfig
 from app.modules.subscriptions.plans import is_downgrade, order_summary, plan_by_code
 from app.schemas.common import Message
 from app.services import audit, stripe_service
@@ -172,6 +173,19 @@ async def _customer_id(user: CurrentUser) -> str:
     if not tenant:
         raise NotFound("Workspace not found")
     return tenant.get("stripe_customer_id") or ""
+
+
+@router.get("/payment-config", response_model=PaymentConfig,
+            summary="What the billing screen needs to collect a card")
+async def payment_config(user: CurrentUser = Depends(require_owner)):
+    """The publishable key, for the owner adding a card to an existing workspace.
+
+    Signup has its own copy of this under /auth, which an authenticated billing
+    screen has no business calling. Without one here the screen has no key, so
+    Stripe.js never initialises and the card form can only report that it failed
+    to load.
+    """
+    return stripe_service.client_config()
 
 
 @router.get("/payment-methods", summary="Cards saved for this workspace")
