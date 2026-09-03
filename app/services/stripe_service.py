@@ -15,7 +15,7 @@ Every call is a no-op returning ``None`` when Stripe is not configured, so a
 development environment without keys still boots and serves the rest of the API.
 """
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import stripe
 
@@ -274,6 +274,140 @@ async def refund_invoice(*, payment_intent_id: Optional[str] = None,
     return {"success": refund.status in ("succeeded", "pending"),
             "refund_id": refund.id, "status": refund.status,
             "message": f"Refund {refund.status}"}
+
+
+# ── cards on file ──────────────────────────────────────────────────────────
+#
+# The card itself never passes through here. The browser turns it into a
+# PaymentMethod id with Stripe.js, and these calls only ever move that id
+# around - attach it to the customer, name it the default, take it off again.
+# What comes back is the brand, the last four digits and the expiry, which is
+# all the app needs to let someone tell one card from another.
+def _card_summary(payment_method: Any, default_id: Optional[str]) -> Dict[str, Any]:
+    card = getattr(payment_method, "card", None) or {}
+    get = card.get if isinstance(card, dict) else lambda key: getattr(card, key, None)
+    return {
+        "id": payment_method.id,
+        "brand": (get("brand") or "card").title(),
+        "last4": get("last4") or "",
+        "exp_month": get("exp_month"),
+        "exp_year": get("exp_year"),
+        "is_default": payment_method.id == default_id,
+    }
+
+
+async def _default_payment_method(api: Any, customer_id: str) -> Optional[str]:
+    customer = await api.Customer.retrieve_async(customer_id)
+    settings_ = getattr(customer, "invoice_settings", None) or {}
+    value = (settings_.get("default_payment_method")
+             if isinstance(settings_, dict)
+             else getattr(settings_, "default_payment_method", None))
+    # Expanded objects come back whole; only the id is ever wanted here.
+    return getattr(value, "id", value)
+
+
+async def list_payment_methods(customer_id: Optional[str]) -> List[Dict[str, Any]]:
+    """Every card saved against this customer, newest first, default flagged.
+
+    An empty list is the honest answer for a workspace that has no Stripe
+    customer yet, or when Stripe is unreachable — the subscription screen still
+    has to render, and it says "no card on file" rather than failing.
+    """
+    api = _client()
+    if api is None or not customer_id:
+        return []
+    try:
+        default_id = await _default_payment_method(api, customer_id)
+        methods = await api.PaymentMethod.list_async(customer=customer_id, type="card")
+    except Exception:  # noqa: BLE001
+        logger.exception("Could not list cards for Stripe customer %s", customer_id)
+        return []
+    return [_card_summary(pm, default_id) for pm in methods.data]
+
+
+async def attach_payment_method(customer_id: str, payment_method_id: str, *,
+                                make_default: bool = True) -> Dict[str, Any]:
+    """Save a new card against the customer.
+
+    Defaults to making it the one that gets charged: someone who has just typed
+    a card in is adding it to use it, and a new card that silently changes
+    nothing is the more surprising outcome.
+    """
+    api = _client()
+    if api is None:
+        return {"success": False, "message": "Stripe is not configured", "card": None}
+    if not customer_id:
+        return {"success": False, "card": None,
+                "message": "This workspace has no billing account yet."}
+    try:
+        attached = await api.PaymentMethod.attach_async(payment_method_id,
+                                                        customer=customer_id)
+        if make_default:
+            await api.Customer.modify_async(
+                customer_id,
+                invoice_settings={"default_payment_method": payment_method_id},
+            )
+    except stripe.CardError as exc:
+        return {"success": False, "card": None,
+                "message": exc.user_message or "That card was declined."}
+    except stripe.InvalidRequestError as exc:
+        return {"success": False, "card": None, "message": str(exc)}
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Could not attach a card to Stripe customer %s", customer_id)
+        return {"success": False, "card": None, "message": str(exc)}
+
+    return {"success": True, "message": "Card saved",
+            "card": _card_summary(attached, payment_method_id if make_default else None)}
+
+
+async def set_default_payment_method(customer_id: str,
+                                     payment_method_id: str) -> Dict[str, Any]:
+    """Choose which saved card the subscription is billed to."""
+    api = _client()
+    if api is None:
+        return {"success": False, "message": "Stripe is not configured"}
+    if not customer_id:
+        return {"success": False, "message": "This workspace has no billing account yet."}
+    try:
+        await api.Customer.modify_async(
+            customer_id,
+            invoice_settings={"default_payment_method": payment_method_id},
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Could not set the default card on %s", customer_id)
+        return {"success": False, "message": str(exc)}
+    return {"success": True, "message": "Card updated"}
+
+
+async def detach_payment_method(customer_id: str,
+                                payment_method_id: str) -> Dict[str, Any]:
+    """Remove a saved card.
+
+    The last card is kept: detaching the one the subscription bills to is how a
+    renewal fails silently a month later, and the fix for "wrong card" is to add
+    the right one, not to be left with none.
+    """
+    api = _client()
+    if api is None:
+        return {"success": False, "message": "Stripe is not configured"}
+    saved = await list_payment_methods(customer_id)
+    if len(saved) <= 1:
+        return {"success": False,
+                "message": "This is the only card on file. Add another one first, "
+                           "so the subscription still has something to renew against."}
+    try:
+        await api.PaymentMethod.detach_async(payment_method_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Could not detach card %s", payment_method_id)
+        return {"success": False, "message": str(exc)}
+
+    # Detaching the default leaves Stripe with none, so the next card takes over
+    # rather than the renewal quietly having nothing to charge.
+    if any(card["id"] == payment_method_id and card["is_default"] for card in saved):
+        remaining = next((c for c in saved if c["id"] != payment_method_id), None)
+        if remaining:
+            await set_default_payment_method(customer_id, remaining["id"])
+    return {"success": True, "message": "Card removed"}
 
 
 async def cancel_subscription(subscription_id: str) -> bool:

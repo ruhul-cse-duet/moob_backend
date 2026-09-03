@@ -64,6 +64,22 @@ PLANS = {
     },
 }
 
+#: Plan tiers, smallest first. ``PLANS`` is declared in that order and
+#: ``PlanCode`` matches it, so the rank is the position rather than a second
+#: list to keep in step with the first.
+_TIERS = list(PLANS)
+
+
+def rank(plan_code: PlanCode) -> int:
+    """How large a plan is. Higher means more of everything."""
+    return _TIERS.index(PlanCode(plan_code))
+
+
+def is_downgrade(current: PlanCode, wanted: PlanCode) -> bool:
+    """True when moving from ``current`` to ``wanted`` means less plan."""
+    return rank(wanted) < rank(current)
+
+
 TAX_RATE = 0.20  # design shows $258 tax on $1,290
 PLAN_PRICE_OVERRIDES_KEY = "plan_price_overrides"
 PLAN_OVERRIDES_KEY = "plan_overrides"

@@ -6,7 +6,7 @@ from app.core.enums import BillingCycle, PlanCode, TenantStatus
 from app.core.exceptions import BadRequest, NotFound
 from app.core.utils import oid, serialize, utcnow
 from app.db.mongo import platform_db
-from app.modules.subscriptions.plans import order_summary, plan_by_code
+from app.modules.subscriptions.plans import is_downgrade, order_summary, plan_by_code
 from app.schemas.common import Message
 from app.services import stripe_service
 
@@ -41,6 +41,27 @@ async def change_plan(plan_code: PlanCode = Body(embed=True),
                       billing_cycle: BillingCycle = Body(BillingCycle.MONTHLY, embed=True),
                       user: CurrentUser = Depends(require_owner)):
     db = platform_db()
+
+    # A live subscription can only move up. Dropping to a smaller plan mid-term
+    # would take away seats and case capacity that are already in use - and the
+    # workspace has been paid for at the larger size until it renews. Once the
+    # plan has ended there is nothing left to shrink, so every plan is open
+    # again.
+    tenant = await db.tenants.find_one({"_id": oid(user.tenant_id)}, {"plan_code": 1})
+    if not tenant:
+        raise NotFound("Workspace not found")
+    live = await db.subscriptions.find_one({"tenant_id": user.tenant_id, "status": "active"})
+    if live:
+        current = PlanCode(live.get("plan_code") or tenant["plan_code"])
+        if is_downgrade(current, plan_code):
+            current_name = (await plan_by_code(current))["name"]
+            wanted_name = (await plan_by_code(plan_code))["name"]
+            raise BadRequest(
+                f"Your {current_name} plan is still running, so it cannot be moved "
+                f"down to {wanted_name}. You can upgrade now, or switch to "
+                f"{wanted_name} once the current plan ends."
+            )
+
     summary = await order_summary(plan_code, billing_cycle)
     renews = utcnow() + (timedelta(days=365) if billing_cycle == BillingCycle.ANNUAL
                          else timedelta(days=30))
@@ -60,6 +81,58 @@ async def change_plan(plan_code: PlanCode = Body(embed=True),
         "created_at": utcnow(),
     })
     return {"detail": f"Plan changed to {plan_code.value}", "renews_on": renews, **summary}
+
+
+async def _customer_id(user: CurrentUser) -> str:
+    tenant = await platform_db().tenants.find_one({"_id": oid(user.tenant_id)},
+                                                  {"stripe_customer_id": 1})
+    if not tenant:
+        raise NotFound("Workspace not found")
+    return tenant.get("stripe_customer_id") or ""
+
+
+@router.get("/payment-methods", summary="Cards saved for this workspace")
+async def payment_methods(user: CurrentUser = Depends(require_owner)):
+    """What the subscription is billed to, so the owner can tell one card from
+    another and pick between them rather than being shown a single fixed row."""
+    cards = await stripe_service.list_payment_methods(await _customer_id(user))
+    return {"items": cards}
+
+
+@router.post("/payment-methods", status_code=201, summary="Save a new card")
+async def add_payment_method(payment_method_id: str = Body(embed=True),
+                             make_default: bool = Body(True, embed=True),
+                             user: CurrentUser = Depends(require_owner)):
+    """``payment_method_id`` comes from Stripe.js in the browser. The card
+    number itself never reaches this server, which is what keeps it out of our
+    PCI scope."""
+    result = await stripe_service.attach_payment_method(
+        await _customer_id(user), payment_method_id, make_default=make_default)
+    if not result["success"]:
+        raise BadRequest(result["message"])
+    return {"detail": result["message"], "card": result["card"]}
+
+
+@router.post("/payment-methods/{payment_method_id}/default",
+             response_model=Message, summary="Bill the subscription to this card")
+async def choose_payment_method(payment_method_id: str,
+                                user: CurrentUser = Depends(require_owner)):
+    result = await stripe_service.set_default_payment_method(
+        await _customer_id(user), payment_method_id)
+    if not result["success"]:
+        raise BadRequest(result["message"])
+    return {"detail": result["message"]}
+
+
+@router.delete("/payment-methods/{payment_method_id}",
+               response_model=Message, summary="Remove a saved card")
+async def remove_payment_method(payment_method_id: str,
+                                user: CurrentUser = Depends(require_owner)):
+    result = await stripe_service.detach_payment_method(
+        await _customer_id(user), payment_method_id)
+    if not result["success"]:
+        raise BadRequest(result["message"])
+    return {"detail": result["message"]}
 
 
 @router.post("/cancel", response_model=Message)
