@@ -344,6 +344,18 @@ async def list_payment_methods(customer_id: Optional[str]) -> List[Dict[str, Any
     return [_card_summary(pm, default_id) for pm in methods.data]
 
 
+async def _payment_method_owner(api: Any, payment_method_id: str) -> Optional[str]:
+    """Which customer a PaymentMethod is attached to, or None when it is loose.
+
+    A PaymentMethod created by Stripe.js belongs to nobody until it is
+    attached; ``customer`` is null on it until then.
+    """
+    method = await api.PaymentMethod.retrieve_async(payment_method_id)
+    owner = getattr(method, "customer", None)
+    # Expanded objects come back whole; only the id is ever wanted here.
+    return getattr(owner, "id", owner)
+
+
 async def attach_payment_method(customer_id: str, payment_method_id: str, *,
                                 make_default: bool = True) -> Dict[str, Any]:
     """Save a new card against the customer.
@@ -359,6 +371,13 @@ async def attach_payment_method(customer_id: str, payment_method_id: str, *,
         return {"success": False, "card": None,
                 "message": "This workspace has no billing account yet."}
     try:
+        owner = await _payment_method_owner(api, payment_method_id)
+        if owner and owner != customer_id:
+            return {"success": False, "card": None,
+                    "message": "That card is saved to a different billing account, "
+                               "so it cannot be used here."}
+        # Re-attaching a card this customer already has is a no-op at Stripe,
+        # so a double-submitted form saves one card rather than failing.
         attached = await api.PaymentMethod.attach_async(payment_method_id,
                                                         customer=customer_id)
         if make_default:
@@ -381,17 +400,38 @@ async def attach_payment_method(customer_id: str, payment_method_id: str, *,
 
 async def set_default_payment_method(customer_id: str,
                                      payment_method_id: str) -> Dict[str, Any]:
-    """Choose which saved card the subscription is billed to."""
+    """Choose which saved card the subscription is billed to.
+
+    Stripe refuses to make a card the default unless it is already attached to
+    that customer - "the customer does not have a payment method with the ID
+    pm_...". A card the browser has only just tokenised is not attached to
+    anyone, so a screen that saves and selects in one gesture lands exactly
+    there. Attaching it first is what the caller meant either way, and
+    attaching one that is already on the customer is a no-op at Stripe.
+    """
     api = _client()
     if api is None:
         return {"success": False, "message": "Stripe is not configured"}
     if not customer_id:
         return {"success": False, "message": "This workspace has no billing account yet."}
     try:
+        owner = await _payment_method_owner(api, payment_method_id)
+        if owner is None:
+            await api.PaymentMethod.attach_async(payment_method_id,
+                                                 customer=customer_id)
+        elif owner != customer_id:
+            # Someone else's card. Attaching would fail anyway, and the reason
+            # is worth saying plainly rather than relaying Stripe's wording.
+            return {"success": False,
+                    "message": "That card is saved to a different billing account, "
+                               "so it cannot be used here. Add it as a new card."}
         await api.Customer.modify_async(
             customer_id,
             invoice_settings={"default_payment_method": payment_method_id},
         )
+    except stripe.CardError as exc:
+        return {"success": False,
+                "message": exc.user_message or "That card was declined."}
     except Exception as exc:  # noqa: BLE001
         logger.exception("Could not set the default card on %s", customer_id)
         return {"success": False, "message": str(exc)}
