@@ -462,7 +462,9 @@ def charge_card(data, amount: float, idempotency_key: Optional[str] = None) -> D
             **options,
         )
         return {"success": True, "message": "ok", "reference": charge.id}
-    except stripe.error.CardError as e:
+    # `stripe.error` is a deprecated alias kept alive for old code; the
+    # exception itself lives at the top level from stripe 7 onwards.
+    except stripe.CardError as e:
         return {"success": False, "message": e.user_message or "Card declined", "reference": None}
     except Exception as e:
         return {"success": False, "message": str(e), "reference": None}

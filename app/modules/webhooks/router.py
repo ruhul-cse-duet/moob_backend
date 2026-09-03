@@ -23,7 +23,13 @@ import stripe
 from fastapi import APIRouter, Header, Request
 from pymongo.errors import DuplicateKeyError
 
-from app.core.enums import AuditAction, PlatformInvoiceStatus, TenantStatus
+from app.core.enums import (
+    AuditAction,
+    BillingCycle,
+    PlanCode,
+    PlatformInvoiceStatus,
+    TenantStatus,
+)
 from app.core.exceptions import BadRequest
 from app.core.utils import oid, utcnow
 from app.db.mongo import platform_db
@@ -40,6 +46,10 @@ _FAILURE_APPLIES_TO = {TenantStatus.ACTIVE.value, TenantStatus.AWAITING_APPROVAL
                        TenantStatus.PAST_DUE.value}
 _CANCEL_APPLIES_TO = {TenantStatus.ACTIVE.value, TenantStatus.AWAITING_APPROVAL.value,
                       TenantStatus.PAST_DUE.value, TenantStatus.EXPIRED.value}
+
+# Last resort for reading a billing cycle back off a Price that carries no
+# metadata of ours - one made by hand in the Stripe dashboard.
+_INTERVAL_CYCLES = {"month": BillingCycle.MONTHLY, "year": BillingCycle.ANNUAL}
 
 HANDLED = {
     "invoice.paid",
@@ -138,25 +148,108 @@ async def _on_invoice_failed(obj: Dict[str, Any]) -> str:
     return "marked past_due" if changed else "left as is"
 
 
+def _plan_from_subscription(obj: Dict[str, Any]) -> Optional[tuple]:
+    """Which plan Stripe now thinks this subscription is on.
+
+    Three sources, best first:
+
+    1. The subscription's own metadata, which every subscription this API
+       creates or moves carries.
+    2. The Price's metadata - ``ensure_price`` stamps it, so a plan changed
+       straight from the Stripe dashboard still resolves.
+    3. The recurring interval, which at least pins the billing cycle when the
+       plan itself is unknowable.
+
+    Returns ``(plan_code, billing_cycle)`` with either part ``None`` when it
+    could not be worked out, or ``None`` when neither could.
+    """
+    price = ((obj.get("items") or {}).get("data") or [{}])[0].get("price") or {}
+
+    def _pick(field: str, enum):
+        for source in (obj.get("metadata") or {}, price.get("metadata") or {}):
+            raw = source.get(field)
+            if raw:
+                try:
+                    return enum(raw)
+                except ValueError:
+                    logger.warning("Stripe sent an unknown %s %r", field, raw)
+        return None
+
+    plan_code = _pick("plan_code", PlanCode)
+    billing_cycle = _pick("billing_cycle", BillingCycle)
+    if billing_cycle is None:
+        interval = (price.get("recurring") or {}).get("interval")
+        billing_cycle = _INTERVAL_CYCLES.get(interval)
+    if plan_code is None and billing_cycle is None:
+        return None
+    return plan_code, billing_cycle
+
+
+async def _sync_plan(tenant: Dict[str, Any], obj: Dict[str, Any]) -> Optional[str]:
+    """Follow a plan change made at Stripe rather than through this API.
+
+    The Stripe dashboard can move a subscription onto a different Price, and
+    without this the workspace keeps the seats and feature flags of the plan it
+    used to pay for. Only ever writes when something actually differs, so the
+    ordinary renewal event stays a no-op.
+    """
+    resolved = _plan_from_subscription(obj)
+    if not resolved:
+        return None
+    plan_code, billing_cycle = resolved
+
+    changes: Dict[str, Any] = {}
+    if plan_code and tenant.get("plan_code") != plan_code.value:
+        changes["plan_code"] = plan_code.value
+    if billing_cycle and tenant.get("billing_cycle") != billing_cycle.value:
+        changes["billing_cycle"] = billing_cycle.value
+    if not changes:
+        return None
+
+    db = platform_db()
+    await db.tenants.update_one({"_id": tenant["_id"]},
+                                {"$set": {**changes, "updated_at": utcnow()}})
+    await db.subscriptions.update_many(
+        {"tenant_id": str(tenant["_id"]), "status": "active"},
+        {"$set": {**changes, "updated_at": utcnow()}},
+    )
+    was = tenant.get("plan_code")
+    now = changes.get("plan_code", was)
+    await audit.record(
+        action=AuditAction.PLAN_CHANGED, actor_id=None,
+        actor_email="stripe@webhook", actor_role="system",
+        tenant_id=str(tenant["_id"]), subject=now,
+        detail=f"{was} -> {now} (changed at Stripe)", meta=changes,
+    )
+    return f"plan synced to {now}"
+
+
 async def _on_subscription_updated(obj: Dict[str, Any]) -> str:
     """Mirror Stripe's own view of the subscription."""
     tenant = await _find_tenant(obj)
     if not tenant:
         return "no matching organization"
+
+    # The plan follows Stripe whatever the status is: a past_due workspace is
+    # still on whichever plan it is failing to pay for.
+    plan_note = await _sync_plan(tenant, obj)
+
     status = obj.get("status")
     if status in ("past_due", "unpaid"):
         changed = await _set_status(tenant, TenantStatus.PAST_DUE.value,
                                     _FAILURE_APPLIES_TO, f"subscription {status}")
-        return "marked past_due" if changed else "left as is"
-    if status in ("active", "trialing"):
+        outcome = "marked past_due" if changed else "left as is"
+    elif status in ("active", "trialing"):
         changed = await _set_status(tenant, TenantStatus.ACTIVE.value,
                                     _PAID_RESTORES_FROM, f"subscription {status}")
-        return "workspace restored" if changed else "left as is"
-    if status == "incomplete_expired":
+        outcome = "workspace restored" if changed else "left as is"
+    elif status == "incomplete_expired":
         changed = await _set_status(tenant, TenantStatus.EXPIRED.value,
                                     _CANCEL_APPLIES_TO, "subscription expired")
-        return "marked expired" if changed else "left as is"
-    return f"no rule for subscription status {status}"
+        outcome = "marked expired" if changed else "left as is"
+    else:
+        outcome = f"no rule for subscription status {status}"
+    return f"{outcome}; {plan_note}" if plan_note else outcome
 
 
 async def _on_subscription_deleted(obj: Dict[str, Any]) -> str:
