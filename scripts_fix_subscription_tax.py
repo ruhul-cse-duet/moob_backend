@@ -25,7 +25,40 @@ import asyncio
 import sys
 from typing import Any, Dict, List
 
+from pymongo.errors import PyMongoError, ServerSelectionTimeoutError
+
+from app.core.config import settings
 from app.db.mongo import close, connect, platform_db
+
+
+def _unreachable(exc: Exception) -> str:
+    """Turn a wall of pymongo internals into something worth acting on.
+
+    An SSL alert on a port that accepted the connection is Atlas refusing the
+    source address, not a broken certificate: the proxy takes the TCP
+    connection and then aborts the handshake. Saying so beats forty lines of
+    driver stack for a problem that is fixed in the Atlas dashboard.
+    """
+    detail = str(exc)
+    host = (settings.MONGODB_URI or "").split("@")[-1].split("/")[0] or "the database"
+    lines = [f"Could not reach {host}."]
+    if "SSL handshake failed" in detail or "TLSV1_ALERT" in detail:
+        lines += [
+            "",
+            "The port answered but the TLS handshake was refused, which is what "
+            "Atlas does when the connecting IP is not on its allowlist.",
+            "  1. Atlas -> Network Access -> add this machine's current IP.",
+            "  2. Check the cluster is not paused (Atlas pauses idle free tiers).",
+            "",
+            "If this machine cannot be allowlisted, run the script from somewhere "
+            "that already reaches the database - the API host's shell - since the "
+            "correction is to the data, not to this machine.",
+        ]
+    else:
+        lines += ["", "Check MONGODB_URI, and that the cluster is running and "
+                      "reachable from here."]
+    lines += ["", f"Driver said: {detail.splitlines()[0][:200]}"]
+    return "\n".join(lines)
 
 
 def _is_settled_one_off(row: Dict[str, Any]) -> bool:
@@ -48,7 +81,11 @@ async def main(apply: bool = False) -> None:
     connect()
     try:
         db = platform_db()
-        rows = [row async for row in db.subscriptions.find({"tax": {"$gt": 0}})]
+        try:
+            rows = [row async for row in db.subscriptions.find({"tax": {"$gt": 0}})]
+        except (ServerSelectionTimeoutError, PyMongoError) as exc:
+            print(_unreachable(exc))
+            raise SystemExit(1)
         if not rows:
             print("No subscription rows carry a tax figure. Nothing to do.")
             return
