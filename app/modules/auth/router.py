@@ -66,12 +66,7 @@ async def payment_config():
     Stripe refuses raw card numbers, so the form would only ever fail.
     """
     from app.services import stripe_service
-    key = settings.STRIPE_PUBLISHABLE_KEY
-    return {
-        "publishable_key": key or None,
-        "card_tokenization": bool(key) and stripe_service.configured(),
-        "currency": settings.STRIPE_CURRENCY,
-    }
+    return stripe_service.client_config()
 
 
 @router.get("/plans/{plan_code}/summary", response_model=s.OrderSummary,

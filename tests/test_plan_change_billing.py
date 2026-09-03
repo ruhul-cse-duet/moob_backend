@@ -255,3 +255,35 @@ async def test_every_plan_quotes_exactly_what_stripe_will_charge(db):
             summary = await plans.order_summary(plan_code, cycle)
             assert summary["estimated_tax"] == 0, (plan_code, cycle)
             assert summary["total_due_today"] == summary["subtotal"], (plan_code, cycle)
+
+
+async def test_the_billing_screen_can_reach_the_publishable_key(monkeypatch):
+    """Without this the card form has no key and can only fail to load.
+
+    Signup's copy lives under /auth, which an authenticated billing screen has
+    no business calling - so the two answer from one helper instead.
+    """
+    from app.core.config import settings
+    from app.modules.auth import router as auth_router
+
+    monkeypatch.setattr(settings, "STRIPE_PUBLISHABLE_KEY", "pk_test_abc")
+    monkeypatch.setattr(subs.stripe_service, "configured", lambda: True)
+
+    config = await subs.payment_config(Owner())
+
+    assert config["publishable_key"] == "pk_test_abc"
+    assert config["card_tokenization"] is True
+    # Both endpoints must say the same thing, always.
+    assert await auth_router.payment_config() == config
+
+
+async def test_the_card_form_is_told_not_to_collect_when_stripe_is_off(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "STRIPE_PUBLISHABLE_KEY", "")
+    monkeypatch.setattr(subs.stripe_service, "configured", lambda: True)
+
+    config = await subs.payment_config(Owner())
+
+    assert config["publishable_key"] is None
+    assert config["card_tokenization"] is False
