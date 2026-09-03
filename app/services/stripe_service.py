@@ -462,8 +462,11 @@ async def change_subscription_plan(
                 "tenant_id": tenant_id or ""}
     try:
         current = await api.Subscription.retrieve_async(subscription_id)
-        # ``current.items`` is dict.items on a StripeObject - subscript it.
-        items = (current["items"] or {}).get("data") or []
+        # Two traps in one line. ``current.items`` is dict.items, so the
+        # subscription's items have to be subscripted - but what comes back is a
+        # ListObject, which raises on ``.get`` rather than behaving like a dict.
+        # ``.data`` is the only safe way through.
+        items = list(getattr(current["items"], "data", None) or [])
         if not items:
             return {"success": False, "subscription_id": subscription_id, "price_id": None,
                     "message": "That Stripe subscription has no billable item."}
@@ -472,7 +475,8 @@ async def change_subscription_plan(
             # muddy the billing history for what is, to Stripe, a no-op.
             return {"success": True, "subscription_id": subscription_id, "price_id": price,
                     "status": current["status"], "message": "Already on this price",
-                    "current_period_end": current.get("current_period_end"),
+                    "current_period_end": (current.get("current_period_end")
+                                           or items[0].get("current_period_end")),
                     "latest_invoice_id": None}
 
         options: Dict[str, Any] = {}
@@ -497,13 +501,19 @@ async def change_subscription_plan(
 
     invoice = updated.get("latest_invoice")
     status = updated["status"]
+    # Recent API versions moved the period onto the subscription item, so read
+    # it there when the subscription itself no longer carries one.
+    period_end = updated.get("current_period_end")
+    if period_end is None:
+        moved = list(getattr(updated["items"], "data", None) or [])
+        period_end = moved[0].get("current_period_end") if moved else None
     return {
         "success": status in ("active", "trialing"),
         "message": f"Subscription {status}",
         "subscription_id": subscription_id,
         "price_id": price,
         "status": status,
-        "current_period_end": updated.get("current_period_end"),
+        "current_period_end": period_end,
         "latest_invoice_id": (invoice.get("id") if isinstance(invoice, dict) else invoice),
     }
 
