@@ -100,3 +100,29 @@ async def test_rows_with_no_tax_are_not_touched(db, capsys):
     await backfill.main(apply=True)
 
     assert "Nothing to do" in capsys.readouterr().out
+
+
+async def test_an_unreachable_cluster_is_explained_not_dumped(db, monkeypatch, capsys):
+    """A migration that dies in forty lines of driver stack is one nobody runs."""
+    from pymongo.errors import ServerSelectionTimeoutError
+
+    class Exploding:
+        def find(self, *args, **kwargs):
+            raise ServerSelectionTimeoutError(
+                "SSL handshake failed: ac-1.mongodb.net:27017: "
+                "[SSL: TLSV1_ALERT_INTERNAL_ERROR] tlsv1 alert internal error"
+            )
+
+    class Db:
+        subscriptions = Exploding()
+
+    monkeypatch.setattr(backfill, "platform_db", lambda: Db())
+
+    with pytest.raises(SystemExit) as exit_code:
+        await backfill.main(apply=True)
+
+    assert exit_code.value.code == 1
+    out = capsys.readouterr().out
+    assert "not on its allowlist" in out
+    assert "Network Access" in out
+    assert "Traceback" not in out
