@@ -5647,6 +5647,119 @@
           "response": []
         },
         {
+          "name": "Cards saved for this workspace",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/subscription/payment-methods",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "subscription",
+                "payment-methods"
+              ]
+            },
+            "description": "Cards saved for this workspace"
+          },
+          "response": []
+        },
+        {
+          "name": "Save a new card",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/subscription/payment-methods",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "subscription",
+                "payment-methods"
+              ]
+            },
+            "description": "Save a new card",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"payment_method_id\": \"<payment_method_id>\",\n  \"make_default\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Bill the subscription to this card",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/subscription/payment-methods/:payment_method_id/default",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "subscription",
+                "payment-methods",
+                ":payment_method_id",
+                "default"
+              ],
+              "variable": [
+                {
+                  "key": "payment_method_id",
+                  "value": "<payment_method_id>"
+                }
+              ]
+            },
+            "description": "Bill the subscription to this card"
+          },
+          "response": []
+        },
+        {
+          "name": "Remove a saved card",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/subscription/payment-methods/:payment_method_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "subscription",
+                "payment-methods",
+                ":payment_method_id"
+              ],
+              "variable": [
+                {
+                  "key": "payment_method_id",
+                  "value": "<payment_method_id>"
+                }
+              ]
+            },
+            "description": "Remove a saved card"
+          },
+          "response": []
+        },
+        {
           "name": "Cancel",
           "request": {
             "method": "POST",
@@ -7949,7 +8062,7 @@
             "description": "Override an organization's plan (comps, migrations, enterprise deals)",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"plan_code\": \"starter\",\n  \"billing_cycle\": \"monthly\",\n  \"note\": \"<note>\"\n}",
+              "raw": "{\n  \"plan_code\": \"starter\",\n  \"billing_cycle\": \"monthly\",\n  \"note\": \"<note>\",\n  \"sync_stripe\": false\n}",
               "options": {
                 "raw": {
                   "language": "json"
