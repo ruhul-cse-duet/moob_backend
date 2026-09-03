@@ -27,6 +27,9 @@ class FakeStripe:
         self.methods = dict(methods or {"pm_new": None})
         self.customers = {c: {"invoice_settings": {}} for c in customers}
         self.attached_calls = []
+        # Set to make attach land somewhere other than the customer asked for,
+        # which is the one thing the caller cannot detect from a success.
+        self.attach_lands_on = None
 
     @property
     def PaymentMethod(self):
@@ -48,7 +51,7 @@ class FakeStripe:
                 if owner and owner != customer:
                     raise StripeError("The payment method you supplied is "
                                       "already attached to a customer.")
-                outer.methods[pm_id] = customer
+                outer.methods[pm_id] = outer.attach_lands_on or customer
                 outer.attached_calls.append((pm_id, customer))
                 return await _PM.retrieve_async(pm_id)
 
@@ -163,3 +166,15 @@ async def test_a_workspace_with_no_billing_account_says_so(stripe_ready):
                    await stripe_service.attach_payment_method("", "pm_new")):
         assert result["success"] is False
         assert "no billing account" in result["message"]
+
+
+async def test_a_card_stripe_did_not_actually_attach_is_caught_here(stripe_ready):
+    """Rather than letting Stripe refuse the default with a message that names
+    neither the customer nor the call that asked."""
+    fake = stripe_ready(FakeStripe(methods={"pm_new": None}))
+    fake.attach_lands_on = "cus_somewhere_else"
+
+    result = await stripe_service.attach_payment_method("cus_1", "pm_new")
+
+    assert result["success"] is False
+    assert "did not save that card to this workspace" in result["message"]

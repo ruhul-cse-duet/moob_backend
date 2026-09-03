@@ -381,6 +381,17 @@ async def attach_payment_method(customer_id: str, payment_method_id: str, *,
         attached = await api.PaymentMethod.attach_async(payment_method_id,
                                                         customer=customer_id)
         if make_default:
+            # Stripe rejects a default it does not see as attached, and the
+            # message it returns names neither the customer nor the call that
+            # asked. Check here instead, where both are known.
+            landed = getattr(attached, "customer", None)
+            landed = getattr(landed, "id", landed)
+            if landed != customer_id:
+                logger.error("Stripe attached %s to %r, not to %s",
+                             payment_method_id, landed, customer_id)
+                return {"success": False, "card": None,
+                        "message": "Stripe did not save that card to this "
+                                   "workspace's billing account. Please try again."}
             await api.Customer.modify_async(
                 customer_id,
                 invoice_settings={"default_payment_method": payment_method_id},
@@ -389,6 +400,8 @@ async def attach_payment_method(customer_id: str, payment_method_id: str, *,
         return {"success": False, "card": None,
                 "message": exc.user_message or "That card was declined."}
     except stripe.InvalidRequestError as exc:
+        logger.error("Stripe refused to save card %s for customer %s: %s",
+                     payment_method_id, customer_id, exc)
         return {"success": False, "card": None, "message": str(exc)}
     except Exception as exc:  # noqa: BLE001
         logger.exception("Could not attach a card to Stripe customer %s", customer_id)
@@ -433,7 +446,8 @@ async def set_default_payment_method(customer_id: str,
         return {"success": False,
                 "message": exc.user_message or "That card was declined."}
     except Exception as exc:  # noqa: BLE001
-        logger.exception("Could not set the default card on %s", customer_id)
+        logger.exception("Could not make %s the default card on %s",
+                         payment_method_id, customer_id)
         return {"success": False, "message": str(exc)}
     return {"success": True, "message": "Card updated"}
 
