@@ -5647,6 +5647,27 @@
           "response": []
         },
         {
+          "name": "What the billing screen needs to collect a card",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/subscription/payment-config",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "subscription",
+                "payment-config"
+              ]
+            },
+            "description": "What the billing screen needs to collect a card"
+          },
+          "response": []
+        },
+        {
           "name": "Cards saved for this workspace",
           "request": {
             "method": "GET",
