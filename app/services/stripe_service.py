@@ -29,6 +29,21 @@ logger = logging.getLogger(__name__)
 _PLACEHOLDER_MARKERS = ("...", "Mockup")
 
 
+def _field(obj: Any, name: str, default: Any = None) -> Any:
+    """Read a field off whatever Stripe handed back.
+
+    ``StripeObject`` stopped being a dict subclass in stripe 12: it has no
+    ``.get``, and calling one raises ``AttributeError: get`` rather than
+    returning a default. Its list wrapper is worse - it raises on ``.get`` on
+    purpose. Attribute access works on both, and on the plain dicts the webhook
+    parses out of JSON, so everything reads through here.
+    """
+    if isinstance(obj, dict):
+        return obj.get(name, default)
+    value = getattr(obj, name, default)
+    return default if value is None else value
+
+
 def _is_placeholder(value: Optional[str]) -> bool:
     """The .env.example values are copied verbatim more often than not."""
     value = (value or "").strip()
@@ -304,13 +319,12 @@ async def refund_invoice(*, payment_intent_id: Optional[str] = None,
 # all the app needs to let someone tell one card from another.
 def _card_summary(payment_method: Any, default_id: Optional[str]) -> Dict[str, Any]:
     card = getattr(payment_method, "card", None) or {}
-    get = card.get if isinstance(card, dict) else lambda key: getattr(card, key, None)
     return {
         "id": payment_method.id,
-        "brand": (get("brand") or "card").title(),
-        "last4": get("last4") or "",
-        "exp_month": get("exp_month"),
-        "exp_year": get("exp_year"),
+        "brand": (_field(card, "brand") or "card").title(),
+        "last4": _field(card, "last4") or "",
+        "exp_month": _field(card, "exp_month"),
+        "exp_year": _field(card, "exp_year"),
         "is_default": payment_method.id == default_id,
     }
 
@@ -318,9 +332,7 @@ def _card_summary(payment_method: Any, default_id: Optional[str]) -> Dict[str, A
 async def _default_payment_method(api: Any, customer_id: str) -> Optional[str]:
     customer = await api.Customer.retrieve_async(customer_id)
     settings_ = getattr(customer, "invoice_settings", None) or {}
-    value = (settings_.get("default_payment_method")
-             if isinstance(settings_, dict)
-             else getattr(settings_, "default_payment_method", None))
+    value = _field(settings_, "default_payment_method")
     # Expanded objects come back whole; only the id is ever wanted here.
     return getattr(value, "id", value)
 
@@ -548,8 +560,8 @@ async def change_subscription_plan(
             # muddy the billing history for what is, to Stripe, a no-op.
             return {"success": True, "subscription_id": subscription_id, "price_id": price,
                     "status": current["status"], "message": "Already on this price",
-                    "current_period_end": (current.get("current_period_end")
-                                           or items[0].get("current_period_end")),
+                    "current_period_end": (_field(current, "current_period_end")
+                                           or _field(items[0], "current_period_end")),
                     "latest_invoice_id": None}
 
         options: Dict[str, Any] = {}
@@ -572,14 +584,14 @@ async def change_subscription_plan(
         return {"success": False, "subscription_id": subscription_id, "price_id": None,
                 "message": str(exc)}
 
-    invoice = updated.get("latest_invoice")
+    invoice = _field(updated, "latest_invoice")
     status = updated["status"]
     # Recent API versions moved the period onto the subscription item, so read
     # it there when the subscription itself no longer carries one.
-    period_end = updated.get("current_period_end")
+    period_end = _field(updated, "current_period_end")
     if period_end is None:
         moved = list(getattr(updated["items"], "data", None) or [])
-        period_end = moved[0].get("current_period_end") if moved else None
+        period_end = _field(moved[0], "current_period_end") if moved else None
     return {
         "success": status in ("active", "trialing"),
         "message": f"Subscription {status}",
@@ -587,7 +599,7 @@ async def change_subscription_plan(
         "price_id": price,
         "status": status,
         "current_period_end": period_end,
-        "latest_invoice_id": (invoice.get("id") if isinstance(invoice, dict) else invoice),
+        "latest_invoice_id": _field(invoice, "id", invoice),
     }
 
 
