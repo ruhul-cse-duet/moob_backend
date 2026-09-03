@@ -392,21 +392,24 @@ async def attach_payment_method(customer_id: str, payment_method_id: str, *,
         # so a double-submitted form saves one card rather than failing.
         attached = await api.PaymentMethod.attach_async(payment_method_id,
                                                         customer=customer_id)
+        # What Stripe attached, which is not always what was asked for. A test
+        # alias like `pm_card_visa` mints a brand new PaymentMethod on every
+        # use, so sending the alias on to the next call names a card nobody has
+        # attached - and Stripe rejects it in exactly those words. The id that
+        # came back is the only one that is real.
+        saved_id = getattr(attached, "id", payment_method_id)
         if make_default:
-            # Stripe rejects a default it does not see as attached, and the
-            # message it returns names neither the customer nor the call that
-            # asked. Check here instead, where both are known.
             landed = getattr(attached, "customer", None)
             landed = getattr(landed, "id", landed)
             if landed != customer_id:
                 logger.error("Stripe attached %s to %r, not to %s",
-                             payment_method_id, landed, customer_id)
+                             saved_id, landed, customer_id)
                 return {"success": False, "card": None,
                         "message": "Stripe did not save that card to this "
                                    "workspace's billing account. Please try again."}
             await api.Customer.modify_async(
                 customer_id,
-                invoice_settings={"default_payment_method": payment_method_id},
+                invoice_settings={"default_payment_method": saved_id},
             )
     except stripe.CardError as exc:
         return {"success": False, "card": None,
@@ -420,7 +423,7 @@ async def attach_payment_method(customer_id: str, payment_method_id: str, *,
         return {"success": False, "card": None, "message": str(exc)}
 
     return {"success": True, "message": "Card saved",
-            "card": _card_summary(attached, payment_method_id if make_default else None)}
+            "card": _card_summary(attached, saved_id if make_default else None)}
 
 
 async def set_default_payment_method(customer_id: str,
@@ -442,8 +445,11 @@ async def set_default_payment_method(customer_id: str,
     try:
         owner = await _payment_method_owner(api, payment_method_id)
         if owner is None:
-            await api.PaymentMethod.attach_async(payment_method_id,
-                                                 customer=customer_id)
+            attached = await api.PaymentMethod.attach_async(payment_method_id,
+                                                            customer=customer_id)
+            # Attaching can hand back a different id than it was given; that is
+            # the card the customer now has.
+            payment_method_id = getattr(attached, "id", payment_method_id)
         elif owner != customer_id:
             # Someone else's card. Attaching would fail anyway, and the reason
             # is worth saying plainly rather than relaying Stripe's wording.
