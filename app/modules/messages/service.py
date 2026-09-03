@@ -206,6 +206,15 @@ async def thread_messages(db, user: CurrentUser, thread_id: str,
 
     messages = await paginate(db, "messages", {"thread_id": thread_id}, params,
                               sort=[("created_at", 1)], enrich=False)
+    # Which side of the conversation each message sits on, answered here rather
+    # than left to the app to work out from `sender_id`. The app has to know who
+    # it is signed in as to make that comparison, and a stale profile cache -
+    # or two accounts tested on one handset - turns "mine" into whoever the
+    # cache still names, putting the whole transcript on one side for everyone.
+    # This request is authenticated; the answer is not a guess.
+    for item in messages["items"]:
+        item["from_me"] = item.get("sender_id") == user.id
+
     people = await _profiles(db, thread.get("participant_ids", []))
     return {
         "thread": serialize(thread),
@@ -281,7 +290,10 @@ async def send(db, user: CurrentUser, thread_id: str, body: str,
     # message they just sent arrives back over the socket as well as in this
     # response, and the app shows it twice.
     await publish_message(sent, recipients, skip_sid=socket_id, sender_id=user.id)
-    return sent
+    # This response goes back down the connection that sent it, so it is theirs
+    # by definition. The broadcast copy is marked the other way, in
+    # `publish_message`, because everyone it reaches is on the receiving side.
+    return {**sent, "from_me": True}
 
 
 def _preview(body: str, attachment: Optional[Dict[str, Any]]) -> str:

@@ -154,7 +154,11 @@ async def publish_message(message: Dict[str, Any], recipients: list[str], *,
     # datetimes `serialize` leaves in place. Using FastAPI's encoder means the
     # payload arriving on the socket is byte-for-byte what the REST endpoint
     # returns, so the app parses both with the same model.
-    payload = jsonable_encoder(message)
+    # One payload is shared by everyone the broadcast reaches, and the sender's
+    # own sockets are deliberately not among them - so `from_me` is false for
+    # every socket that receives this, whichever account it belongs to. The
+    # sender's copy comes back on the POST that created it, marked true there.
+    payload = jsonable_encoder({**message, "from_me": False})
     try:
         if thread_id:
             room = thread_room(str(thread_id))
