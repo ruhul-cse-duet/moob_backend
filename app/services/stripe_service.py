@@ -577,14 +577,50 @@ async def change_subscription_plan(
     }
 
 
+#: Stripe statuses a subscription can never charge from again.
+_STOPPED_STATUSES = {"canceled", "incomplete_expired"}
+
+
+async def _can_still_bill(api: Any, subscription_id: str) -> bool:
+    """Whether this subscription is still able to charge the customer."""
+    try:
+        subscription = await api.Subscription.retrieve_async(subscription_id)
+    except Exception:  # noqa: BLE001
+        # Not on this account at all - so it is not billing anyone.
+        return False
+    return getattr(subscription, "status", "") not in _STOPPED_STATUSES
+
+
 async def cancel_subscription(subscription_id: str) -> bool:
-    """Cancel at Stripe. The webhook is what updates our own records."""
+    """Stop the recurring charge at Stripe. The webhook confirms it afterwards.
+
+    True means nothing will be billed again — which has to include a
+    subscription that was *already* cancelled. Stripe answers a repeat
+    cancellation with "No such subscription", and reading that as a failure left
+    an owner permanently unable to cancel: the workspace stayed marked active
+    here because the one thing standing in the way was Stripe agreeing it had
+    already stopped.
+
+    False is kept for the case that actually matters — a call that failed for a
+    reason which might leave billing running. That is the only time the caller
+    must refuse to mark our own records cancelled.
+    """
     api = _client()
     if api is None or not subscription_id:
         return False
     try:
         await api.Subscription.cancel_async(subscription_id)
         return True
+    except stripe.InvalidRequestError as exc:
+        # Gone, or already cancelled. Ask Stripe which, rather than assuming:
+        # the answer decides whether this customer is still being charged.
+        stopped = not await _can_still_bill(api, subscription_id)
+        logger.log(
+            logging.INFO if stopped else logging.WARNING,
+            "Stripe refused to cancel %s (%s); still billing: %s",
+            subscription_id, exc, not stopped,
+        )
+        return stopped
     except Exception:  # noqa: BLE001 - cancelling locally must not depend on Stripe
         logger.exception("Could not cancel Stripe subscription %s", subscription_id)
         return False
