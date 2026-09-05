@@ -1,7 +1,8 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from pydantic import (AliasChoices, BaseModel, EmailStr, Field, field_validator,
+                      model_validator)
 
 from app.core.enums import BillingCycle, LoginPortalRole, PlanCode, Role
 
@@ -313,6 +314,10 @@ class ClientOnboardingToken(BaseModel):
     client_onboarding_token: str
     step: str
     next_step: str
+    #: What the step actually stored. A field the server did not recognise is
+    #: simply absent here, which is the difference between "it did not save" and
+    #: "it saved and I cannot see it" - the app can compare and say so.
+    saved: Optional[Dict[str, Any]] = None
 
 
 # Step 1: Account
@@ -351,11 +356,34 @@ class ClientSignupPassword(PasswordMixin):
 
 # Step 4: Immigration Profile
 class ClientSignupImmigration(BaseModel):
-    passport_number: Optional[str] = Field(None, description="Passport number")
-    nationality: Optional[str] = Field(None, description="Nationality (e.g., Spanish)")
-    destination_country: Optional[str] = Field(None, description="Destination country (e.g., USA)")
-    preferred_immigration_type: Optional[str] = Field(None, description="Preferred immigration/visa type (e.g., Student Visa)")
-    country_of_residence: Optional[str] = Field(None, description="Current country of residence")
+    """The immigration details, under whichever name the app sends them.
+
+    Every field is optional and unknown keys are dropped, so a screen that calls
+    "country of residence" *current country* - which is what the label on it
+    says - used to POST successfully and save nothing. The alias list is what
+    stops a wording difference from being a silent data loss; `saved` on the
+    response is what makes it visible when one still is.
+    """
+    model_config = {"populate_by_name": True}
+
+    passport_number: Optional[str] = Field(
+        None, validation_alias=AliasChoices("passport_number", "passport_no", "passport"),
+        description="Passport number")
+    nationality: Optional[str] = Field(
+        None, validation_alias=AliasChoices("nationality", "citizenship"),
+        description="Nationality (e.g., Spanish)")
+    destination_country: Optional[str] = Field(
+        None, validation_alias=AliasChoices("destination_country", "destination",
+                                            "target_country"),
+        description="Destination country (e.g., USA)")
+    preferred_immigration_type: Optional[str] = Field(
+        None, validation_alias=AliasChoices("preferred_immigration_type",
+                                            "immigration_type", "visa_type"),
+        description="Preferred immigration/visa type (e.g., Student Visa)")
+    country_of_residence: Optional[str] = Field(
+        None, validation_alias=AliasChoices("country_of_residence", "current_country",
+                                            "residence_country"),
+        description="Current country of residence")
 
 
 # Step 5: Consultant Selection
