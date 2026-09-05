@@ -33,6 +33,7 @@ from app.core.i18n import DEFAULT_LANGUAGE
 from app.core.i18n import normalize as normalize_language
 from app.core.i18n import translate
 from app.core.utils import utcnow
+from app.db.mongo import platform_db
 from app.services import push
 
 logger = logging.getLogger("app.events")
@@ -242,6 +243,18 @@ async def _publish(recipients: Sequence[str], *, type: NotificationType,
         )
     except Exception as exc:  # noqa: BLE001
         logger.debug("Could not publish a notification over the socket: %s", exc)
+
+
+async def platform_admin_ids() -> List[str]:
+    """Every platform administrator who should see a platform-wide update.
+
+    Lives here rather than in one domain module because more than one thing the
+    platform needs to hear about - a support ticket, a new organization signing
+    up - has to reach the same inbox, and each of them rediscovering the
+    collection is how one of them ends up silently notifying nobody.
+    """
+    return [str(row["_id"]) async for row in platform_db().platform_admins.find(
+        {"status": {"$ne": "suspended"}}, {"_id": 1})]
 
 
 async def log_activity(
