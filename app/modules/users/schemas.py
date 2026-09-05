@@ -44,6 +44,7 @@ class UserOut(BaseModel):
     mobile: Optional[str] = None
     role: Role
     title: Optional[str] = None
+    partner_role: Optional[str] = None
     status: UserStatus
     avatar_url: Optional[str] = None
     language: Optional[str] = None
@@ -55,6 +56,7 @@ class UserOut(BaseModel):
     # invitation email actually went out, and the code to pass on if it did not.
     invite_token: Optional[str] = None
     invite_email_sent: Optional[bool] = None
+
 
 
 class ClientProfileOverview(BaseModel):

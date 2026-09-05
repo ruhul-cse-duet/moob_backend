@@ -25,7 +25,7 @@ def connect() -> AsyncIOMotorClient:
             uuidRepresentation="standard",
             serverSelectionTimeoutMS=5000,
             connectTimeoutMS=5000,
-        )
+            tz_aware=True,        )
     return _client
 
 
