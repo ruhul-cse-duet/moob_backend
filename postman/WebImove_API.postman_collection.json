@@ -2725,6 +2725,14 @@
                 "documents",
                 "{{document_id}}",
                 "file"
+              ],
+              "query": [
+                {
+                  "key": "disposition",
+                  "value": "attachment",
+                  "description": "`inline` to preview in a viewer, `attachment` to save the file",
+                  "disabled": true
+                }
               ]
             },
             "description": "Stream the stored file out of GridFS"

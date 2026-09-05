@@ -1,3 +1,5 @@
+import asyncio
+import logging
 from typing import Any, Dict, Optional
 
 from fastapi import UploadFile
@@ -18,6 +20,8 @@ from app.services.events import log_activity, notify
 from app.services.ai_service import analyze_document
 from app.services.ownership import assert_client_access, assigned_client_ids, resolve_consultant_id
 from app.services.pagination import paginate
+
+logger = logging.getLogger("app.documents")
 
 
 async def _get(db, document_id: str) -> Dict[str, Any]:
@@ -55,6 +59,52 @@ async def get_document(db, user: CurrentUser, document_id: str) -> Dict[str, Any
     return serialize(doc)
 
 
+async def _run_analysis(db, document_id: str, doc: Dict[str, Any],
+                        file_meta: Dict[str, Any]) -> Dict[str, Any]:
+    """Read the stored file back and ask Claude what it is.
+
+    Reads from GridFS rather than taking the bytes it was just handed: the
+    upload has already been consumed by the time this runs in the background,
+    and the stored copy is the one the consultant will actually open.
+    """
+    analysis = await analyze_document(
+        file_bytes=await storage.read_bytes(
+            db, file_meta["file_id"],
+            file_meta.get("bucket", storage.DOCUMENTS_BUCKET)),
+        mime_type=file_meta.get("mime_type", "application/octet-stream"),
+        document_name=doc["name"],
+        context=doc.get("category", ""),
+    )
+    await db.documents.update_one({"_id": oid(document_id)},
+                                  {"$set": {"ai_analysis": analysis}})
+    return analysis
+
+
+async def _analyze_later(db, document_id: str, doc: Dict[str, Any],
+                         file_meta: Dict[str, Any]) -> None:
+    """The same analysis, off the request's back and unable to break it.
+
+    Claude takes seconds to read a document; a client on a phone must not hold
+    the upload open for them, and a model that is down must not turn a stored
+    file into a failed upload. So the record is written first with
+    `status: analysing`, and this replaces it when the answer arrives - the
+    consultant's screen polls the document it already has.
+    """
+    try:
+        await _run_analysis(db, document_id, doc, file_meta)
+    except Exception:  # noqa: BLE001
+        logger.exception("Analysis failed for document %s", document_id)
+        await db.documents.update_one(
+            {"_id": oid(document_id)},
+            {"$set": {"ai_analysis": {
+                "status": "failed", "confidence": 0,
+                "recommendation": "manual_review", "extracted_fields": {},
+                "issues": [],
+                "summary": "Automatic analysis failed. Review this document manually.",
+            }}},
+        )
+
+
 async def upload(db, user: CurrentUser, document_id: str,
                  file: UploadFile) -> Dict[str, Any]:
     doc = await _get(db, document_id)
@@ -85,8 +135,19 @@ async def upload(db, user: CurrentUser, document_id: str,
         {"$set": {"file": file_meta,
                   "status": DocumentStatus.WITH_CONSULTANT.value,
                   "consultant_id": consultant_id,
+                  # A stale verdict from the file this one replaces would be
+                  # read as a verdict on the new one.
+                  "ai_analysis": {"status": "analysing", "confidence": 0,
+                                  "recommendation": "manual_review",
+                                  "extracted_fields": {}, "issues": [],
+                                  "summary": "Reading the document..."},
                   "consultant_feedback": None, "updated_at": now}},
     )
+
+    # What the endpoint has always advertised, and never actually did: every
+    # uploaded document is read before a consultant opens it. In the background
+    # on purpose - see `_analyze_later`.
+    asyncio.create_task(_analyze_later(db, document_id, doc, file_meta))
 
     if doc.get("request_id"):
         pending = await db.documents.count_documents({
@@ -204,15 +265,11 @@ async def reanalyze(db, user: CurrentUser, document_id: str) -> Dict[str, Any]:
         await assert_client_access(db, user, doc["client_id"])
     if not doc.get("file"):
         raise BadRequest("Nothing has been uploaded for this document yet")
-    analysis = await analyze_document(
-        file_bytes=await storage.read_bytes(
-            db, doc["file"]["file_id"], doc["file"].get("bucket", storage.DOCUMENTS_BUCKET)),
-        mime_type=doc["file"].get("mime_type", "application/octet-stream"),
-        document_name=doc["name"],
-        context=doc.get("category", ""),
-    )
+    # Same read as an upload does, but awaited: a consultant who pressed the
+    # button is waiting for the answer on screen.
+    analysis = await _run_analysis(db, document_id, doc, doc["file"])
     await db.documents.update_one({"_id": oid(document_id)},
-                                  {"$set": {"ai_analysis": analysis, "updated_at": utcnow()}})
+                                  {"$set": {"updated_at": utcnow()}})
     return analysis
 
 

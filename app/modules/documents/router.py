@@ -49,11 +49,33 @@ async def upload_document(document_id: str, file: UploadFile = File(...),
     return await service.upload(db, user, document_id, file)
 
 
+#: What may be rendered in the browser rather than saved. Deliberately a short
+#: allowlist: an uploaded .svg or .html served inline would run its own script
+#: on this API's origin, and "it is only a document" is exactly the assumption
+#: that makes that work. Anything else downloads, which is inert.
+INLINE_SAFE_TYPES = {
+    "image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp",
+    "image/heic", "image/heif", "application/pdf", "text/plain",
+}
+
+
 @router.get("/{document_id}/file",
             summary="Stream the stored file out of GridFS")
 async def download(document_id: str,
+                   disposition: str = Query(
+                       "attachment", pattern="^(attachment|inline)$",
+                       description="`inline` to preview in a viewer, "
+                                   "`attachment` to save the file"),
                    user: CurrentUser = Depends(get_current_user),
                    db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+    """The same bytes, offered two ways.
+
+    A consultant deciding Approve or Reject needs to *look* at the document, and
+    an unconditional `attachment` forces a download for that - a passport scan
+    ends up in the Downloads folder instead of on screen. `inline` is what an
+    `<img>` or a PDF viewer needs; the default stays `attachment` so nothing
+    that already calls this changes behaviour.
+    """
     doc = await service.get_document(db, user, document_id)
     if not doc.get("file"):
         raise NotFound("No file uploaded")
@@ -61,15 +83,25 @@ async def download(document_id: str,
         raise Forbidden("This document is not yours")
 
     meta = doc["file"]
+    media_type = meta.get("mime_type") or "application/octet-stream"
+    if disposition == "inline" and media_type not in INLINE_SAFE_TYPES:
+        disposition = "attachment"
+
     filename = storage.safe_filename(meta.get("original_name"))
-    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    headers = {
+        "Content-Disposition": f'{disposition}; filename="{filename}"',
+        # The stored type is what the uploader's client claimed. Without this a
+        # browser is free to sniff past it and treat the bytes as something
+        # more dangerous than what the allowlist above approved.
+        "X-Content-Type-Options": "nosniff",
+    }
     # An empty Content-Length is an invalid header, not an absent one.
     if isinstance(meta.get("size"), int):
         headers["Content-Length"] = str(meta["size"])
     return StreamingResponse(
         storage.stream_file(db, meta["file_id"],
                             meta.get("bucket", storage.DOCUMENTS_BUCKET)),
-        media_type=meta.get("mime_type") or "application/octet-stream",
+        media_type=media_type,
         headers=headers,
     )
 
