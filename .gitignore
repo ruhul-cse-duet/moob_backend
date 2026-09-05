@@ -7,6 +7,7 @@ __pycache__/
 uploads/
 .pytest_cache/
 .pytest_cache/
+temp_auto_push.bat
 *.egg-info/
 .DS_Store
 .idea
@@ -15,4 +16,5 @@ uploads/
 # Named by pattern because the next one will have a different filename.
 *firebase-adminsdk*.json
 *-service-account*.json
-.claude
+.claude.gitignore
+branch_structure.json
