@@ -350,6 +350,8 @@ CATALOGUE: Dict[str, Dict[str, Any]] = {
     "notify.invoice_sent": {"en": 'Invoice {reference} — {currency} {amount}', "pt": 'Fatura {reference} — {currency} {amount}', "es": 'Factura {reference} — {currency} {amount}'},
     "notify.earning_accrued": {"en": '{currency} {amount} accrued', "pt": '{currency} {amount} acumulados', "es": '{currency} {amount} acumulados'},
     "notify.payout_sent": {"en": 'Payout of {currency} {amount} sent', "pt": 'Pagamento de {currency} {amount} enviado', "es": 'Pago de {currency} {amount} enviado'},
+    "notify.tenant_signup": {"en": '{organization} signed up and is awaiting approval', "pt": '{organization} registou-se e aguarda aprovação', "es": '{organization} se registró y espera aprobación'},
+    "notify.tenant_signup.body": {"en": '{owner} · {plan} plan', "pt": '{owner} · plano {plan}', "es": '{owner} · plan {plan}'},
     "notify.support_ticket_created": {"en": 'New support ticket: {subject}', "pt": 'Novo pedido de suporte: {subject}', "es": 'Nuevo ticket de soporte: {subject}'},
     "notify.support_ticket_reply": {"en": 'Reply on [{reference}] {subject}', "pt": 'Resposta em [{reference}] {subject}', "es": 'Respuesta en [{reference}] {subject}'},
     "notify.data_request_raised": {"en": '{kind} request from {person}', "pt": 'Pedido de {kind} de {person}', "es": 'Solicitud de {kind} de {person}'},

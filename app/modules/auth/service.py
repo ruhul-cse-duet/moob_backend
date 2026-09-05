@@ -40,7 +40,7 @@ from app.services import audit, consents as consent_service, throttle
 from app.services import invites
 from app.services import otp as otp_service
 from app.services import stripe_service
-from app.services.events import notify
+from app.services.events import notify, platform_admin_ids
 from app.services.ownership import consultant_map, link_partner_to_consultant
 
 
@@ -320,6 +320,30 @@ async def complete_payment(token: str, data) -> Dict[str, Any]:
         # `charge_reference` stays on the signup, so the retry provisions again
         # without charging a second time.
         raise
+
+    # The workspace is now waiting on a human. Nothing else tells the platform
+    # side that, so without this the approval queue only moves when somebody
+    # happens to open it. Outside the provisioning block on purpose: the money
+    # is taken and the tenant exists, so a notification that fails must not
+    # roll any of that back.
+    try:
+        admin_ids = await platform_admin_ids()
+        if admin_ids:
+            await notify(
+                db,
+                user_ids=admin_ids,
+                type=NotificationType.TENANT_SIGNUP,
+                title_key="notify.tenant_signup",
+                body_key="notify.tenant_signup.body",
+                params={"organization": org["name"], "owner": signup["full_name"],
+                        "plan": plan["code"]},
+                data={"tenant_id": tenant_id, "status": TenantStatus.AWAITING_APPROVAL.value},
+                collection="platform_notifications",
+                extra={"tenant_id": tenant_id, "organization_name": org["name"],
+                       "owner_email": signup["email"]},
+            )
+    except Exception:  # noqa: BLE001
+        logger.exception("Could not notify the platform about tenant %s", tenant_id)
 
     return {
         "success": True,

@@ -9,7 +9,7 @@ every organization database on every helpdesk page load.
 Partners and clients (and other workspace users) raise tickets here. Creating a
 ticket sends an in-app notification to the super admin(s). No email is sent.
 """
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from app.core.enums import (
     NotificationType,
@@ -21,7 +21,7 @@ from app.core.exceptions import Forbidden, NotFound
 from app.core.utils import build_reference, oid, serialize, utcnow
 from app.db.mongo import platform_db
 from app.schemas.common import PageParams
-from app.services.events import notify
+from app.services.events import notify, platform_admin_ids
 from app.services.pagination import paginate
 
 
@@ -29,16 +29,6 @@ async def _next_reference() -> str:
     doc = await platform_db().counters.find_one_and_update(
         {"name": "ticket"}, {"$inc": {"value": 1}}, upsert=True, return_document=True)
     return build_reference("TKT", 1000 + doc.get("value", 1))
-
-
-async def _super_admin_ids() -> List[str]:
-    """Return the user IDs of active super admin(s) for in-app notifications."""
-    ids: List[str] = []
-    async for admin in platform_db().platform_admins.find(
-        {"status": {"$ne": "suspended"}}, {"_id": 1}
-    ):
-        ids.append(str(admin["_id"]))
-    return ids
 
 
 async def create_ticket(user, data) -> Dict[str, Any]:
@@ -75,7 +65,7 @@ async def create_ticket(user, data) -> Dict[str, Any]:
     })
 
     # In-app notification, socket and push in one call - no email.
-    admin_ids = await _super_admin_ids()
+    admin_ids = await platform_admin_ids()
     if admin_ids:
         await notify(
             db,
@@ -181,7 +171,7 @@ async def reply(ticket_id: str, body: str, *, user, admin: bool = False) -> Dict
             )
     else:
         # Customer replied → notify admin(s).
-        admin_ids = await _super_admin_ids()
+        admin_ids = await platform_admin_ids()
         if admin_ids:
             await notify(
                 db,
