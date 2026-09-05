@@ -10,7 +10,6 @@ from app.core.enums import (
     NotificationType,
     OtpPurpose,
     PlanCode,
-    RequestStatus,
     Role,
     TenantStatus,
     UserStatus,
@@ -26,14 +25,13 @@ from app.core.security import (
 )
 from app.core.config import settings
 from app.core.utils import (
-    build_reference,
     oid,
     random_token,
     serialize,
     slugify_db,
     utcnow,
 )
-from app.db.indexes import ensure_tenant_indexes, next_sequence
+from app.db.indexes import ensure_tenant_indexes
 from app.db.mongo import drop_tenant_db, platform_db, tenant_db
 from app.modules.subscriptions.plans import order_summary, plan_by_code
 from app.services import audit, consents as consent_service, throttle
@@ -1046,18 +1044,21 @@ async def set_client_immigration(token: str, data) -> Dict[str, Any]:
     db = platform_db()
     signup = await _load_signup(token)
 
+    profile = {
+        "passport_number": data.passport_number,
+        "nationality": data.nationality,
+        "destination_country": data.destination_country,
+        "preferred_immigration_type": data.preferred_immigration_type,
+        "country_of_residence": data.country_of_residence,
+    }
+    # Merged, not replaced: a client who steps back to fix one field would
+    # otherwise clear the four they did not retype.
+    stored = {**(signup.get("immigration_profile") or {}),
+              **{k: v for k, v in profile.items() if v is not None}}
+
     await db.signups.update_one(
         {"_id": signup["_id"]},
-        {"$set": {
-            "immigration_profile": {
-                "passport_number": data.passport_number,
-                "nationality": data.nationality,
-                "destination_country": data.destination_country,
-                "preferred_immigration_type": data.preferred_immigration_type,
-                "country_of_residence": data.country_of_residence,
-            },
-            "step": "consultant",
-        }},
+        {"$set": {"immigration_profile": stored, "step": "consultant"}},
     )
 
     return {
@@ -1066,6 +1067,8 @@ async def set_client_immigration(token: str, data) -> Dict[str, Any]:
         ),
         "step": "immigration",
         "next_step": "consultant",
+        # Echoed back so the app can show what landed rather than assume it.
+        "saved": stored,
     }
 
 
@@ -1184,38 +1187,18 @@ async def finalize_client_signup(token: str, data, session: Optional[Dict[str, A
         "created_at": now,
     })
 
-    # The goal captured at sign-up becomes the client's first request, in the
-    # same shape POST /requests writes — otherwise it would read as an untitled
-    # request with no reference everywhere it appears.
-    seq = await next_sequence(db, "request", start=200)
-    visa_type = imm.get("preferred_immigration_type") or "Immigration Advice"
-    request_doc = {
-        "reference": build_reference("REQ", seq),
-        "visa_type": visa_type,
-        "destination_country": imm.get("destination_country") or "",
-        "origin_country": imm.get("country_of_residence"),
-        "purpose": f"{visa_type} enquiry raised during registration.",
-        "additional_information": None,
-        "client_notes": None,
-        "preferred_appointment": "Flexible",
-        "review_notes": None,
-        "status": RequestStatus.NEW.value,
-        "client_id": user_id,
-        "client_name": signup.get("full_name"),
-        "consultant_id": consultant_id,
-        "attached_files": [],
-        "is_draft": False,
-        "case_id": None,
-        "created_at": now,
-        "updated_at": now,
-    }
-    request_id = str((await tdb.requests.insert_one(request_doc)).inserted_id)
-
-    await notify(tdb, user_ids=[consultant_id], type=NotificationType.REQUEST_SUBMITTED,
-                 title_key="notify.client_joined",
-                 params={"client": signup.get("full_name") or ""},
-                 body=f"{visa_type} · {request_doc['reference']}",
-                 data={"request_id": request_id})
+    # Signing up is not the same as asking for something. A request the client
+    # never wrote arrives in the consultant's queue as real work, with a purpose
+    # sentence the server invented on their behalf - so registration only
+    # creates the account, and POST /requests stays the one way a request comes
+    # into being. The consultant is still told a client joined; that is a
+    # different thing from a request, and is worded as one.
+    await notify(tdb, user_ids=[consultant_id], type=NotificationType.CLIENT_JOINED,
+                 title_key="notify.client_registered",
+                 body_key="notify.client_registered.body",
+                 params={"client": signup.get("full_name") or "",
+                         "interest": imm.get("preferred_immigration_type") or ""},
+                 data={"client_id": user_id})
 
     await db.signups.update_one(
         {"_id": signup["_id"]},
@@ -1229,16 +1212,20 @@ async def finalize_client_signup(token: str, data, session: Optional[Dict[str, A
 
     return {
         "token_pair": tokens,
+        # The key stays `request_summary` so the confirmation screen keeps
+        # parsing, but there is no request to summarise any more - what it now
+        # says is "your account is ready, here is who you are with, raise a
+        # request when you are ready to".
         "request_summary": {
-            "status": "waiting_for_review",
-            "request_id": request_id,
-            "request_number": request_doc["reference"],
+            "status": "account_ready",
+            "request_id": None,
+            "request_number": None,
             "organization_name": tenant["name"] if tenant else "",
             "consultant_name": (consultant or {}).get("full_name") or "",
             # organization_name and consultant_name are already above; the app
             # composes the sentence from them in the caller's own language.
-            "message_key": "account_created_request_received",
-            "next_steps_key": "review_then_documents_then_case",
+            "message_key": "account_created_no_request_yet",
+            "next_steps_key": "submit_a_request_when_ready",
         },
     }
 

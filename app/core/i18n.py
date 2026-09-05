@@ -334,6 +334,8 @@ CATALOGUE: Dict[str, Dict[str, Any]] = {
     # ---- notifications ----
     "notify.request_submitted": {"en": '{client} submitted a request', "pt": '{client} enviou um pedido', "es": '{client} envió una solicitud'},
     "notify.client_joined": {"en": '{client} joined and raised a request', "pt": '{client} registou-se e criou um pedido', "es": '{client} se registró y creó una solicitud'},
+    "notify.client_registered": {"en": '{client} joined as your client', "pt": '{client} juntou-se como seu cliente', "es": '{client} se unió como su cliente'},
+    "notify.client_registered.body": {"en": 'Interested in: {interest}', "pt": 'Interesse em: {interest}', "es": 'Interesado en: {interest}'},
     "notify.documents_requested": {"en": 'Your consultant requested documents', "pt": 'O seu consultor pediu documentos', "es": 'Su consultor solicitó documentos'},
     "notify.case_opened": {"en": 'Your case has been opened', "pt": 'O seu processo foi aberto', "es": 'Su caso ha sido abierto'},
     "notify.document_uploaded": {"en": '{person} uploaded {document}', "pt": '{person} carregou {document}', "es": '{person} subió {document}'},
