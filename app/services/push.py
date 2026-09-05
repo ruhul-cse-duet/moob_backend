@@ -95,33 +95,54 @@ def _normalise_key(key: str) -> str:
     return key
 
 
+def _service_account(raw: str) -> Dict[str, Any]:
+    """The service account FCM_CREDENTIALS_JSON names, or an empty mapping.
+
+    A path is far easier to get right than a pasted multi-line JSON, so both
+    are accepted and the shape decides which one this is. A value that is
+    neither says so in those words: reporting "not valid JSON" for a filename
+    that simply is not there sends whoever reads the log looking for a syntax
+    error in a file they never had.
+
+    Returning empty rather than giving up lets FCM_PROJECT_ID and its two
+    companions still be used. They are the same three fields, spelled out, and
+    a stale path in one variable is no reason to ignore credentials that are
+    sitting right there and valid.
+    """
+    if not raw.startswith("{"):
+        if not os.path.isfile(raw):
+            logger.warning(
+                "FCM_CREDENTIALS_JSON names %r, which is not a file here and is "
+                "not JSON either. Falling back to FCM_PROJECT_ID, "
+                "FCM_CLIENT_EMAIL and FCM_PRIVATE_KEY.", raw[:120])
+            return {}
+        try:
+            with open(raw, "r", encoding="utf-8") as handle:
+                raw = handle.read()
+        except OSError as exc:
+            logger.warning("FCM_CREDENTIALS_JSON points at a file that cannot be "
+                           "read (%s); falling back to the separate fields", exc)
+            return {}
+    try:
+        data = json.loads(raw)
+    except ValueError as exc:
+        logger.warning("FCM_CREDENTIALS_JSON is not valid JSON (%s); falling back "
+                       "to the separate fields", exc)
+        return {}
+    if not isinstance(data, dict):
+        logger.warning("FCM_CREDENTIALS_JSON is not a service account object; "
+                       "falling back to the separate fields")
+        return {}
+    return data
+
+
 def _load_credentials() -> Optional[_Credentials]:
     """Reads the service account, or returns None if push is not configured."""
     raw = settings.FCM_CREDENTIALS_JSON.strip()
-    if raw:
-        # A path is far easier to get right than a pasted multi-line JSON, so
-        # both are accepted and the shape decides which one this is.
-        if not raw.startswith("{"):
-            try:
-                if os.path.isfile(raw):
-                    with open(raw, "r", encoding="utf-8") as handle:
-                        raw = handle.read()
-            except OSError as exc:
-                logger.error("FCM_CREDENTIALS_JSON points at a file that cannot be "
-                             "read (%s); push is off", exc)
-                return None
-        try:
-            data = json.loads(raw)
-        except ValueError as exc:
-            logger.error("FCM_CREDENTIALS_JSON is not valid JSON (%s); push is off", exc)
-            return None
-        project = data.get("project_id") or settings.FCM_PROJECT_ID
-        email = data.get("client_email") or settings.FCM_CLIENT_EMAIL
-        key = data.get("private_key") or settings.FCM_PRIVATE_KEY
-    else:
-        project = settings.FCM_PROJECT_ID
-        email = settings.FCM_CLIENT_EMAIL
-        key = settings.FCM_PRIVATE_KEY
+    data = _service_account(raw) if raw else {}
+    project = data.get("project_id") or settings.FCM_PROJECT_ID
+    email = data.get("client_email") or settings.FCM_CLIENT_EMAIL
+    key = data.get("private_key") or settings.FCM_PRIVATE_KEY
 
     project, email, key = project.strip(), email.strip(), _normalise_key(key)
     if not (project and email and key):

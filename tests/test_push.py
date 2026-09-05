@@ -355,3 +355,60 @@ def test_a_key_that_is_not_a_pem_turns_push_off(monkeypatch):
     configure(monkeypatch, account=None, FCM_PROJECT_ID="p",
               FCM_CLIENT_EMAIL="a@b.c", FCM_PRIVATE_KEY="AIzaSyNotAKeyAtAll")
     assert push.credentials() is None
+
+
+# ── FCM_CREDENTIALS_JSON that does not resolve ─────────────────────────────
+#
+# It takes either the service account JSON or a path to it, and a path is the
+# easy one to get wrong: the file moves, or the deployment never had it. The
+# same three fields spelled out separately are usually sitting right there and
+# valid, so a stale path is no reason to turn push off.
+def test_a_stale_path_falls_back_to_the_separate_fields(monkeypatch, caplog,
+                                                        service_account):
+    configure(monkeypatch,
+              FCM_CREDENTIALS_JSON="moob-firebase-adminsdk-8273fa2885.json",
+              FCM_PROJECT_ID=service_account["project_id"],
+              FCM_CLIENT_EMAIL=service_account["client_email"],
+              FCM_PRIVATE_KEY=service_account["private_key"])
+
+    with caplog.at_level("WARNING"):
+        loaded = push._load_credentials()
+
+    assert loaded is not None
+    assert loaded.project_id == service_account["project_id"]
+    # And it says which variable it ignored, naming the value it was given.
+    assert "not a file here" in caplog.text
+    assert "moob-firebase-adminsdk" in caplog.text
+
+
+def test_a_missing_file_is_not_reported_as_a_syntax_error(monkeypatch, caplog):
+    """"Not valid JSON" for a filename sends the reader hunting a syntax error
+    in a file they never had."""
+    configure(monkeypatch, FCM_CREDENTIALS_JSON="does-not-exist.json")
+
+    with caplog.at_level("WARNING"):
+        assert push._load_credentials() is None
+
+    assert "not a file here" in caplog.text
+    assert "not valid JSON" not in caplog.text
+
+
+def test_broken_json_still_falls_back(monkeypatch, service_account):
+    configure(monkeypatch,
+              FCM_CREDENTIALS_JSON="{not json at all",
+              FCM_PROJECT_ID=service_account["project_id"],
+              FCM_CLIENT_EMAIL=service_account["client_email"],
+              FCM_PRIVATE_KEY=service_account["private_key"])
+
+    assert push._load_credentials() is not None
+
+
+def test_a_usable_json_still_wins_over_the_separate_fields(monkeypatch,
+                                                           service_account):
+    configure(monkeypatch, account=service_account,
+              FCM_PROJECT_ID="ignored-project")
+
+    loaded = push._load_credentials()
+
+    assert loaded is not None
+    assert loaded.project_id == service_account["project_id"]
