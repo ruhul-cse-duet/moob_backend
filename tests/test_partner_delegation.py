@@ -23,11 +23,23 @@ class FakeUser:
     def __init__(self, user_id, role):
         self.id = user_id
         self.role = role
+        # The services log who acted, and read the name off the raw document.
+        self.raw = {"full_name": f"{role.value} user"}
 
 
 @pytest.fixture
 def db():
     return AsyncMongoMockClient()["webimove_tenant_test"]
+
+
+@pytest.fixture(autouse=True)
+def no_push(monkeypatch):
+    """Approving notifies the client, and the push leaves a detached task
+    behind that outlives the test's event loop. Delivery is test_push's
+    subject, not this one's."""
+    from app.services import push
+
+    monkeypatch.setattr(push, "dispatch", lambda *a, **k: None)
 
 
 @pytest.fixture
@@ -118,3 +130,73 @@ async def test_no_case_id_means_no_grant(db, seeded):
     assert not await partner_holds_case(db, seeded["partner"], None)
     with pytest.raises(Forbidden):
         await assert_client_access(db, seeded["partner"], seeded["client_id"])
+
+
+# The case screen offers a delegated partner the same controls the consultant
+# has — approve, return, re-read, advance the stage. These go through the real
+# services, so the screen and the server cannot drift apart on who may act.
+
+
+async def _case_with_document(db, seeded, *, status="with_consultant"):
+    case = await db.cases.insert_one({
+        "reference": "CAS-900", "client_id": seeded["client_id"],
+        "consultant_id": seeded["consultant"].id,
+        "stage": "documents_uploaded", "progress": 30, "timeline": []})
+    case_id = str(case.inserted_id)
+    document = await db.documents.insert_one({
+        "name": "Passport", "client_id": seeded["client_id"],
+        "consultant_id": seeded["consultant"].id, "case_id": case_id,
+        "status": status, "file": {"file_id": "f1", "original_name": "p.png"}})
+    return case_id, str(document.inserted_id)
+
+
+async def test_delegated_partner_can_approve_a_document(db, seeded):
+    from app.modules.documents import service as documents
+
+    case_id, document_id = await _case_with_document(db, seeded)
+    await _give_task(db, seeded["partner"], case_id=case_id,
+                     client_id=seeded["client_id"])
+
+    await documents.approve(db, seeded["partner"], document_id)
+
+    stored = await db.documents.find_one({"_id": ObjectId(document_id)})
+    assert stored["status"] == "approved"
+    assert stored["approved_by"] == seeded["partner"].id
+
+
+async def test_delegated_partner_can_return_a_document(db, seeded):
+    from app.modules.documents import service as documents
+
+    case_id, document_id = await _case_with_document(db, seeded)
+    await _give_task(db, seeded["partner"], case_id=case_id,
+                     client_id=seeded["client_id"])
+
+    await documents.reject(db, seeded["partner"], document_id, "Page 2 is cut off")
+
+    stored = await db.documents.find_one({"_id": ObjectId(document_id)})
+    assert stored["status"] == "needs_reupload"
+    # The reason travels — the client screen leads with it.
+    assert stored["consultant_feedback"] == "Page 2 is cut off"
+
+
+async def test_delegated_partner_can_advance_the_stage(db, seeded):
+    from app.modules.cases import service as cases
+    from app.modules.cases.schemas import AdvanceStage
+
+    case_id, _ = await _case_with_document(db, seeded)
+    await _give_task(db, seeded["partner"], case_id=case_id,
+                     client_id=seeded["client_id"])
+
+    await cases.advance_stage(db, seeded["partner"], case_id, AdvanceStage())
+
+    stored = await db.cases.find_one({"_id": ObjectId(case_id)})
+    assert stored["stage"] != "documents_uploaded"
+
+
+async def test_a_partner_without_the_task_is_still_refused(db, seeded):
+    from app.modules.documents import service as documents
+
+    _case_id, document_id = await _case_with_document(db, seeded)
+    # No task on this case for the outsider.
+    with pytest.raises(Forbidden):
+        await documents.approve(db, seeded["outsider"], document_id)
