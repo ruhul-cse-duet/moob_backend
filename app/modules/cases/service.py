@@ -152,9 +152,31 @@ async def get_case(db, user: CurrentUser, case_id: str,
             await assert_case_access(db, user, doc)
     out = await attach_consultant(db, serialize(doc))
     out["stage_label"] = translate(f"stage.{doc.get('stage')}", lang)
+
+    # Matched on the case OR on the request it came from. A document is stamped
+    # with `case_id` when the case is opened, but a case opened before that
+    # binding existed - or one whose request gained documents afterwards - has
+    # documents that only carry `request_id`. Reading both is what stops the
+    # case showing "No documents linked yet" while the request lists two.
+    doc_query: Dict[str, Any] = {"case_id": case_id}
+    if doc.get("request_id"):
+        doc_query = {"$or": [{"case_id": case_id},
+                             {"request_id": doc["request_id"]}]}
     out["documents"] = [
-        serialize(d) async for d in db.documents.find({"case_id": case_id}).sort("created_at", 1)
+        serialize(d) async for d in db.documents.find(doc_query).sort("created_at", 1)
     ]
+    # Stamp the ones that were only reachable through the request, so every
+    # other case-scoped query - a delegated partner's document list among them
+    # - finds them too. Cheap, and it happens once per document.
+    unstamped = [d["id"] for d in out["documents"] if not d.get("case_id")]
+    if unstamped:
+        await db.documents.update_many(
+            {"_id": {"$in": [oid(i) for i in unstamped]}},
+            {"$set": {"case_id": case_id, "updated_at": utcnow()}},
+        )
+        for d in out["documents"]:
+            d.setdefault("case_id", case_id)
+            d["case_id"] = d["case_id"] or case_id
     for doc_item in out["documents"]:
         if "status" in doc_item:
             doc_item["status_label"] = translate(f"document_status.{doc_item['status']}", lang)
