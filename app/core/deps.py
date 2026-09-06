@@ -95,6 +95,17 @@ async def get_tenant_db(user: CurrentUser = Depends(get_current_user)) -> AsyncI
     return tenant_db(user.tenant_id)
 
 
+#: Statuses whose workspace is usable. `awaiting_approval` is here because
+#: approval was removed, not because it is still a step: paying now activates
+#: the tenant outright, and the rows left in that status predate the change.
+#: Refusing them would lock out organizations that already paid, for a queue
+#: that no longer exists.
+WORKSPACE_OPEN_STATUSES = {
+    TenantStatus.ACTIVE.value,
+    TenantStatus.AWAITING_APPROVAL.value,
+}
+
+
 async def require_active_tenant(user: CurrentUser = Depends(get_current_user)) -> dict:
     """Blocks the whole workspace when the subscription is not paid / approved."""
     # Platform admins carry no tenant. Answer that before oid() turns None into
@@ -108,15 +119,11 @@ async def require_active_tenant(user: CurrentUser = Depends(get_current_user)) -
     if maintenance and bool(maintenance.get("value")):
         raise Forbidden("Platform is in maintenance mode")
     status = tenant["status"]
-    if status == TenantStatus.AWAITING_APPROVAL.value:
-        raise PaymentRequired(
-            "Your organization is awaiting platform approval before the workspace opens."
-        )
     if status == TenantStatus.SUSPENDED.value:
         raise Forbidden("This organization has been suspended")
     if status == TenantStatus.EXPIRED.value:
         raise PaymentRequired("This organization's subscription has expired")
-    if status != TenantStatus.ACTIVE.value:
+    if status not in WORKSPACE_OPEN_STATUSES:
         raise PaymentRequired(
             "This workspace is not active. Complete the subscription payment."
         )

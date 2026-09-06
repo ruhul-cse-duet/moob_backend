@@ -25,7 +25,23 @@ def connect() -> AsyncIOMotorClient:
             uuidRepresentation="standard",
             serverSelectionTimeoutMS=5000,
             connectTimeoutMS=5000,
-            tz_aware=True,        )
+            tz_aware=True,
+            # A pool that empties makes the next query pay for a fresh TLS
+            # handshake to Atlas - three or four round trips before the query is
+            # even sent, which on a cluster in another region is most of the
+            # response time. Holding a few open costs nothing and is the
+            # difference between a warm read and a cold one.
+            minPoolSize=settings.MONGO_MIN_POOL_SIZE,
+            # Motor's default is 100 per process. An M0 cluster allows 500 in
+            # total, so the default lets a couple of instances plus a laptop
+            # exhaust it - and Atlas refuses the overflow at the TLS layer,
+            # which reads like a certificate problem and is not one.
+            maxPoolSize=settings.MONGO_MAX_POOL_SIZE,
+            # Well under Atlas's own idle cutoff, so the driver retires a
+            # connection before the server drops it underneath a query.
+            maxIdleTimeMS=60000,
+            retryWrites=True,
+        )
     return _client
 
 

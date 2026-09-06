@@ -1,10 +1,9 @@
 """A consultant finishing signup has to reach the platform's inbox.
 
-The workspace lands in `awaiting_approval`, which is a state only a human can
-move out of. Nothing else tells the platform side that a workspace is waiting,
-so if this notification is not written the approval queue only moves when
-somebody happens to open the organizations screen - which is exactly how a paid
-signup sits unnoticed.
+The workspace opens by itself now - nobody has to approve it - so this is no
+longer an unblocking step. It is still the only thing that tells the platform
+side a new organization exists at all: without it, a signup is visible only to
+whoever thinks to open the organizations screen.
 """
 import pytest
 from bson import ObjectId
@@ -98,4 +97,45 @@ async def test_a_notification_failure_does_not_undo_a_paid_signup(signup, monkey
     result = await service.complete_payment("token", _Payment())
 
     assert result["tenant_id"]
-    assert result["awaiting_approval"] is True
+    assert result["workspace_ready"] is True
+
+
+class TestNoApprovalStep:
+    """Paying is the whole gate. There is no queue behind it any more."""
+
+    async def test_the_workspace_is_live_the_moment_it_is_paid_for(self, signup):
+        result = await service.complete_payment("token", _Payment())
+
+        tenant = await signup.tenants.find_one({"_id": ObjectId(result["tenant_id"])})
+        assert tenant["status"] == "active"
+        assert tenant["verified"] is True
+        # An unset `activated_at` is what the organizations screen reads as
+        # "signed up but never opened".
+        assert tenant["activated_at"] is not None
+
+    async def test_the_owner_is_not_told_to_wait(self, signup):
+        result = await service.complete_payment("token", _Payment())
+
+        assert result["awaiting_approval"] is False
+        assert result["workspace_ready"] is True
+        assert result["status"] == "active"
+        # They are signed in already, so the app can open the workspace on the
+        # same screen that took the payment.
+        assert result["access_token"]
+
+
+class TestApprovalIsGone:
+    def test_the_approve_endpoint_no_longer_exists(self):
+        from app.modules.admin import organizations
+
+        paths = {r.path for r in organizations.router.routes}
+        assert not any(p.endswith("/approve") for p in paths)
+
+    def test_a_workspace_left_in_the_old_status_still_opens(self):
+        # Rows created before approval was removed must not be stranded: there
+        # is no longer a button that would let anyone unblock them.
+        from app.core.deps import WORKSPACE_OPEN_STATUSES
+
+        assert "awaiting_approval" in WORKSPACE_OPEN_STATUSES
+        assert "active" in WORKSPACE_OPEN_STATUSES
+        assert "suspended" not in WORKSPACE_OPEN_STATUSES

@@ -237,13 +237,15 @@ async def complete_payment(token: str, data) -> Dict[str, Any]:
         "office_address": org["office_address"],
         "owner_email": signup["email"],
         "owner_name": signup["full_name"],
-        # Workspace stays locked until a platform admin clicks Approve.
-        "status": TenantStatus.AWAITING_APPROVAL.value,
-        "verified": False,
+        # Live the moment it is paid for. There is no approval step: a
+        # consultant who has just been charged must not find a locked workspace
+        # waiting on somebody to notice them.
+        "status": TenantStatus.ACTIVE.value,
+        "verified": True,
         "plan_code": plan["code"],
         "billing_cycle": plan["billing_cycle"],
         "referral_code": random_token(8).upper(),
-        "activated_at": None,
+        "activated_at": now,
         "signed_up_at": now,
         "renews_on": plan["renews_on"],
         # Set only on the subscription path. The webhook needs these to match a
@@ -335,7 +337,7 @@ async def complete_payment(token: str, data) -> Dict[str, Any]:
                 body_key="notify.tenant_signup.body",
                 params={"organization": org["name"], "owner": signup["full_name"],
                         "plan": plan["code"]},
-                data={"tenant_id": tenant_id, "status": TenantStatus.AWAITING_APPROVAL.value},
+                data={"tenant_id": tenant_id, "status": TenantStatus.ACTIVE.value},
                 collection="platform_notifications",
                 extra={"tenant_id": tenant_id, "organization_name": org["name"],
                        "owner_email": signup["email"]},
@@ -345,15 +347,15 @@ async def complete_payment(token: str, data) -> Dict[str, Any]:
 
     return {
         "success": True,
-        "message": "Payment received. Your organization is awaiting platform approval.",
+        "message": "Payment received. Your workspace is ready.",
         "tenant_id": tenant_id,
         "organization_name": org["name"],
         "plan_code": PlanCode(plan["code"]),
         "renews_on": plan["renews_on"],
         "referral_code": tenant_doc["referral_code"],
-        "status": TenantStatus.AWAITING_APPROVAL.value,
-        "awaiting_approval": True,
-        "workspace_ready": False,
+        "status": TenantStatus.ACTIVE.value,
+        "awaiting_approval": False,
+        "workspace_ready": True,
         "access_token": create_access_token(
             user_id=user_id, role=Role.CONSULTANT_OWNER.value,
             tenant_id=tenant_id, email=signup["email"],
@@ -584,11 +586,9 @@ async def login(email: str, password: str, role: Optional[LoginPortalRole] = Non
         )
 
     tenant_status = tenant.get("status")
-    if tenant_status == TenantStatus.AWAITING_APPROVAL.value:
-        raise Unauthorized(
-            "Your organization is awaiting platform approval. "
-            "You can sign in once a platform administrator verifies it."
-        )
+    # `awaiting_approval` is deliberately not refused here. Approval was removed,
+    # and the rows still carrying that status are the ones created before it
+    # was - locking their owners out would strand them with no button to press.
     if tenant_status == TenantStatus.SUSPENDED.value:
         raise Unauthorized("This organization has been suspended")
     if tenant_status == TenantStatus.EXPIRED.value:

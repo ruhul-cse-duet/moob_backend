@@ -93,7 +93,6 @@ async def _enrich_org_card(item: dict, lang: str = DEFAULT_LANGUAGE) -> dict:
         "clients": clients,
         "mrr": mrr,
         "currency": "USD",
-        "can_approve": status == TenantStatus.AWAITING_APPROVAL.value,
         "signed_up_at": signed_up_at,
         "signed_up_label": _signed_up_label(signed_up_at, lang),
         # Back-compat fields used by older clients
@@ -223,65 +222,16 @@ async def _storage_bytes(tdb) -> int:
     return total
 
 
-@router.post("/{tenant_id}/approve", response_model=Message,
-             summary="Approve an organization awaiting platform verification")
-async def approve_organization(tenant_id: str,
-                               user: CurrentUser = Depends(require_super_admin)):
-    db = platform_db()
-    tenant = await db.tenants.find_one({"_id": oid(tenant_id)})
-    if not tenant:
-        raise NotFound("Organization not found")
-    if tenant.get("status") == TenantStatus.ACTIVE.value and tenant.get("verified"):
-        raise Conflict("Organization is already approved")
-    if tenant.get("status") not in {
-        TenantStatus.AWAITING_APPROVAL.value,
-        TenantStatus.PENDING_VERIFICATION.value,
-        TenantStatus.PENDING_PAYMENT.value,
-        TenantStatus.SUSPENDED.value,
-    }:
-        # Allow re-approve from suspended → active; block expired/cancelled without status API
-        if tenant.get("status") in {TenantStatus.EXPIRED.value, TenantStatus.CANCELLED.value}:
-            raise BadRequest(
-                "Reactivate expired/cancelled organizations via the status endpoint"
-            )
-
-    now = utcnow()
-    await db.tenants.update_one(
-        {"_id": oid(tenant_id)},
-        {"$set": {
-            "status": TenantStatus.ACTIVE.value,
-            "verified": True,
-            "activated_at": tenant.get("activated_at") or now,
-            "approved_at": now,
-            "approved_by": user.id,
-            "status_reason": None,
-            "updated_at": now,
-        }},
-    )
-    await audit.record(
-        action=AuditAction.TENANT_STATUS_CHANGED,
-        actor_id=user.id,
-        actor_email=user.email,
-        actor_role="super_admin",
-        tenant_id=tenant_id,
-        subject=TenantStatus.ACTIVE.value,
-        detail="Approved by platform administrator",
-        meta={"previous_status": tenant.get("status")},
-    )
-    return {
-        "success": True,
-        "message": f"{tenant.get('name')} has been approved",
-        "detail": f"{tenant.get('name')} has been approved",
-    }
-
-
 @router.post("/{tenant_id}/status", response_model=Message,
              summary="Suspend, reactivate, expire or cancel an organization")
 async def set_status(tenant_id: str, status: TenantStatus = Body(embed=True),
                      reason: Optional[str] = Body(None, embed=True),
                      user: CurrentUser = Depends(require_super_admin)):
     if status == TenantStatus.AWAITING_APPROVAL:
-        raise BadRequest("Use the Approve action to move an organization to Active")
+        raise BadRequest(
+            "Organizations are no longer approved by hand; there is nothing to "
+            "move them out of. Set active, suspended, expired or cancelled."
+        )
     data = {
         "status": status.value,
         "status_reason": reason,
