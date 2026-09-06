@@ -16,6 +16,7 @@ from app.db.indexes import next_sequence
 from app.schemas.common import PageParams
 from app.services.events import log_activity, notify
 from app.services.ai_service import suggest_required_documents
+from app.services.ownership import assert_request_access
 from app.services.pagination import paginate
 from app.services import storage
 
@@ -412,8 +413,14 @@ async def get_attachment(db, user: CurrentUser, request_id: str, file_id: str) -
 
 
 async def request_documents(db, user: CurrentUser, request_id: str, data) -> Dict[str, Any]:
-    """Consultant decides exactly which documents the client must provide."""
+    """Decides exactly which documents the client must provide.
+
+    Open to a partner the work was delegated to: asking for a missing page is
+    part of reviewing the documents, and stopping to have the consultant relay
+    it helps nobody.
+    """
     doc = await _get(db, request_id)
+    await assert_request_access(db, user, doc)
     now = utcnow()
     inserts = []
     consultant_id = doc.get("consultant_id") or user.id
@@ -451,8 +458,9 @@ async def request_documents(db, user: CurrentUser, request_id: str, data) -> Dic
     return {"detail": f"{len(inserts)} document(s) requested", "request_id": request_id}
 
 
-async def suggest_documents(db, request_id: str) -> List[Dict[str, Any]]:
+async def suggest_documents(db, user: CurrentUser, request_id: str) -> List[Dict[str, Any]]:
     doc = await _get(db, request_id)
+    await assert_request_access(db, user, doc)
     return await suggest_required_documents(
         visa_type=doc["visa_type"],
         destination_country=doc["destination_country"],
@@ -470,8 +478,14 @@ async def save_review_notes(db, user: CurrentUser, request_id: str, notes: str) 
 
 
 async def complete_consultation(db, user: CurrentUser, request_id: str, data) -> Dict[str, Any]:
-    """Unlocked only when every required document is approved; opens the case."""
+    """Unlocked only when every required document is approved; opens the case.
+
+    A delegated partner may close it out too — they did the reviewing, so
+    making them wait on the consultant for the last click is a stall rather
+    than a safeguard.
+    """
     doc = await _get(db, request_id)
+    await assert_request_access(db, user, doc)
     if doc.get("case_id"):
         raise BadRequest("A case already exists for this request")
 
