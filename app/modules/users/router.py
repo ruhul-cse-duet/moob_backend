@@ -1,6 +1,7 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, Query, UploadFile, status
+from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from pydantic import BaseModel
@@ -22,17 +23,20 @@ from app.core.deps import (
     require_owner,
 )
 from app.core.enums import Role
+from app.core.exceptions import NotFound
 from app.core.utils import oid, utcnow
 from app.modules.users import schemas as s
 from app.modules.users import service
-from app.schemas.common import PageParams
+from app.schemas.common import Message, PageParams
+from app.services import storage
 
 router = APIRouter(tags=["Users, Team & Clients"])
 
 
-@router.get("/client/profile-overview", response_model=s.ClientProfileOverview, summary="Client User Profile Menu Overview")
+@router.get("/client/profile-overview", response_model=s.ClientProfileOverview,
+            summary="Client User Profile Menu Overview")
 async def client_profile_overview(user: CurrentUser = Depends(get_current_user),
-                                   db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+                                  db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
     profile = await service.me(db, user)
     return {
         "user": profile,
@@ -53,7 +57,8 @@ async def client_profile_overview(user: CurrentUser = Depends(get_current_user),
     }
 
 
-@router.get("/consultant/profile-overview", response_model=s.ConsultantProfileOverview, summary="Consultant User Profile Menu Overview")
+@router.get("/consultant/profile-overview", response_model=s.ConsultantProfileOverview,
+            summary="Consultant User Profile Menu Overview")
 async def consultant_profile_overview(user: CurrentUser = Depends(require_consultant),
                                       db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
     profile = await service.me(db, user)
@@ -140,7 +145,8 @@ async def update_client_settings(payload: s.NotificationSettings,
     return payload
 
 
-@router.get("/client/gdpr-consent", response_model=s.GdprConsentView, summary="Get GDPR Data Processing Consent Details")
+@router.get("/client/gdpr-consent", response_model=s.GdprConsentView,
+            summary="Get GDPR Data Processing Consent Details")
 async def get_client_gdpr_consent(user: CurrentUser = Depends(get_current_user)):
     return {
         "title": "Data Processing Consent",
@@ -197,6 +203,71 @@ async def update_me(payload: s.ProfileUpdate,
                     user: CurrentUser = Depends(get_current_user),
                     db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
     return await service.update_profile(db, user, payload)
+
+
+@router.post("/me/avatar", response_model=s.UserOut, status_code=status.HTTP_201_CREATED,
+             summary="Upload or replace my profile picture")
+async def upload_my_avatar(file: UploadFile = File(...),
+                           user: CurrentUser = Depends(get_current_user),
+                           db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+    """Same GridFS pattern as the super-admin's own avatar (admin/profile.py),
+    just scoped to the tenant `users` collection instead of the platform one —
+    consultants, partners and clients had the `avatar_url` field on their
+    profile already, but nothing that could ever set it to a real picture."""
+    doc = await db.users.find_one({"_id": oid(user.id)})
+    if not doc:
+        raise NotFound("Account not found")
+    previous = (doc.get("avatar") or {}).get("file_id")
+
+    saved = await storage.save_avatar(
+        db, file, owner_id=user.id, replaces=previous,
+        metadata={"scope": "tenant_user"},
+    )
+    updates = {"avatar": saved, "avatar_url": "/api/v1/me/avatar", "updated_at": utcnow()}
+    await db.users.update_one({"_id": doc["_id"]}, {"$set": updates})
+
+    refreshed = CurrentUser(id=user.id, email=user.email, role=user.role,
+                            tenant_id=user.tenant_id, raw={**doc, **updates})
+    return await service.me(db, refreshed)
+
+
+@router.get("/me/avatar", summary="My profile picture")
+async def get_my_avatar(user: CurrentUser = Depends(get_current_user),
+                        db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+    doc = await db.users.find_one({"_id": oid(user.id)})
+    meta = (doc or {}).get("avatar")
+    if not meta:
+        raise NotFound("No profile picture has been uploaded")
+
+    headers = {
+        "Content-Disposition":
+            f'inline; filename="{storage.safe_filename(meta.get("original_name"), "avatar")}"',
+        "Cache-Control": "private, max-age=300",
+    }
+    if isinstance(meta.get("size"), int):
+        headers["Content-Length"] = str(meta["size"])
+
+    return StreamingResponse(
+        storage.stream_file(db, meta["file_id"], meta.get("bucket", storage.AVATARS_BUCKET)),
+        media_type=meta.get("mime_type") or "application/octet-stream",
+        headers=headers,
+    )
+
+
+@router.delete("/me/avatar", response_model=Message, summary="Remove my profile picture")
+async def delete_my_avatar(user: CurrentUser = Depends(get_current_user),
+                           db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+    doc = await db.users.find_one({"_id": oid(user.id)})
+    meta = (doc or {}).get("avatar")
+    if not meta:
+        return {"detail": "No profile picture to remove"}
+
+    await db.users.update_one(
+        {"_id": doc["_id"]},
+        {"$unset": {"avatar": "", "avatar_url": ""}, "$set": {"updated_at": utcnow()}},
+    )
+    await storage.delete_file(db, meta["file_id"], meta.get("bucket", storage.AVATARS_BUCKET))
+    return {"detail": "Profile picture removed"}
 
 
 @router.get("/users", summary="Directory (consultants, partners, clients)")
@@ -264,6 +335,6 @@ async def assign_partner(client_id: str, payload: s.AssignPartnerPayload,
                summary="Unassign the partner from this client — hands the client back "
                        "to the consultant only")
 async def unassign_partner(client_id: str,
-                          user: CurrentUser = Depends(require_consultant),
-                          db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+                           user: CurrentUser = Depends(require_consultant),
+                           db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
     return await service.unassign_partner(db, user, client_id)
