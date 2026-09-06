@@ -111,6 +111,31 @@ async def assert_client_access(db: AsyncIOMotorDatabase, user, client_id: str,
     raise Forbidden("You do not have access to this client's records")
 
 
+async def assert_request_access(db: AsyncIOMotorDatabase, user,
+                                request_doc: Dict[str, Any]) -> None:
+    """Gate for acting on one request: asking for documents, closing it out.
+
+    Consultants always pass. A partner passes on the same rule as everywhere
+    else - the whole client handed to them, or a task on the case behind this
+    request.
+
+    Which case that is takes two goes. A request carries a `case_id` only once
+    its consultation has been completed, and completing it is exactly what the
+    partner is here to do - so a request still open has none, and matching on
+    it alone would refuse the partner the one action that would create it.
+    Delegating a request opens a case up front and stamps that case with the
+    `request_id`, so the case is found from the request instead.
+    """
+    case_id = request_doc.get("case_id")
+    if not case_id and getattr(user, "role", None) == Role.PARTNER:
+        case = await db.cases.find_one(
+            {"request_id": str(request_doc["_id"])}, {"_id": 1})
+        if case:
+            case_id = str(case["_id"])
+    await assert_client_access(db, user, request_doc["client_id"],
+                               case_id=case_id)
+
+
 async def partner_is_delegated(db: AsyncIOMotorDatabase, user, client_id: str) -> bool:
     """Whether this partner has been given work touching this client.
 

@@ -14,6 +14,7 @@ from app.core.deps import (
     require_active_tenant,
     require_client,
     require_consultant,
+    require_consultant_or_partner,
 )
 from app.core.enums import RequestStatus
 from app.modules.requests import schemas as s
@@ -85,9 +86,9 @@ async def update_request(request_id: str, payload: s.RequestUpdate,
 
 
 @router.post("/{request_id}/documents/request", response_model=Message,
-             summary="Consultant requests the documents this client needs")
+             summary="Request the documents this client needs")
 async def request_documents(request_id: str, payload: s.RequestDocumentsRequest,
-                            user: CurrentUser = Depends(require_consultant),
+                            user: CurrentUser = Depends(require_consultant_or_partner),
                             db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
     result = await service.request_documents(db, user, request_id, payload)
     return {"detail": result["detail"]}
@@ -96,9 +97,9 @@ async def request_documents(request_id: str, payload: s.RequestDocumentsRequest,
 @router.get("/{request_id}/documents/suggest",
             summary="AI suggestion for the required document checklist")
 async def suggest_documents(request_id: str,
-                            user: CurrentUser = Depends(require_consultant),
+                            user: CurrentUser = Depends(require_consultant_or_partner),
                             db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
-    return {"documents": await service.suggest_documents(db, request_id)}
+    return {"documents": await service.suggest_documents(db, user, request_id)}
 
 
 @router.put("/{request_id}/review-notes", response_model=Message,
@@ -147,6 +148,6 @@ async def delete_attachment(request_id: str, file_id: str,
              summary="Complete consultation and open the immigration case")
 async def complete_consultation(request_id: str,
                                 payload: s.CompleteConsultation,
-                                user: CurrentUser = Depends(require_consultant),
+                                user: CurrentUser = Depends(require_consultant_or_partner),
                                 db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
     return await service.complete_consultation(db, user, request_id, payload)

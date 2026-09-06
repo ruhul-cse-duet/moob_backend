@@ -12,6 +12,7 @@ from mongomock_motor import AsyncMongoMockClient
 
 from app.core.enums import Role, TaskStatus
 from app.core.exceptions import Forbidden
+from app.core.utils import utcnow
 from app.services.ownership import (
     assert_client_access,
     delegated_case_ids,
@@ -200,3 +201,96 @@ async def test_a_partner_without_the_task_is_still_refused(db, seeded):
     # No task on this case for the outsider.
     with pytest.raises(Forbidden):
         await documents.approve(db, seeded["outsider"], document_id)
+
+
+# Requesting documents and closing the consultation were consultant-only, so a
+# partner who had done the reviewing had to stop and have the consultant click
+# the last button. Both now admit the partner the work was delegated to — and
+# only that partner.
+
+
+async def _request_with_case(db, seeded, *, approved=True):
+    case = await db.cases.insert_one({
+        "reference": "CAS-901", "client_id": seeded["client_id"],
+        "consultant_id": seeded["consultant"].id,
+        "stage": "consultant_review", "progress": 0, "timeline": []})
+    case_id = str(case.inserted_id)
+    request = await db.requests.insert_one({
+        "reference": "REQ-901", "client_id": seeded["client_id"],
+        "client_name": "Client Ahsan",
+        "consultant_id": seeded["consultant"].id,
+        "visa_type": "Work Permit", "destination_country": "Canada",
+        "purpose": "work", "status": "documents_requested",
+        "case_id": case_id, "created_at": utcnow()})
+    request_id = str(request.inserted_id)
+    await db.documents.insert_one({
+        "name": "Passport", "client_id": seeded["client_id"],
+        "request_id": request_id, "case_id": case_id,
+        "status": "approved" if approved else "with_consultant",
+        "file": {"file_id": "f1", "original_name": "p.png"}})
+    return case_id, request_id
+
+
+async def test_delegated_partner_can_request_more_documents(db, seeded):
+    from app.modules.requests import service as requests
+
+    from app.modules.requests.schemas import (RequestDocumentsRequest,
+                                              RequestedDocument)
+
+    ask = RequestDocumentsRequest(
+        documents=[RequestedDocument(name="Bank Statement")])
+
+    case_id, request_id = await _request_with_case(db, seeded)
+    await _give_task(db, seeded["partner"], case_id=case_id,
+                     client_id=seeded["client_id"])
+
+    await requests.request_documents(db, seeded["partner"], request_id, ask)
+
+    asked = await db.documents.find_one({"name": "Bank Statement"})
+    assert asked is not None
+
+
+async def test_delegated_partner_can_complete_the_consultation(db, seeded):
+    from app.modules.requests import service as requests
+
+    from app.modules.requests.schemas import (CompleteConsultation,
+                                              ConsultationOutcomeIn)
+
+    payload = CompleteConsultation(
+        outcome=ConsultationOutcomeIn(summary="Eligible for the work permit"),
+        case_type="Work Permit")
+
+    case_id, request_id = await _request_with_case(db, seeded)
+    # An un-completed request carries no case id — completing it is what
+    # creates one. Delegating opened a case up front and stamped it with the
+    # request, which is the link the partner's access is found through.
+    await db.requests.update_one({"_id": ObjectId(request_id)},
+                                 {"$set": {"case_id": None}})
+    await db.cases.update_one({"_id": ObjectId(case_id)},
+                              {"$set": {"request_id": request_id}})
+    await _give_task(db, seeded["partner"], case_id=case_id,
+                     client_id=seeded["client_id"])
+
+    await requests.complete_consultation(
+        db, seeded["partner"], request_id, payload)
+
+    stored = await db.requests.find_one({"_id": ObjectId(request_id)})
+    assert stored["status"] == "completed"
+    assert stored["case_id"]
+
+
+async def test_an_undelegated_partner_cannot_touch_the_request(db, seeded):
+    from app.modules.requests import service as requests
+
+    from app.modules.requests.schemas import (RequestDocumentsRequest,
+                                              RequestedDocument)
+
+    ask = RequestDocumentsRequest(
+        documents=[RequestedDocument(name="Bank Statement")])
+
+    _case_id, request_id = await _request_with_case(db, seeded)
+
+    # No task on this case, so no handover to honour.
+    with pytest.raises(Forbidden):
+        await requests.request_documents(
+            db, seeded["outsider"], request_id, ask)
