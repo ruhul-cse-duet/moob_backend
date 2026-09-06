@@ -57,6 +57,22 @@ async def create_case(db, user: CurrentUser, data) -> Dict[str, Any]:
         "updated_at": now,
     }
     result = await db.cases.insert_one(doc)
+    case_id = str(result.inserted_id)
+
+    # Bind the request and its documents to the new case, the same way
+    # completing a consultation does. Without this the documents keep a null
+    # `case_id`, and anything scoped by case - a delegated partner's access
+    # among it - cannot see them.
+    if data.request_id:
+        await db.requests.update_one(
+            {"_id": oid(data.request_id), "case_id": None},
+            {"$set": {"case_id": case_id, "updated_at": now}},
+        )
+        await db.documents.update_many(
+            {"request_id": data.request_id},
+            {"$set": {"case_id": case_id, "updated_at": now}},
+        )
+
     return await attach_consultant(db, serialize({**doc, "_id": result.inserted_id}))
 
 

@@ -18,7 +18,8 @@ from app.schemas.common import PageParams
 from app.services import storage
 from app.services.events import log_activity, notify
 from app.services.ai_service import analyze_document
-from app.services.ownership import assert_client_access, assigned_client_ids, resolve_consultant_id
+from app.services.ownership import (assert_client_access, assigned_client_ids,
+                                     delegated_case_ids, resolve_consultant_id)
 from app.services.pagination import paginate
 
 logger = logging.getLogger("app.documents")
@@ -39,8 +40,15 @@ async def list_documents(db, user: CurrentUser, params: PageParams,
     if user.role == Role.CLIENT:
         query["client_id"] = user.id
     elif user.role == Role.PARTNER:
+        # Two ways a partner reaches a document: the whole client was handed to
+        # them, or they hold a task on its case. Listing only the first meant a
+        # delegated partner opened the case and found it empty.
         client_ids = await assigned_client_ids(db, user.id)
-        query["client_id"] = {"$in": client_ids}
+        case_ids = await delegated_case_ids(db, user.id)
+        query["$or"] = [
+            {"client_id": {"$in": client_ids}},
+            {"case_id": {"$in": case_ids}},
+        ]
     if request_id:
         query["request_id"] = request_id
     if case_id:
@@ -55,7 +63,11 @@ async def get_document(db, user: CurrentUser, document_id: str) -> Dict[str, Any
     if user.role == Role.CLIENT and doc["client_id"] != user.id:
         raise Forbidden("This document is not yours")
     if user.role == Role.PARTNER:
-        await assert_client_access(db, user, doc["client_id"])
+        # A task on this document's case is a handover of the work on it, so it
+        # carries the same authority the consultant had: read, approve, return
+        # and re-read. Without the case id only a whole-client handover counted.
+        await assert_client_access(db, user, doc["client_id"],
+                                   case_id=doc.get("case_id"))
     return serialize(doc)
 
 
@@ -200,7 +212,11 @@ async def _consultant_for(db, doc: Dict[str, Any]) -> Optional[str]:
 async def approve(db, user: CurrentUser, document_id: str) -> Dict[str, Any]:
     doc = await _get(db, document_id)
     if user.role == Role.PARTNER:
-        await assert_client_access(db, user, doc["client_id"])
+        # A task on this document's case is a handover of the work on it, so it
+        # carries the same authority the consultant had: read, approve, return
+        # and re-read. Without the case id only a whole-client handover counted.
+        await assert_client_access(db, user, doc["client_id"],
+                                   case_id=doc.get("case_id"))
     if not doc.get("file"):
         raise BadRequest("Nothing has been uploaded for this document yet")
     now = utcnow()
@@ -228,7 +244,11 @@ async def approve(db, user: CurrentUser, document_id: str) -> Dict[str, Any]:
 async def reject(db, user: CurrentUser, document_id: str, feedback: str) -> Dict[str, Any]:
     doc = await _get(db, document_id)
     if user.role == Role.PARTNER:
-        await assert_client_access(db, user, doc["client_id"])
+        # A task on this document's case is a handover of the work on it, so it
+        # carries the same authority the consultant had: read, approve, return
+        # and re-read. Without the case id only a whole-client handover counted.
+        await assert_client_access(db, user, doc["client_id"],
+                                   case_id=doc.get("case_id"))
     now = utcnow()
     await db.documents.update_one(
         {"_id": oid(document_id)},
@@ -262,7 +282,11 @@ async def comment(db, user: CurrentUser, document_id: str, text: str) -> Dict[st
 async def reanalyze(db, user: CurrentUser, document_id: str) -> Dict[str, Any]:
     doc = await _get(db, document_id)
     if user.role == Role.PARTNER:
-        await assert_client_access(db, user, doc["client_id"])
+        # A task on this document's case is a handover of the work on it, so it
+        # carries the same authority the consultant had: read, approve, return
+        # and re-read. Without the case id only a whole-client handover counted.
+        await assert_client_access(db, user, doc["client_id"],
+                                   case_id=doc.get("case_id"))
     if not doc.get("file"):
         raise BadRequest("Nothing has been uploaded for this document yet")
     # Same read as an upload does, but awaited: a consultant who pressed the

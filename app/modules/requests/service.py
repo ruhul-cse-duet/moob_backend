@@ -321,6 +321,13 @@ async def get_request(db, user: CurrentUser, request_id: str,
             "allow_upload": d_st in [DocumentStatus.UPLOAD_NEEDED.value, DocumentStatus.NEEDS_REUPLOAD.value],
             "file": d.get("file"),
             "ai_analysis": d.get("ai_analysis"),
+            # Why it came back. This view builds its own document dicts rather
+            # than serialising the record, so anything left out here simply
+            # does not reach the client - and a document returned with no
+            # reason attached is one they cannot act on.
+            "consultant_feedback": d.get("consultant_feedback"),
+            "rejected_at": d.get("rejected_at"),
+            "comments": d.get("comments", []),
         })
     out["documents"] = formatted_docs
 
