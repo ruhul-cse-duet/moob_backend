@@ -138,8 +138,6 @@ async def dashboard(user: CurrentUser = Depends(require_super_admin),
 
     orgs_total = await db.tenants.count_documents({})
     orgs_active = await db.tenants.count_documents({"status": TenantStatus.ACTIVE.value})
-    awaiting_approval = await db.tenants.count_documents(
-        {"status": TenantStatus.AWAITING_APPROVAL.value})
     suspended = await db.tenants.count_documents({"status": TenantStatus.SUSPENDED.value})
     open_tickets = await db.support_tickets.count_documents(
         {"status": {"$nin": [TicketStatus.RESOLVED.value, TicketStatus.CLOSED.value]}})
@@ -299,23 +297,15 @@ async def dashboard(user: CurrentUser = Depends(require_super_admin),
             },
         },
         "needs_attention": {
-            "awaiting_approval": awaiting_approval,
             "failed_payments": past_due_n,
             "open_tickets": open_tickets,
             "suspended": suspended,
         },
-        "approval_banner": {
-            "show": awaiting_approval > 0,
-            "count": awaiting_approval,
-            "message": (
-                f"{awaiting_approval} organization"
-                f"{'s' if awaiting_approval != 1 else ''} signed up and cannot open "
-                f"a workspace until you verify and approve "
-                f"{'them' if awaiting_approval != 1 else 'it'}."
-            ) if awaiting_approval else None,
-            "cta": "Review now",
-            "href": "/admin/organizations?tab=approval",
-        },
+        # No approval queue any more: a paid organization is live the moment it
+        # pays, so there is nothing here for an administrator to unblock. The
+        # key is kept, switched off, so a dashboard that still reads it renders
+        # nothing rather than breaking.
+        "approval_banner": {"show": False, "count": 0, "message": None},
         "revenue_by_plan": revenue_by_plan,
         "billing_summary": {
             "collected_to_date": round(collected_to_date, 2),
@@ -361,8 +351,6 @@ async def stats(user: CurrentUser = Depends(require_super_admin)):
         "organizations_total": await db.tenants.count_documents({}),
         "organizations_active": await db.tenants.count_documents(
             {"status": TenantStatus.ACTIVE.value}),
-        "awaiting_approval": await db.tenants.count_documents(
-            {"status": TenantStatus.AWAITING_APPROVAL.value}),
         "suspended": await db.tenants.count_documents(
             {"status": TenantStatus.SUSPENDED.value}),
         "accounts_total": await db.user_directory.count_documents({}),
