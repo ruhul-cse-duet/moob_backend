@@ -95,6 +95,8 @@ CATALOGUE: Dict[str, Dict[str, Any]] = {
                                 "pt": "A aguardar aprovação do consultor",
                                 "es": "Esperando aprobación del consultor"},
     "status.declined": {"en": "Declined", "pt": "Recusado", "es": "Rechazado"},
+    "status.processing": {"en": "Processing", "pt": "Em processamento",
+                          "es": "En proceso"},
     "status.new": {"en": "New request", "pt": "Novo pedido", "es": "Nueva solicitud"},
     "status.waiting_for_client": {
         "en": "Waiting for client", "pt": "A aguardar o cliente",

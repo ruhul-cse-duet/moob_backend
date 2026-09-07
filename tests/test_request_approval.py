@@ -13,6 +13,7 @@ from bson import ObjectId
 from mongomock_motor import AsyncMongoMockClient
 
 from app.core.enums import RequestStatus, Role
+from app.schemas.common import PageParams
 from app.core.exceptions import BadRequest, Forbidden
 from app.modules.requests import service
 
@@ -175,3 +176,64 @@ async def test_a_partner_cannot_open_a_request(db):
 
     with pytest.raises(Forbidden):
         await service.create_request(db, partner, _Payload(client_id=str(CLIENT_ID)))
+
+
+class TestWhatTheClientIsShown:
+    """Four honest answers, not the consultant's five queue tabs.
+
+    `new`, `waiting_for_client`, `documents_received` and `under_review` are how
+    the consultant organises their own work. To the client they all mean the
+    same thing - somebody is working on it - and showing the internal one made a
+    note the consultant wrote to themselves read as a status about the client.
+    """
+
+    def test_everything_in_the_queue_reads_as_processing(self):
+        from app.core.enums import client_status
+
+        for internal in ("new", "waiting_for_client", "documents_received",
+                         "under_review"):
+            assert client_status(internal) == "processing"
+
+    def test_the_three_the_client_acted_on_keep_their_own_word(self):
+        from app.core.enums import client_status
+
+        assert client_status("pending_approval") == "pending_approval"
+        assert client_status("completed") == "completed"
+        assert client_status("declined") == "declined"
+
+    def test_a_status_we_do_not_know_still_reads_as_work(self):
+        from app.core.enums import client_status
+
+        # Better to say "processing" than to show a raw code, or nothing.
+        assert client_status("something_added_later") == "processing"
+
+    def test_every_client_facing_status_has_words(self):
+        from app.core.enums import CLIENT_FACING_STATUS
+        from app.core.i18n import CATALOGUE
+
+        for shown in set(CLIENT_FACING_STATUS.values()):
+            assert f"status.{shown}" in CATALOGUE, shown
+
+    async def test_approving_moves_the_client_from_waiting_to_processing(self, db):
+        pending = await service.create_request(db, _client(), _Payload())
+        listed = await service.list_requests(db, _client(), PageParams())
+        assert listed["items"][0]["client_status"] == "pending_approval"
+
+        await service.approve_request(db, _consultant(), pending["id"])
+
+        listed = await service.list_requests(db, _client(), PageParams())
+        assert listed["items"][0]["status"] == RequestStatus.NEW.value
+        assert listed["items"][0]["client_status"] == "processing"
+        assert listed["items"][0]["client_status_label"] == "Processing"
+
+    async def test_a_finished_request_reads_as_completed(self, db):
+        opened = await service.create_request(
+            db, _consultant(), _Payload(client_id=str(CLIENT_ID)))
+        await db.requests.update_one(
+            {"_id": ObjectId(opened["id"])},
+            {"$set": {"status": RequestStatus.COMPLETED.value}})
+
+        listed = await service.list_requests(db, _client(), PageParams())
+        assert listed["items"][0]["client_status"] == "completed"
+
+

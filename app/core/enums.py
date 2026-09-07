@@ -86,6 +86,34 @@ class RequestStatus(str, Enum):
     DECLINED = "declined"
 
 
+#: What the *client* is shown, per internal status.
+#:
+#: The five queue states in between exist for the consultant - they are how the
+#: work is organised, not something the client acted on or can act on. Showing
+#: them was showing somebody else's workflow: a request sitting at
+#: `documents_received` reads to a client as a status about them when it is a
+#: note the consultant wrote to themselves. From outside there are four honest
+#: answers - we have not taken it yet, we are working on it, it is done, we said
+#: no - and this is the map to them.
+CLIENT_FACING_STATUS = {
+    RequestStatus.PENDING_APPROVAL: "pending_approval",
+    RequestStatus.NEW: "processing",
+    RequestStatus.WAITING_FOR_CLIENT: "processing",
+    RequestStatus.DOCUMENTS_RECEIVED: "processing",
+    RequestStatus.UNDER_REVIEW: "processing",
+    RequestStatus.COMPLETED: "completed",
+    RequestStatus.DECLINED: "declined",
+}
+
+
+def client_status(status: str) -> str:
+    """The client's word for an internal status. Unknown values read as work."""
+    try:
+        return CLIENT_FACING_STATUS[RequestStatus(status)]
+    except ValueError:
+        return "processing"
+
+
 class DocumentStatus(str, Enum):
     UPLOAD_NEEDED = "upload_needed"        # requested, client has not uploaded
     WITH_CONSULTANT = "with_consultant"    # uploaded, awaiting consultant decision

@@ -81,9 +81,10 @@ async def list_requests(status_filter: Optional[RequestStatus] = Query(None, ali
                             None, description="Only this consultant's requests"),
                         params: PageParams = Depends(page_params),
                         user: CurrentUser = Depends(get_current_user),
-                        db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+                        db: AsyncIOMotorDatabase = Depends(get_tenant_db),
+                        lang: str = Depends(request_language)):
     return await service.list_requests(db, user, params, status_filter, search,
-                                       consultant_id)
+                                       consultant_id, lang)
 
 
 @router.get("/counts", response_model=s.RequestCounts, summary="Badge counts per tab")
