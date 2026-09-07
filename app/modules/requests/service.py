@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 from app.core.deps import CurrentUser
 from app.core.i18n import DEFAULT_LANGUAGE, translate
 from app.core.enums import (
+    CONSULTANT_ROLES,
     CaseStage,
     DocumentStatus,
     NotificationType,
@@ -34,22 +35,52 @@ def _scope(user: CurrentUser) -> Dict[str, Any]:
     return {}
 
 
-async def create_request(db, user: CurrentUser, data) -> Dict[str, Any]:
-    if user.role != Role.CLIENT:
-        raise Forbidden("Only clients submit immigration requests")
+async def _client_for(db, client_id: str) -> Dict[str, Any]:
+    client = await db.users.find_one({"_id": oid(client_id),
+                                      "role": Role.CLIENT.value})
+    if not client:
+        raise NotFound("Client not found")
+    return client
 
-    seq = await next_sequence(db, "request", start=100)
-    consultant_id = data.consultant_id or user.raw.get("consultant_id")
+
+async def create_request(db, user: CurrentUser, data) -> Dict[str, Any]:
+    """Open a request - as the consultant who will do the work, or as the client.
+
+    Both roles arrive here, and what separates them is who decided the work
+    exists. A consultant opening a request for their client has already made
+    that decision, so it starts in the queue as NEW. A client is *asking*, so
+    theirs starts at PENDING_APPROVAL and is not work until the consultant takes
+    it - the queue is the consultant's own workload, and anyone with an account
+    should not be able to write into it unasked.
+    """
+    if user.role == Role.CLIENT:
+        client_id = user.id
+        client = user.raw
+        consultant_id = data.consultant_id or user.raw.get("consultant_id")
+        raised_by_consultant = False
+    elif user.role in CONSULTANT_ROLES:
+        if not data.client_id:
+            raise BadRequest("Name the client this request is for")
+        client = await _client_for(db, data.client_id)
+        client_id = str(client["_id"])
+        # A consultant may open one for a colleague's client; the field says
+        # whose caseload it lands on and defaults to their own.
+        consultant_id = data.consultant_id or user.id
+        raised_by_consultant = True
+    else:
+        raise Forbidden("Only a consultant or a client can open a request")
+
     if not consultant_id:
         owner = await db.users.find_one({"role": Role.CONSULTANT_OWNER.value})
         consultant_id = str(owner["_id"]) if owner else None
 
+    seq = await next_sequence(db, "request", start=100)
     now = utcnow()
     doc = {
         "reference": build_reference("REQ", seq),
         "visa_type": data.visa_type,
         "destination_country": data.destination_country,
-        "origin_country": user.raw.get("country_of_residence"),
+        "origin_country": client.get("country_of_residence"),
         "purpose": data.purpose,
         "additional_information": data.additional_information,
         "client_notes": data.client_notes,
@@ -57,9 +88,15 @@ async def create_request(db, user: CurrentUser, data) -> Dict[str, Any]:
         "review_notes": None,
         # A draft is a NEW request flagged as one — "draft" is not a status
         # the rest of the API (or its enum) knows about.
-        "status": RequestStatus.NEW.value,
-        "client_id": user.id,
-        "client_name": user.raw.get("full_name"),
+        "status": (RequestStatus.NEW.value if raised_by_consultant
+                   else RequestStatus.PENDING_APPROVAL.value),
+        "raised_by": user.id,
+        "raised_by_consultant": raised_by_consultant,
+        "approved_by": user.id if raised_by_consultant else None,
+        "approved_at": now if raised_by_consultant else None,
+        "decline_reason": None,
+        "client_id": client_id,
+        "client_name": client.get("full_name"),
         "consultant_id": consultant_id,
         "attached_files": data.attached_files or [],
         "is_draft": data.is_draft,
@@ -71,15 +108,81 @@ async def create_request(db, user: CurrentUser, data) -> Dict[str, Any]:
     request_id = str(result.inserted_id)
 
     if not data.is_draft:
-        await notify(db, user_ids=[consultant_id], type=NotificationType.REQUEST_SUBMITTED,
-                     title_key="notify.request_submitted",
-                     params={"client": doc["client_name"]},
-                     body=f"{doc['visa_type']} · {doc['reference']}",
-                     data={"request_id": request_id})
-        await log_activity(db, actor_id=user.id, actor_name=doc["client_name"] or "Client",
-                           action="submitted a request", subject=doc["reference"],
-                           request_id=request_id)
+        if raised_by_consultant:
+            # The client did not ask for this one, so they are who needs telling.
+            await notify(db, user_ids=[client_id],
+                         type=NotificationType.REQUEST_SUBMITTED,
+                         title_key="notify.request_opened_for_you",
+                         params={"consultant": user.raw.get("full_name") or ""},
+                         body=f"{doc['visa_type']} · {doc['reference']}",
+                         data={"request_id": request_id})
+        else:
+            await notify(db, user_ids=[consultant_id],
+                         type=NotificationType.REQUEST_SUBMITTED,
+                         title_key="notify.request_needs_approval",
+                         params={"client": doc["client_name"]},
+                         body=f"{doc['visa_type']} · {doc['reference']}",
+                         data={"request_id": request_id})
+        await log_activity(db, actor_id=user.id,
+                           actor_name=user.raw.get("full_name") or "",
+                           action=("opened a request" if raised_by_consultant
+                                   else "asked to open a request"),
+                           subject=doc["reference"], request_id=request_id)
     return serialize({**doc, "_id": result.inserted_id})
+
+
+async def approve_request(db, user: CurrentUser, request_id: str) -> Dict[str, Any]:
+    """Take a client's request into the queue."""
+    doc = await _get(db, request_id)
+    await assert_request_access(db, user, doc)
+    if doc["status"] != RequestStatus.PENDING_APPROVAL.value:
+        raise BadRequest("This request is not waiting for approval")
+
+    now = utcnow()
+    await db.requests.update_one(
+        {"_id": oid(request_id)},
+        {"$set": {"status": RequestStatus.NEW.value, "approved_by": user.id,
+                  "approved_at": now, "decline_reason": None, "updated_at": now}},
+    )
+    await notify(db, user_ids=[doc["client_id"]],
+                 type=NotificationType.REQUEST_SUBMITTED,
+                 title_key="notify.request_approved",
+                 body=f"{doc['visa_type']} · {doc['reference']}",
+                 data={"request_id": request_id})
+    await log_activity(db, actor_id=user.id, actor_name=user.raw.get("full_name") or "",
+                       action="approved a request", subject=doc["reference"],
+                       request_id=request_id)
+    return serialize(await _get(db, request_id))
+
+
+async def decline_request(db, user: CurrentUser, request_id: str,
+                          reason: str) -> Dict[str, Any]:
+    """Turn a client's request down, with a reason they can read.
+
+    The record is kept rather than deleted: the client asked for something and
+    is owed an answer, and a request that simply vanishes reads as one that was
+    lost.
+    """
+    doc = await _get(db, request_id)
+    await assert_request_access(db, user, doc)
+    if doc["status"] != RequestStatus.PENDING_APPROVAL.value:
+        raise BadRequest("This request is not waiting for approval")
+
+    now = utcnow()
+    await db.requests.update_one(
+        {"_id": oid(request_id)},
+        {"$set": {"status": RequestStatus.DECLINED.value, "decline_reason": reason,
+                  "declined_by": user.id, "declined_at": now, "updated_at": now}},
+    )
+    await notify(db, user_ids=[doc["client_id"]],
+                 type=NotificationType.REQUEST_SUBMITTED,
+                 title_key="notify.request_declined",
+                 body=reason,
+                 data={"request_id": request_id})
+    await log_activity(db, actor_id=user.id, actor_name=user.raw.get("full_name") or "",
+                       action="declined a request", subject=doc["reference"],
+                       request_id=request_id)
+    return serialize(await _get(db, request_id))
 
 
 async def get_client_dashboard(db, user: CurrentUser,
@@ -421,6 +524,11 @@ async def request_documents(db, user: CurrentUser, request_id: str, data) -> Dic
     """
     doc = await _get(db, request_id)
     await assert_request_access(db, user, doc)
+    if doc["status"] == RequestStatus.PENDING_APPROVAL.value:
+        # Asking the client for papers is the work starting. Doing it before the
+        # request is accepted tells them it was, and leaves the consultant with
+        # a checklist against something they may yet decline.
+        raise BadRequest("Approve this request before asking for documents")
     now = utcnow()
     inserts = []
     consultant_id = doc.get("consultant_id") or user.id

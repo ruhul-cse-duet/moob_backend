@@ -45,11 +45,33 @@ async def client_categories(lang: str = Depends(request_language)):
     return await service.get_client_categories(lang)
 
 
-@router.post("", status_code=status.HTTP_201_CREATED, summary="Client submits a request")
+@router.post("", status_code=status.HTTP_201_CREATED,
+             summary="Open a request (consultant) or ask for one (client)")
 async def create_request(payload: s.RequestCreate,
-                         user: CurrentUser = Depends(require_client),
+                         user: CurrentUser = Depends(get_current_user),
                          db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+    """A consultant's request enters the queue as `new` and needs `client_id`.
+
+    A client's enters as `pending_approval` and waits for the consultant to
+    approve or decline it - so a client can ask for work without being able to
+    put work into somebody else's queue.
+    """
     return await service.create_request(db, user, payload)
+
+
+@router.post("/{request_id}/approve", summary="Take a client's request into the queue")
+async def approve_request(request_id: str,
+                          user: CurrentUser = Depends(require_consultant),
+                          db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+    return await service.approve_request(db, user, request_id)
+
+
+@router.post("/{request_id}/decline",
+             summary="Turn a client's request down, with a reason they can read")
+async def decline_request(request_id: str, payload: s.RequestDecline,
+                          user: CurrentUser = Depends(require_consultant),
+                          db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+    return await service.decline_request(db, user, request_id, payload.reason)
 
 
 @router.get("", summary="Request queue (tabs: new / waiting / received / review / completed)")

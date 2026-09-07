@@ -75,11 +75,15 @@ class OtpPurpose(str, Enum):
 
 class RequestStatus(str, Enum):
     """Immigration request queue tabs on the consultant workspace."""
+    # A client may ask for a request, but the consultant decides whether it
+    # becomes work. Only a consultant-created request starts at NEW.
+    PENDING_APPROVAL = "pending_approval"
     NEW = "new"
     WAITING_FOR_CLIENT = "waiting_for_client"
     DOCUMENTS_RECEIVED = "documents_received"
     UNDER_REVIEW = "under_review"
     COMPLETED = "completed"
+    DECLINED = "declined"
 
 
 class DocumentStatus(str, Enum):
