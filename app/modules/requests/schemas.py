@@ -114,12 +114,13 @@ class CompleteConsultation(BaseModel):
 
 
 class RequestCounts(BaseModel):
+    pending_approval: int = 0
     new: int = 0
     waiting_for_client: int = 0
     documents_received: int = 0
     under_review: int = 0
     completed: int = 0
-
+    declined: int = 0
 
 class ClientDashboardSummary(BaseModel):
     client_name: str
