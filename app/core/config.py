@@ -35,9 +35,14 @@ class Settings(BaseSettings):
 
     # Mongo - database per tenant
     MONGODB_URI: str = "mongodb://localhost:27017"
-    # Connections held open even when idle. Raise it if the cluster is far from
-    # the app and first-request latency matters more than idle connections.
-    MONGO_MIN_POOL_SIZE: int = 5
+    # Connections held open even when idle. Zero by default, because a warm
+    # pool is only worth having where the database is actually reachable: the
+    # driver tops the pool up on a timer, so on a machine that cannot reach
+    # Atlas a non-zero value turns one failure into a traceback every thirty
+    # seconds, whether or not anything asked for data. Set it to 5 or so in the
+    # deployment, where the cluster is far away and a cold handshake shows up
+    # in every first request.
+    MONGO_MIN_POOL_SIZE: int = 0
     # Per process. Atlas M0 allows 500 across everything that connects to it.
     MONGO_MAX_POOL_SIZE: int = 50
     PLATFORM_DB_NAME: str = "webimove_platform"
