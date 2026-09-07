@@ -6,6 +6,7 @@ from app.core.i18n import DEFAULT_LANGUAGE, translate
 from app.core.enums import (
     CONSULTANT_ROLES,
     CaseStage,
+    client_status,
     DocumentStatus,
     NotificationType,
     RequestStatus,
@@ -261,6 +262,9 @@ async def get_client_dashboard(db, user: CurrentUser,
             # A client that would rather do its own wording is never forced
             # through the catalogue.
             "status_label": translate(f"status.{r['status']}", lang),
+            "client_status": client_status(r["status"]),
+            "client_status_label": translate(
+                f"status.{client_status(r['status'])}", lang),
             "destination_country": r.get("destination_country", ""),
             "created_at": r.get("created_at"),
             "purpose": r.get("purpose", ""),
@@ -315,7 +319,8 @@ async def get_client_categories(lang: str = DEFAULT_LANGUAGE) -> List[Dict[str, 
 async def list_requests(db, user: CurrentUser, params: PageParams,
                         status: Optional[RequestStatus] = None,
                         search: Optional[str] = None,
-                        consultant_id: Optional[str] = None) -> Dict[str, Any]:
+                        consultant_id: Optional[str] = None,
+                        lang: str = DEFAULT_LANGUAGE) -> Dict[str, Any]:
     query: Dict[str, Any] = _scope(user)
     if consultant_id:
         query["consultant_id"] = consultant_id
@@ -331,7 +336,20 @@ async def list_requests(db, user: CurrentUser, params: PageParams,
     page = await paginate(db, "requests", query, params, sort=[("created_at", -1)])
     for item in page["items"]:
         await _attach_document_counts(db, item)
+        _attach_client_status(item, lang)
     return page
+
+
+def _attach_client_status(item: Dict[str, Any], lang: str) -> None:
+    """Adds the client's view of the status beside the internal one.
+
+    Beside, not instead: the consultant's screens branch on `status` and filter
+    the queue by it, and collapsing four of those into one would take that away.
+    The client's app reads `client_status` and shows `client_status_label`.
+    """
+    code = client_status(item.get("status", ""))
+    item["client_status"] = code
+    item["client_status_label"] = translate(f"status.{code}", lang)
 
 
 async def _attach_document_counts(db, item: Dict[str, Any]) -> None:
@@ -382,6 +400,7 @@ async def get_request(db, user: CurrentUser, request_id: str,
     # file, so the same response renders in Spanish, Portuguese or English
     # without the server knowing which.
     out["status_label"] = translate(f"status.{st}", lang)
+    _attach_client_status(out, lang)
     out["status_steps"] = [
         {"key": key, "label": translate(f"step.{key}", lang), "completed": done}
         for key, done in (
