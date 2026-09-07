@@ -91,6 +91,10 @@ def resolve(*, header: Optional[str] = None, stored: Optional[str] = None) -> st
 # --------------------------------------------------------------------------- #
 CATALOGUE: Dict[str, Dict[str, Any]] = {
     # ---- request status ----
+    "status.pending_approval": {"en": "Awaiting consultant approval",
+                                "pt": "A aguardar aprovação do consultor",
+                                "es": "Esperando aprobación del consultor"},
+    "status.declined": {"en": "Declined", "pt": "Recusado", "es": "Rechazado"},
     "status.new": {"en": "New request", "pt": "Novo pedido", "es": "Nueva solicitud"},
     "status.waiting_for_client": {
         "en": "Waiting for client", "pt": "A aguardar o cliente",
@@ -336,6 +340,10 @@ CATALOGUE: Dict[str, Dict[str, Any]] = {
     "notify.client_joined": {"en": '{client} joined and raised a request', "pt": '{client} registou-se e criou um pedido', "es": '{client} se registró y creó una solicitud'},
     "notify.client_registered": {"en": '{client} joined as your client', "pt": '{client} juntou-se como seu cliente', "es": '{client} se unió como su cliente'},
     "notify.client_registered.body": {"en": 'Interested in: {interest}', "pt": 'Interesse em: {interest}', "es": 'Interesado en: {interest}'},
+    "notify.request_needs_approval": {"en": '{client} asked to open a request', "pt": '{client} pediu para abrir um processo', "es": '{client} pidió abrir una solicitud'},
+    "notify.request_approved": {"en": 'Your request was approved', "pt": 'O seu pedido foi aprovado', "es": 'Su solicitud fue aprobada'},
+    "notify.request_declined": {"en": 'Your request was not taken forward', "pt": 'O seu pedido não avançou', "es": 'Su solicitud no siguió adelante'},
+    "notify.request_opened_for_you": {"en": '{consultant} opened a request for you', "pt": '{consultant} abriu um processo para si', "es": '{consultant} abrió una solicitud para usted'},
     "notify.documents_requested": {"en": 'Your consultant requested documents', "pt": 'O seu consultor pediu documentos', "es": 'Su consultor solicitó documentos'},
     "notify.case_opened": {"en": 'Your case has been opened', "pt": 'O seu processo foi aberto', "es": 'Su caso ha sido abierto'},
     "notify.document_uploaded": {"en": '{person} uploaded {document}', "pt": '{person} carregou {document}', "es": '{person} subió {document}'},

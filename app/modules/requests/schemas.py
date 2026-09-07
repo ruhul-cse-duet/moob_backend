@@ -15,7 +15,14 @@ class RequestedDocument(BaseModel):
 
 
 class RequestCreate(BaseModel):
-    """Submitted by the client from the mobile app."""
+    """Opened by the consultant, or asked for by the client.
+
+    `client_id` is required of a consultant and ignored from a client - a client
+    can only ever open one for themselves, and reading it from the token rather
+    than the body is what makes that true rather than merely intended.
+    """
+    client_id: Optional[str] = Field(
+        None, description="Consultants only: the client this request is for")
     visa_type: str = Field(min_length=2, max_length=80)
     destination_country: str
     purpose: str = Field(min_length=2, max_length=2000)
@@ -25,6 +32,11 @@ class RequestCreate(BaseModel):
     consultant_id: Optional[str] = None
     attached_files: Optional[List[dict]] = Field(default_factory=list)
     is_draft: bool = False
+
+
+class RequestDecline(BaseModel):
+    reason: str = Field(min_length=3, max_length=1000,
+                        description="Shown to the client, so write it for them")
 
 
 class RequestUpdate(BaseModel):
