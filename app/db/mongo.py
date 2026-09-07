@@ -24,13 +24,17 @@ def connect() -> AsyncIOMotorClient:
             settings.MONGODB_URI,
             uuidRepresentation="standard",
             serverSelectionTimeoutMS=5000,
-            connectTimeoutMS=5000,
+            # Longer than server selection on purpose: a TLS handshake to a
+            # cluster on another continent can genuinely take more than five
+            # seconds, and a request never waits this long anyway - selection
+            # gives up first and returns a 503.
+            connectTimeoutMS=10000,
             tz_aware=True,
             # A pool that empties makes the next query pay for a fresh TLS
             # handshake to Atlas - three or four round trips before the query is
             # even sent, which on a cluster in another region is most of the
-            # response time. Holding a few open costs nothing and is the
-            # difference between a warm read and a cold one.
+            # response time. Off by default; see MONGO_MIN_POOL_SIZE for why
+            # that is not simply "always warm".
             minPoolSize=settings.MONGO_MIN_POOL_SIZE,
             # Motor's default is 100 per process. An M0 cluster allows 500 in
             # total, so the default lets a couple of instances plus a laptop
