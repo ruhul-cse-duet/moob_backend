@@ -346,6 +346,8 @@ CATALOGUE: Dict[str, Dict[str, Any]] = {
     "notify.request_approved": {"en": 'Your request was approved', "pt": 'O seu pedido foi aprovado', "es": 'Su solicitud fue aprobada'},
     "notify.request_declined": {"en": 'Your request was not taken forward', "pt": 'O seu pedido não avançou', "es": 'Su solicitud no siguió adelante'},
     "notify.request_opened_for_you": {"en": '{consultant} opened a request for you', "pt": '{consultant} abriu um processo para si', "es": '{consultant} abrió una solicitud para usted'},
+    "notify.request_withdrawn": {"en": '{client} withdrew a request', "pt": '{client} retirou um pedido', "es": '{client} retiró una solicitud'},
+    "notify.request_removed": {"en": 'A request was removed', "pt": 'Um pedido foi removido', "es": 'Una solicitud fue eliminada'},
     "notify.documents_requested": {"en": 'Your consultant requested documents', "pt": 'O seu consultor pediu documentos', "es": 'Su consultor solicitó documentos'},
     "notify.case_opened": {"en": 'Your case has been opened', "pt": 'O seu processo foi aberto', "es": 'Su caso ha sido abierto'},
     "notify.document_uploaded": {"en": '{person} uploaded {document}', "pt": '{person} carregou {document}', "es": '{person} subió {document}'},
