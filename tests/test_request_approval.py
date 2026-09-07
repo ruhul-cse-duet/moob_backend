@@ -237,3 +237,91 @@ class TestWhatTheClientIsShown:
         assert listed["items"][0]["client_status"] == "completed"
 
 
+
+
+class TestWithdrawingARequest:
+    """A client may take back what is still only theirs.
+
+    The line is whether a consultant has started. Before that the request is a
+    message nobody has answered; after it, files and a checklist hang off it, and
+    deleting does not undo that work - it hides it.
+    """
+
+    async def test_a_client_can_remove_one_that_is_still_waiting(self, db):
+        pending = await service.create_request(db, _client(), _Payload())
+
+        out = await service.delete_request(db, _client(), pending["id"])
+
+        assert out["deleted"] is True
+        assert await db.requests.count_documents({}) == 0
+
+    async def test_a_declined_one_can_be_cleared_away(self, db):
+        pending = await service.create_request(db, _client(), _Payload())
+        await service.decline_request(db, _consultant(), pending["id"], "Not eligible.")
+
+        await service.delete_request(db, _client(), pending["id"])
+
+        assert await db.requests.count_documents({}) == 0
+
+    async def test_work_in_progress_is_not_deletable_by_the_client(self, db):
+        opened = await service.create_request(
+            db, _consultant(), _Payload(client_id=str(CLIENT_ID)))
+
+        with pytest.raises(BadRequest):
+            await service.delete_request(db, _client(), opened["id"])
+
+        assert await db.requests.count_documents({}) == 1
+
+    async def test_a_request_with_a_case_is_never_the_clients_to_delete(self, db):
+        pending = await service.create_request(db, _client(), _Payload())
+        await db.requests.update_one({"_id": ObjectId(pending["id"])},
+                                     {"$set": {"case_id": str(ObjectId())}})
+
+        with pytest.raises(BadRequest):
+            await service.delete_request(db, _client(), pending["id"])
+
+    async def test_a_client_cannot_remove_somebody_elses(self, db):
+        pending = await service.create_request(db, _client(), _Payload())
+        stranger = _User(str(ObjectId()), Role.CLIENT, {"full_name": "Someone Else"})
+
+        with pytest.raises(Forbidden):
+            await service.delete_request(db, stranger, pending["id"])
+
+    async def test_the_consultant_can_remove_any_of_theirs(self, db):
+        opened = await service.create_request(
+            db, _consultant(), _Payload(client_id=str(CLIENT_ID)))
+
+        out = await service.delete_request(db, _consultant(), opened["id"])
+
+        assert out["deleted"] is True
+
+    async def test_the_documents_go_with_it(self, db, monkeypatch):
+        dropped = []
+
+        async def _delete_file(_db, file_id, bucket):
+            dropped.append(file_id)
+
+        monkeypatch.setattr(service.storage, "delete_file", _delete_file)
+
+        pending = await service.create_request(db, _client(), _Payload())
+        await db.documents.insert_many([
+            {"request_id": pending["id"], "name": "Passport",
+             "file": {"file_id": "gridfs-1"}},
+            {"request_id": pending["id"], "name": "Bank Statement"},
+        ])
+
+        out = await service.delete_request(db, _client(), pending["id"])
+
+        assert out["documents_removed"] == 2
+        assert await db.documents.count_documents({}) == 0
+        # The blob too - GridFS would otherwise keep it for the life of the tenant.
+        assert dropped == ["gridfs-1"]
+
+    async def test_the_consultant_is_told_when_a_client_withdraws(self, db):
+        pending = await service.create_request(db, _client(), _Payload())
+        db.told.clear()
+
+        await service.delete_request(db, _client(), pending["id"])
+
+        assert db.told[0]["user_ids"] == [str(CONSULTANT_ID)]
+        assert db.told[0]["title_key"] == "notify.request_withdrawn"

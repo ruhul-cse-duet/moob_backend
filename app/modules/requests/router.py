@@ -59,6 +59,20 @@ async def create_request(payload: s.RequestCreate,
     return await service.create_request(db, user, payload)
 
 
+@router.delete("/{request_id}", summary="Withdraw a request")
+async def delete_request(request_id: str,
+                         user: CurrentUser = Depends(get_current_user),
+                         db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+    """A client may remove their own while it is still waiting or declined.
+
+    Once a consultant has taken it on - or opened a case from it - deleting
+    would orphan the checklist and files built on it, so that is refused with a
+    message pointing at the consultant. A consultant may remove any request in
+    their own workspace.
+    """
+    return await service.delete_request(db, user, request_id)
+
+
 @router.post("/{request_id}/approve", summary="Take a client's request into the queue")
 async def approve_request(request_id: str,
                           user: CurrentUser = Depends(require_consultant),

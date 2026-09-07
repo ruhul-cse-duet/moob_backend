@@ -132,6 +132,82 @@ async def create_request(db, user: CurrentUser, data) -> Dict[str, Any]:
     return serialize({**doc, "_id": result.inserted_id})
 
 
+#: The statuses a client may withdraw their own request from.
+#:
+#: Everything else means a consultant has taken it on, and from that point the
+#: request is not only the client's: it carries a checklist somebody wrote, files
+#: somebody reviewed, and possibly a case built on top. Letting it be deleted
+#: there does not undo the work, it orphans it - so those are withdrawn by
+#: asking, which is what Messages is for.
+CLIENT_DELETABLE_STATUSES = {
+    RequestStatus.PENDING_APPROVAL.value,
+    RequestStatus.DECLINED.value,
+}
+
+
+async def delete_request(db, user: CurrentUser, request_id: str) -> Dict[str, Any]:
+    """Withdraw a request, and anything that only existed because of it.
+
+    A client may remove one they raised while it is still theirs alone - waiting
+    to be picked up, turned down, or never sent. A consultant may remove any
+    request in their workspace, because they are the one who owns the queue.
+
+    Deleting takes the request's documents with it, blobs included: a document
+    row whose request is gone is invisible in every screen that lists documents
+    by request, and its file would sit in GridFS for the life of the tenant.
+    """
+    doc = await _get(db, request_id)
+
+    if user.role == Role.CLIENT:
+        if doc["client_id"] != user.id:
+            raise Forbidden("This request is not yours")
+        if doc.get("case_id"):
+            raise BadRequest(
+                "A case has already been opened from this request. "
+                "Message your consultant to close it."
+            )
+        if not doc.get("is_draft") and doc["status"] not in CLIENT_DELETABLE_STATUSES:
+            raise BadRequest(
+                "Your consultant is already working on this request. "
+                "Message them to withdraw it."
+            )
+    elif user.role in CONSULTANT_ROLES:
+        await assert_request_access(db, user, doc)
+    else:
+        raise Forbidden("Only a consultant or the client can remove a request")
+
+    removed_documents = 0
+    async for document in db.documents.find({"request_id": request_id},
+                                            {"file": 1}):
+        stored = (document.get("file") or {}).get("file_id")
+        if stored:
+            await storage.delete_file(db, stored, storage.DOCUMENTS_BUCKET)
+        removed_documents += 1
+    await db.documents.delete_many({"request_id": request_id})
+    await db.requests.delete_one({"_id": oid(request_id)})
+
+    # Told only when somebody other than the owner of the queue did it - a
+    # consultant deleting their own client's request should not ping themselves.
+    if user.role == Role.CLIENT and doc.get("consultant_id"):
+        await notify(db, user_ids=[doc["consultant_id"]],
+                     type=NotificationType.REQUEST_SUBMITTED,
+                     title_key="notify.request_withdrawn",
+                     params={"client": doc.get("client_name") or ""},
+                     body=f"{doc.get('visa_type', '')} · {doc.get('reference', '')}")
+    elif user.role in CONSULTANT_ROLES and doc.get("client_id"):
+        await notify(db, user_ids=[doc["client_id"]],
+                     type=NotificationType.REQUEST_SUBMITTED,
+                     title_key="notify.request_removed",
+                     body=f"{doc.get('visa_type', '')} · {doc.get('reference', '')}")
+
+    await log_activity(db, actor_id=user.id, actor_name=user.raw.get("full_name") or "",
+                       action="withdrew a request", subject=doc.get("reference", ""))
+
+    return {"id": request_id, "deleted": True,
+            "reference": doc.get("reference", ""),
+            "documents_removed": removed_documents}
+
+
 async def approve_request(db, user: CurrentUser, request_id: str) -> Dict[str, Any]:
     """Take a client's request into the queue."""
     doc = await _get(db, request_id)
