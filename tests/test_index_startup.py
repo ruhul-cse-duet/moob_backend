@@ -112,11 +112,15 @@ async def test_one_failing_index_does_not_abandon_the_rest(monkeypatch, caplog):
     assert any("could not be created" in r.message for r in caplog.records)
 
 
-async def test_a_total_failure_still_returns(monkeypatch):
-    """An unreachable database must leave the API bootable.
+async def test_a_total_failure_is_reported_as_one(monkeypatch):
+    """Every index failing is the database being gone, and must be said so.
 
-    `main.lifespan` already treats a failed connect as degraded mode rather than
-    a failed boot; this keeps that true when the failure happens here instead.
+    A single failure is a stale constraint - the API runs, just slower. All of
+    them failing is a connection that does not exist, and swallowing that is
+    what let startup log "Database connected; indexes ready" over an Atlas
+    cluster that was refusing every handshake. The honest message - the one
+    naming MONGODB_URI and the IP allowlist - lives in `main.lifespan`, and it
+    only prints if something is raised for it to catch.
     """
     async def always_fails(self, *args, **kwargs):
         raise RuntimeError("no route to host")
@@ -124,4 +128,46 @@ async def test_a_total_failure_still_returns(monkeypatch):
     monkeypatch.setattr(RecordingCollection, "create_index", always_fails)
     monkeypatch.setattr(indexes, "platform_db", lambda: RecordingDb())
 
-    await indexes.ensure_platform_indexes()  # does not raise
+    with pytest.raises(RuntimeError, match="no route to host"):
+        await indexes.ensure_platform_indexes()
+
+
+async def test_the_api_still_boots_when_the_database_is_gone(monkeypatch):
+    """Raising above must not turn a degraded boot into a failed one.
+
+    This is the property the previous version of the test above was really
+    protecting - it just protected it in the wrong place, by staying silent
+    here instead of letting the caller decide.
+    """
+    from app import main
+
+    async def unreachable():
+        raise RuntimeError("no route to host")
+
+    monkeypatch.setattr(main, "connect", lambda: None)
+    monkeypatch.setattr(main, "ensure_platform_indexes", unreachable)
+
+    # Not caplog: `setup_logging` gives the app its own handlers and stops
+    # propagation, so pytest's capture never sees these records. Listening on
+    # the logger itself is what actually observes what an operator would read.
+    import logging
+
+    heard = []
+
+    class _Listen(logging.Handler):
+        def emit(self, record):
+            heard.append(record.getMessage())
+
+    handler = _Listen(level=logging.ERROR)
+    logging.getLogger("app.main").addHandler(handler)
+    try:
+        async with main.lifespan(main.app):
+            pass
+    finally:
+        logging.getLogger("app.main").removeHandler(handler)
+
+    said = " ".join(heard)
+    assert "degraded mode" in said
+    # The two settings that actually cause this, named where somebody will read
+    # them at three in the morning.
+    assert "MONGODB_URI" in said and "allowlist" in said
