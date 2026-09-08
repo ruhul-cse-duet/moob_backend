@@ -1,8 +1,10 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import (AliasChoices, BaseModel, EmailStr, Field, field_validator,
+from pydantic import (AliasChoices, BaseModel, Field, field_validator,
                       model_validator)
+
+from app.core.validators import Email, Phone
 
 from app.core.enums import BillingCycle, LoginPortalRole, PlanCode, Role
 
@@ -23,8 +25,8 @@ class PasswordMixin(BaseModel):
 # ---------- Step 1 of 6 - Personal ----------
 class SignupPersonal(BaseModel):
     full_name: str = Field(min_length=2, max_length=120)
-    email: EmailStr
-    mobile: str = Field(min_length=6, max_length=32)
+    email: Email
+    mobile: Phone
     dob: Optional[str] = Field(None, description="Date of birth (optional)")
     profile_photo_url: Optional[str] = Field(None, description="Profile photo URL (optional)")
 
@@ -54,11 +56,11 @@ class SignupOrganization(BaseModel):
 
 # ---------- Step 3 of 6 - Verify Email OTP ----------
 class OtpRequest(BaseModel):
-    email: EmailStr
+    email: Email
 
 
 class OtpVerify(BaseModel):
-    email: EmailStr
+    email: Email
     code: str = Field(min_length=4, max_length=8)
 
 
@@ -177,7 +179,7 @@ class TenantActivated(BaseModel):
 # ---------- Login ----------
 class PlatformLoginRequest(BaseModel):
     """Platform administration sign-in (no role picker)."""
-    email: EmailStr
+    email: Email
     password: str
     trust_device: bool = True
 
@@ -189,7 +191,7 @@ class LoginRequest(BaseModel):
     the account is refused if it is anything else; a caller with one sign-in box
     omits it and the account's own role is used.
     """
-    email: EmailStr
+    email: Email
     password: str
     role: Optional[LoginPortalRole] = None
     trust_device: bool = False
@@ -229,7 +231,7 @@ class LoginResponse(BaseModel):
 
 
 class TwoFactorVerify(BaseModel):
-    email: EmailStr
+    email: Email
     code: str = Field(min_length=4, max_length=8)
 
     # Optional for the same reason as LoginRequest: send it and step two is held
@@ -242,11 +244,11 @@ class RefreshRequest(BaseModel):
 
 
 class ForgotPasswordRequest(BaseModel):
-    email: EmailStr
+    email: Email
 
 
 class ResetPasswordRequest(PasswordMixin):
-    email: EmailStr
+    email: Email
     code: str
     confirm_password: str
 
@@ -291,8 +293,8 @@ class ClientRegister(PasswordMixin):
         None, description="Optional. If given without consultant_id, the workspace "
                           "owner becomes the consultant.")
     full_name: str = Field(min_length=2, max_length=120)
-    email: EmailStr
-    mobile: str
+    email: Email
+    mobile: Phone
     confirm_password: Optional[str] = None
     passport_number: Optional[str] = None
     nationality: Optional[str] = None
@@ -323,8 +325,8 @@ class ClientOnboardingToken(BaseModel):
 # Step 1: Account
 class ClientSignupStep1(BaseModel):
     full_name: str = Field(min_length=2, max_length=120)
-    email: EmailStr
-    mobile: str = Field(min_length=6, max_length=32)
+    email: Email
+    mobile: Phone
     dob: Optional[str] = Field(None, description="Date of birth (YYYY-MM-DD or MM/DD/YYYY)")
     accept_terms: bool = Field(..., description="Accept terms and privacy policy")
     profile_photo_url: Optional[str] = Field(None, description="Optional profile photo URL")
@@ -429,7 +431,7 @@ class ClientSignupCompleteResponse(BaseModel):
 
 class InvitePreview(BaseModel):
     """What the accept-invitation screen shows before asking for a password."""
-    email: EmailStr
+    email: Email
     full_name: Optional[str] = None
     role: Role
     partner_role: Optional[str] = None
