@@ -1,0 +1,56 @@
+# The test suite, on every push and every pull request.
+#
+# Separate from deploy.yml on purpose: this one runs on branches and forks and
+# is safe to run anywhere, because it needs no secrets and touches nothing
+# outside the runner. Deployment is the workflow that holds the SSH key, and it
+# only ever runs on main.
+name: Tests
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  # One run per branch. A second push while the first is still going cancels it
+  # rather than queueing - the older result is about to be irrelevant anyway.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # The same version the Dockerfile builds on. Testing against a
+          # different interpreter than production runs is how a passing suite
+          # ships a break.
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install
+        run: pip install -r requirements-dev.txt
+
+      - name: Run the suite
+        # No database, no network: the suite uses mongomock and stubs every
+        # outbound call, which is what lets it run here at all.
+        run: pytest -q
+
+      - name: Check the app actually imports
+        # A test suite that never builds the FastAPI app can pass while the app
+        # itself fails at startup - a bad import, a route decorated twice, a
+        # setting with no default. This is the cheapest possible catch for that.
+        env:
+          JWT_SECRET_KEY: ci-only-not-a-real-secret
+        run: python -c "import app.main; print('app imports cleanly')"
