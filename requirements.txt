@@ -14,6 +14,9 @@ jinja2==3.1.5
 anthropic
 httpx==0.28.1
 python-slugify==8.0.4
+# Google's libphonenumber. Pinned because the number rules it carries are
+# data, not just code - a version bump can change which numbers validate.
+phonenumbers==9.0.38
 # Pinned, not floated. StripeObject stopped being a dict subclass in 12 and
 # the list wrapper raises on .get, so the range 11..15 spans real behaviour
 # changes - an unpinned build could run an SDK nothing here was tested on.

@@ -1,14 +1,16 @@
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
+
+from app.core.validators import Email, OptionalPhone, Phone
 
 from app.core.enums import Role, UserStatus
 
 
 class ProfileUpdate(BaseModel):
     full_name: Optional[str] = Field(None, min_length=2, max_length=120)
-    mobile: Optional[str] = None
+    mobile: OptionalPhone = None
     title: Optional[str] = None
     language: Optional[str] = None
     nationality: Optional[str] = None
@@ -18,15 +20,15 @@ class ProfileUpdate(BaseModel):
 
 class TeamInvite(BaseModel):
     full_name: str
-    email: EmailStr
-    mobile: Optional[str] = None
+    email: Email
+    mobile: OptionalPhone = None
     title: str = "Consultant"
 
 
 class ClientCreate(BaseModel):
     full_name: str
-    email: EmailStr
-    mobile: str
+    email: Email
+    mobile: Phone
     nationality: Optional[str] = None
     language: Optional[str] = None
     country_of_residence: Optional[str] = None
@@ -40,8 +42,8 @@ class AssignPartnerPayload(BaseModel):
 class UserOut(BaseModel):
     id: str
     full_name: str
-    email: EmailStr
-    mobile: Optional[str] = None
+    email: Email
+    mobile: OptionalPhone = None
     role: Role
     title: Optional[str] = None
     partner_role: Optional[str] = None
@@ -77,8 +79,8 @@ class ClientDetailView(BaseModel):
     id: str
     full_name: str
     status: str = "Active"
-    email: EmailStr
-    mobile: Optional[str] = None
+    email: Email
+    mobile: OptionalPhone = None
     country: Optional[str] = None
     consultant_id: str
     partner_id: Optional[str] = None

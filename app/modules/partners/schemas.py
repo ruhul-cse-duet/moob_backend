@@ -1,23 +1,25 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
+
+from app.core.validators import Email, OptionalPhone, Phone
 
 from app.core.enums import UserStatus
 
 
 class PartnerInvite(BaseModel):
     full_name: str = Field(min_length=2, max_length=120)
-    email: EmailStr
-    mobile: str
+    email: Email
+    mobile: Phone
     role: str = Field(description="e.g. Certified Translator, Notary, Legal Document Specialist")
 
 
 class PartnerOut(BaseModel):
     id: str
     full_name: str
-    email: EmailStr
-    mobile: Optional[str] = None
+    email: Email
+    mobile: OptionalPhone = None
     partner_role: Optional[str] = None
     status: UserStatus
     consultant_id: Optional[str] = None

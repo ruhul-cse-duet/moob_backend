@@ -153,6 +153,12 @@ class Settings(BaseSettings):
     # is the main cost dial: drop to "low" for cheaper, shallower answers.
     ANTHROPIC_EFFORT: str = "medium"
 
+    # Two-letter country code (ISO 3166-1, e.g. "PT") assumed for a phone number
+    # typed without a country code. Empty means none is assumed and the code is
+    # required - the right default for a platform whose consultants and clients
+    # are in different countries by definition.
+    DEFAULT_PHONE_REGION: str = ""
+
     # Storage - files live in GridFS inside each tenant database, not on disk
     MAX_UPLOAD_MB: int = 25
 
