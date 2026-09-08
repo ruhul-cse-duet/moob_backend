@@ -1,0 +1,92 @@
+# Docker Swarm stack for the DigitalOcean droplet.
+#
+# The droplet already runs another Swarm stack (`webimove`) with its own
+# Traefik, Postgres and two frontends, live on clientes.webimove.com. This
+# deploys beside it rather than over it: nothing here touches that stack, and
+# the two APIs do not collide because they answer on different path prefixes -
+# the old one on /v1, this one on /api/v1.
+#
+# Deploy:
+#   docker stack deploy -c docker-stack.yml --with-registry-auth moob
+#
+# Update after a git pull:
+#   docker build -t moob-backend:latest . && docker service update --force moob_api
+#
+# `docker compose up` is the wrong tool here - the node is a Swarm manager and
+# Traefik discovers routes from *service* labels, which only exist under
+# `deploy:`. Container labels are invisible to it.
+
+services:
+  api:
+    image: moob-backend:latest
+    build: .
+    env_file: .env
+    environment:
+      # The database lives beside this service on a private network of its own.
+      MONGODB_URI: mongodb://moob-mongo:27017
+      # Traefik terminates TLS and forwards; without this every caller looks
+      # like the proxy, which breaks the login throttle and the audit trail.
+      TRUST_PROXY_HEADERS: "true"
+    networks:
+      # Two networks on purpose: Traefik has to reach the API, and the API has
+      # to reach Mongo - but Traefik and the other stack have no business
+      # reaching the database.
+      - webimove_internal
+      - moob_internal
+    deploy:
+      replicas: 1
+      labels:
+        traefik.enable: "true"
+        # The service sits on two networks, so Traefik has to be told which one
+        # to dial. Without this it picks one and half the requests time out.
+        traefik.docker.network: webimove_internal
+
+        # The REST API. A different prefix from the old backend's /v1, so both
+        # answer on the same host without either being rerouted.
+        traefik.http.routers.moobapi.entrypoints: websecure
+        traefik.http.routers.moobapi.rule: "Host(`clientes.webimove.com`) && PathPrefix(`/api`)"
+        traefik.http.routers.moobapi.tls: "true"
+        traefik.http.routers.moobapi.tls.certresolver: letsencrypt
+
+        # Socket.IO is a separate path and therefore a separate router. Traefik
+        # upgrades WebSocket connections on its own - no extra configuration -
+        # but it will not route a path no router claims, and live messaging is
+        # silently dead when this is missing.
+        traefik.http.routers.moobsocket.entrypoints: websecure
+        traefik.http.routers.moobsocket.rule: "Host(`clientes.webimove.com`) && PathPrefix(`/socket.io`)"
+        traefik.http.routers.moobsocket.tls: "true"
+        traefik.http.routers.moobsocket.tls.certresolver: letsencrypt
+
+        traefik.http.services.moobapi.loadbalancer.server.port: "8000"
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+      restart_policy:
+        condition: on-failure
+
+  moob-mongo:
+    image: mongo:7
+    # No `ports:` at all. The database is reachable only from `moob_internal`,
+    # which only this stack's API is on. Publishing 27017 would put an
+    # unauthenticated Mongo on the public internet.
+    volumes:
+      - moob_mongo_data:/data/db
+    networks:
+      - moob_internal
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+networks:
+  # Traefik's network, created by the stack that already runs here. External,
+  # because this file must never try to own or recreate it.
+  webimove_internal:
+    external: true
+  moob_internal:
+    driver: overlay
+
+volumes:
+  moob_mongo_data:

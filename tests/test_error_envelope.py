@@ -150,9 +150,23 @@ class TestSecurityHeaders:
         ("/", False),
     ])
     def test_only_the_documentation_paths_are_relaxed(self, path, expected):
+        """Which paths count as documentation, when documentation is served.
+
+        `ENABLE_DOCS` is pinned rather than assumed: settings are read from a
+        `.env` file, so without this the answer depends on how the developer
+        running the suite has configured their own machine - and it did, quietly,
+        until somebody set ENABLE_DOCS=false there and four tests turned red on
+        one laptop while CI stayed green.
+        """
+        from app.core.config import settings
         from app.core.errors import is_docs_path
 
-        assert is_docs_path(path) is expected
+        original = settings.ENABLE_DOCS
+        settings.ENABLE_DOCS = True
+        try:
+            assert is_docs_path(path) is expected
+        finally:
+            settings.ENABLE_DOCS = original
 
     def test_nothing_is_relaxed_when_docs_are_switched_off(self):
         """With ENABLE_DOCS=false those routes do not exist, so a request for
