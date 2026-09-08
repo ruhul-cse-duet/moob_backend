@@ -184,6 +184,15 @@ async def delete_request(db, user: CurrentUser, request_id: str) -> Dict[str, An
             await storage.delete_file(db, stored, storage.DOCUMENTS_BUCKET)
         removed_documents += 1
     await db.documents.delete_many({"request_id": request_id})
+
+    # The request's own supporting material (added via POST .../attachments)
+    # lives in the same bucket but never made it into `documents` - without
+    # this it survives the request that owned it.
+    for attachment in doc.get("attached_files") or []:
+        if attachment.get("file_id"):
+            await storage.delete_file(
+                db, attachment["file_id"], attachment.get("bucket", storage.DOCUMENTS_BUCKET))
+
     await db.requests.delete_one({"_id": oid(request_id)})
 
     # Told only when somebody other than the owner of the queue did it - a
@@ -391,7 +400,6 @@ async def get_client_categories(lang: str = DEFAULT_LANGUAGE) -> List[Dict[str, 
             for vid in ids]
 
 
-
 async def list_requests(db, user: CurrentUser, params: PageParams,
                         status: Optional[RequestStatus] = None,
                         search: Optional[str] = None,
@@ -438,7 +446,8 @@ async def _attach_document_counts(db, item: Dict[str, Any]) -> None:
         {"request_id": rid, "status": DocumentStatus.WITH_CONSULTANT.value}
     )
     item["documents_action_required"] = await db.documents.count_documents(
-        {"request_id": rid, "status": {"$in": [DocumentStatus.UPLOAD_NEEDED.value, DocumentStatus.NEEDS_REUPLOAD.value]}}
+        {"request_id": rid,
+         "status": {"$in": [DocumentStatus.UPLOAD_NEEDED.value, DocumentStatus.NEEDS_REUPLOAD.value]}}
     )
 
 
@@ -459,7 +468,7 @@ async def get_request(db, user: CurrentUser, request_id: str,
     await _attach_document_counts(db, out)
 
     if user.role == Role.CLIENT:
-        out.pop("review_notes", None)   # private working notes stay with the consultant
+        out.pop("review_notes", None)  # private working notes stay with the consultant
 
     # Step progress tracking (Image 1 & Image 2 top status banner)
     st = out.get("status", "new")
@@ -508,13 +517,15 @@ async def get_request(db, user: CurrentUser, request_id: str,
     formatted_docs = []
     for d in raw_docs:
         d_st = d.get("status", "upload_needed")
-        d_badge = "Approved" if d_st == DocumentStatus.APPROVED.value else ("Under Review" if d_st == DocumentStatus.WITH_CONSULTANT.value else "Action Required")
+        d_badge = "Approved" if d_st == DocumentStatus.APPROVED.value else (
+            "Under Review" if d_st == DocumentStatus.WITH_CONSULTANT.value else "Action Required")
         formatted_docs.append({
             "id": d["id"],
             "name": d.get("name", ""),
             "status": d_st,
             "status_badge": d_badge,
-            "description": d.get("why") or d.get("description") or f"Your {d.get('name', 'document').lower()} requirement.",
+            "description": d.get("why") or d.get(
+                "description") or f"Your {d.get('name', 'document').lower()} requirement.",
             "due_date": d.get("due_date"),
             "submitted_at": d.get("updated_at") or d.get("created_at"),
             "allow_upload": d_st in [DocumentStatus.UPLOAD_NEEDED.value, DocumentStatus.NEEDS_REUPLOAD.value],
@@ -536,7 +547,6 @@ async def get_request(db, user: CurrentUser, request_id: str,
             {k: v for k, v in client.items() if k != "password_hash"}
         )
     return out
-
 
 
 async def update_request(db, user: CurrentUser, request_id: str, data) -> Dict[str, Any]:
@@ -752,7 +762,7 @@ async def get_consultant_dashboard(db, user: CurrentUser,
     query = {"consultant_id": cid} if cid else {}
 
     unread = await db.notifications.count_documents({"user_id": user.id, "read": False})
-    
+
     # Counts
     new_reqs = await db.requests.count_documents({**query, "status": RequestStatus.NEW.value})
     under_review = await db.requests.count_documents({**query, "status": RequestStatus.UNDER_REVIEW.value})
@@ -809,4 +819,3 @@ async def get_consultant_dashboard(db, user: CurrentUser,
         "open_requests": open_reqs,
         "recent_activity": activities,
     }
-
