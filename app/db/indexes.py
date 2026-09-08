@@ -30,9 +30,19 @@ async def _gather(tasks: List[Coroutine[Any, Any, Any]], label: str) -> None:
     """
     results = await asyncio.gather(*tasks, return_exceptions=True)
     failures = [r for r in results if isinstance(r, BaseException)]
-    if failures:
-        logger.warning("%s: %d of %d indexes could not be created; first was %s",
-                       label, len(failures), len(results), failures[0])
+    if not failures:
+        return
+
+    logger.warning("%s: %d of %d indexes could not be created; first was %s",
+                   label, len(failures), len(results), failures[0])
+
+    # Every single one failing is not a stale constraint - it is the database
+    # being unreachable, and swallowing that reported "indexes ready" over a
+    # connection that did not exist. The caller decides what to do about it;
+    # startup boots degraded and says which settings to check, which is the
+    # message that was being hidden.
+    if len(failures) == len(results):
+        raise failures[0]
 
 
 async def ensure_platform_indexes() -> None:

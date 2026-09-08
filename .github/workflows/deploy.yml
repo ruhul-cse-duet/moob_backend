@@ -126,7 +126,12 @@ jobs:
           #
           # Python rather than curl: the image is python:3.12-slim, which
           # ships no curl.
-          probe='import urllib.request as u; print(u.urlopen("http://localhost:8000/health", timeout=5).read().decode())'
+          #
+          # 20s, not 5: /health pings Atlas, and the driver's own server
+          # selection timeout is 5s. A probe that gives up at the same
+          # moment can only ever report a timeout - never the answer,
+          # which is the one thing worth reading.
+          probe='import urllib.request as u; print(u.urlopen("http://localhost:8000/health", timeout=20).read().decode())'
           for attempt in $(seq 1 20); do
             body=$(ssh -i ~/.ssh/deploy_key "${USER}@${HOST}" \
               "docker exec \$(docker ps -qf name=moob_api) python -c '${probe}'" 2>/dev/null || true)
