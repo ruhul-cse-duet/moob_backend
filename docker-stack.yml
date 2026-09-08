@@ -6,11 +6,12 @@
 # the two APIs do not collide because they answer on different path prefixes -
 # the old one on /v1, this one on /api/v1.
 #
-# Deploy:
-#   docker stack deploy -c docker-stack.yml --with-registry-auth moob
+# The database is MongoDB Atlas, configured through MONGODB_URI in .env on the
+# droplet. Nothing here overrides it: the connection string is a secret and
+# belongs in that file, not in a repository.
 #
-# Update after a git pull:
-#   docker build -t moob-backend:latest . && docker service update --force moob_api
+# Deploy:
+#   docker build -t moob-backend:latest . && docker stack deploy -c docker-stack.yml --resolve-image never moob
 #
 # `docker compose up` is the wrong tool here - the node is a Swarm manager and
 # Traefik discovers routes from *service* labels, which only exist under
@@ -20,25 +21,26 @@ services:
   api:
     image: moob-backend:latest
     build: .
+    # Everything comes from here, MONGODB_URI included. Deliberately not
+    # repeated under `environment:` below - that key wins over env_file, so a
+    # value left there silently overrides whatever the operator configured.
     env_file: .env
     environment:
-      # The database lives beside this service on a private network of its own.
-      MONGODB_URI: mongodb://moob-mongo:27017
       # Traefik terminates TLS and forwards; without this every caller looks
       # like the proxy, which breaks the login throttle and the audit trail.
       TRUST_PROXY_HEADERS: "true"
+      # Atlas is not on this machine, so a cold pool costs a full TLS handshake
+      # - three or four round trips - on the first query after an idle spell.
+      # Holding a few connections open is what stops that showing up in
+      # somebody's login.
+      MONGO_MIN_POOL_SIZE: "5"
     networks:
-      # Two networks on purpose: Traefik has to reach the API, and the API has
-      # to reach Mongo - but Traefik and the other stack have no business
-      # reaching the database.
+      # Traefik's own network. The API needs no other: the database is remote.
       - webimove_internal
-      - moob_internal
     deploy:
       replicas: 1
       labels:
         traefik.enable: "true"
-        # The service sits on two networks, so Traefik has to be told which one
-        # to dial. Without this it picks one and half the requests time out.
         traefik.docker.network: webimove_internal
 
         # The REST API. A different prefix from the old backend's /v1, so both
@@ -66,27 +68,8 @@ services:
       restart_policy:
         condition: on-failure
 
-  moob-mongo:
-    image: mongo:7
-    # No `ports:` at all. The database is reachable only from `moob_internal`,
-    # which only this stack's API is on. Publishing 27017 would put an
-    # unauthenticated Mongo on the public internet.
-    volumes:
-      - moob_mongo_data:/data/db
-    networks:
-      - moob_internal
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
-
 networks:
   # Traefik's network, created by the stack that already runs here. External,
   # because this file must never try to own or recreate it.
   webimove_internal:
     external: true
-  moob_internal:
-    driver: overlay
-
-volumes:
-  moob_mongo_data:

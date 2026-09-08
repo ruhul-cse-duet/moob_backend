@@ -117,11 +117,19 @@ jobs:
           set -uo pipefail
           # Swarm replaces the task rather than restarting it, so there is a
           # window where the old container is going and the new one is not up.
-          # Polling from inside the droplet skips DNS and TLS, so what this
-          # measures is the app starting - not the proxy noticing.
+          #
+          # Asked from *inside* the container, for two reasons. The service
+          # publishes no ports - Traefik reaches it over an overlay network -
+          # so nothing is listening on the droplet's own localhost. And
+          # /health sits at the app root rather than under /api, the only
+          # prefix Traefik routes here, so it has no public address either.
+          #
+          # Python rather than curl: the image is python:3.12-slim, which
+          # ships no curl.
+          probe='import urllib.request as u; print(u.urlopen("http://localhost:8000/health", timeout=5).read().decode())'
           for attempt in $(seq 1 20); do
             body=$(ssh -i ~/.ssh/deploy_key "${USER}@${HOST}" \
-              "curl -sf --max-time 5 http://localhost:8000/health || true" 2>/dev/null)
+              "docker exec \$(docker ps -qf name=moob_api) python -c '${probe}'" 2>/dev/null || true)
             case "$body" in
               *'"database":true'*|*'"database": true'*)
                 echo "Healthy: $body"
