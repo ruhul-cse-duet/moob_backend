@@ -159,6 +159,15 @@ class Settings(BaseSettings):
     # are in different countries by definition.
     DEFAULT_PHONE_REGION: str = ""
 
+    # The language everything is written in when nothing else says otherwise -
+    # an email to somebody with no account yet, a push notification, a response
+    # to a caller that sent no Accept-Language. One of en | pt | es.
+    #
+    # A setting rather than a constant because it is a business decision, not a
+    # technical one: an operator serving a Spanish-speaking market should not
+    # need a code change and a deploy to say so.
+    DEFAULT_LANGUAGE: str = "es"
+
     # Storage - files live in GridFS inside each tenant database, not on disk
     MAX_UPLOAD_MB: int = 25
 

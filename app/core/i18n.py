@@ -18,12 +18,19 @@ Which language a response uses, in order:
    its UI is showing, so a response always matches the screen it lands on;
 2. the language saved on the account, for anything written when no request is
    in flight - an email, a push notification, a scheduled reminder;
-3. English.
+3. ``DEFAULT_LANGUAGE`` - what the platform speaks when nobody has said.
 """
 from enum import Enum
 from typing import Any, Dict, Optional
 
-DEFAULT_LANGUAGE = "en"
+from app.core.config import settings
+
+#: Last resort when a translation is missing entirely. Not the same thing as
+#: the default language: every key is written in English first, so English is
+#: what exists when a `pt` or `es` rendering has not been added yet. Falling
+#: back to the configured default instead would answer a missing Spanish string
+#: with nothing at all.
+FALLBACK_LANGUAGE = "en"
 
 
 class Language(str, Enum):
@@ -42,6 +49,15 @@ LANGUAGE_NAMES = {
 }
 
 _SUPPORTED = {lang.value for lang in Language}
+
+#: What the platform speaks when nothing else has said. Read from the settings
+#: so an operator can change it, and validated here so a typo in the environment
+#: cannot leave the whole API answering in a language that does not exist.
+DEFAULT_LANGUAGE = (
+    str(settings.DEFAULT_LANGUAGE or "").strip().lower().replace("_", "-").split("-")[0]
+)
+if DEFAULT_LANGUAGE not in _SUPPORTED:
+    DEFAULT_LANGUAGE = FALLBACK_LANGUAGE
 
 
 def normalize(value: Optional[str]) -> Optional[str]:
@@ -406,7 +422,13 @@ def translate(key: str, language: Optional[str] = None, **params: Any) -> str:
     if entry is None:
         return key
 
-    text = entry.get(normalize(language) or DEFAULT_LANGUAGE) or entry.get(DEFAULT_LANGUAGE)
+    text = (entry.get(normalize(language) or DEFAULT_LANGUAGE)
+            or entry.get(DEFAULT_LANGUAGE)
+            # English last: every key is written in English first, so this is
+            # what exists when a translation has not been added yet. Without it
+            # a default of `es` would turn a missing Spanish string into a raw
+            # key on screen.
+            or entry.get(FALLBACK_LANGUAGE))
     if text is None:
         return key
 

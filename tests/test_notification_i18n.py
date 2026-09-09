@@ -17,6 +17,7 @@ from bson import ObjectId
 from mongomock_motor import AsyncMongoMockClient
 
 from app.core.enums import NotificationType
+from app.core.i18n import DEFAULT_LANGUAGE, translate
 from app.services import events
 
 ES_USER = ObjectId()
@@ -156,19 +157,21 @@ class TestPush:
         assert len(db.pushes[0]["users"]) == 3
 
     @pytest.mark.asyncio
-    async def test_an_account_with_no_language_gets_english(self, db):
+    async def test_an_account_with_no_language_gets_the_platforms(self, db):
         await db.users.insert_one({"_id": EN_USER})
 
         await events.notify(
             db, user_ids=[str(EN_USER)], type=NotificationType.DOCUMENT_APPROVED,
             title_key="notify.document_approved", params={"document": "p.pdf"})
 
-        assert db.pushes[0]["title"] == "p.pdf approved"
+        assert db.pushes[0]["title"] == translate(
+            "notify.document_approved", DEFAULT_LANGUAGE, document="p.pdf")
 
     @pytest.mark.asyncio
     async def test_a_failed_language_lookup_still_delivers(self, db, monkeypatch):
         """Best effort in the direction that matters: not knowing someone's
-        language costs them English, never a notification that never arrives."""
+        language costs them the platform's default, never a notification that
+        never arrives."""
         class Unreadable:
             def find(self, *a, **k):
                 raise RuntimeError("users collection unavailable")
@@ -182,8 +185,9 @@ class TestPush:
             db, user_ids=[str(ES_USER)], type=NotificationType.DOCUMENT_APPROVED,
             title_key="notify.document_approved", params={"document": "p.pdf"})
 
-        # Delivered, in the fallback language rather than not at all.
-        assert db.pushes[0]["title"] == "p.pdf approved"
+        # Delivered, in the platform's language rather than not at all.
+        assert db.pushes[0]["title"] == translate(
+            "notify.document_approved", DEFAULT_LANGUAGE, document="p.pdf")
 
 
 class TestCatalogueCoverage:
