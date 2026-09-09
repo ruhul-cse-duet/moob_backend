@@ -53,7 +53,7 @@ class TestLanguageResolution:
     def test_the_saved_preference_covers_a_request_with_no_header(self):
         assert resolve(stored="es") == "es"
 
-    def test_english_is_the_floor(self):
+    def test_the_platforms_language_is_the_floor(self):
         assert resolve() == DEFAULT_LANGUAGE
         assert resolve(header="fr", stored="de") == DEFAULT_LANGUAGE
 
@@ -63,7 +63,8 @@ class TestLanguageResolution:
             raw = {"language": "pt"}
 
         assert language_for(User()) == "pt"
-        assert language_for(None) == "en"
+        # Nobody to ask: the platform's own language, whatever it is set to.
+        assert language_for(None) == DEFAULT_LANGUAGE
 
 
 class TestTranslation:
@@ -94,8 +95,21 @@ class TestTranslation:
         both other languages we ship."""
         assert translate("action.upload_documents", lang, count=count) == expected
 
-    def test_an_unknown_language_falls_back_to_english(self):
-        assert translate("status.new", "fr") == "New request"
+    def test_an_unknown_language_falls_back_to_the_platforms(self):
+        assert translate("status.new", "fr") == translate("status.new", DEFAULT_LANGUAGE)
+
+    def test_a_key_with_no_translation_yet_still_reads(self, monkeypatch):
+        """English is the last resort, and is not the same as the default.
+
+        Every key is written in English first, so a rendering that has not been
+        translated yet exists only there. Falling back to the *default* language
+        instead would answer a missing Spanish string with the raw key.
+        """
+        from app.core import i18n
+
+        monkeypatch.setitem(i18n.CATALOGUE, "test.only_english", {"en": "Only English"})
+
+        assert i18n.translate("test.only_english", "es") == "Only English"
 
     def test_an_unknown_key_returns_itself(self):
         """Visible and greppable in the UI, rather than a blank space nobody
@@ -234,10 +248,10 @@ class TestResponseLanguageResolution:
         assert await language("es-419,es;q=0.9", None) == "es"
 
     @pytest.mark.asyncio
-    async def test_no_header_and_no_credentials_is_english(self):
+    async def test_no_header_and_no_credentials_is_the_platforms_language(self):
         from app.core.deps import language
 
-        assert await language(None, None) == "en"
+        assert await language(None, None) == DEFAULT_LANGUAGE
 
     @pytest.mark.asyncio
     async def test_the_saved_preference_covers_a_missing_header(self, monkeypatch):
@@ -277,4 +291,4 @@ class TestResponseLanguageResolution:
 
         monkeypatch.setattr(deps, "get_current_user", fake_user)
 
-        assert await deps.language(None, object()) == "en"
+        assert await deps.language(None, object()) == DEFAULT_LANGUAGE

@@ -13,6 +13,7 @@ from bson import ObjectId
 from mongomock_motor import AsyncMongoMockClient
 
 from app.core.enums import RequestStatus, Role
+from app.core.i18n import DEFAULT_LANGUAGE, translate
 from app.schemas.common import PageParams
 from app.core.exceptions import BadRequest, Forbidden
 from app.modules.requests import service
@@ -224,7 +225,10 @@ class TestWhatTheClientIsShown:
         listed = await service.list_requests(db, _client(), PageParams())
         assert listed["items"][0]["status"] == RequestStatus.NEW.value
         assert listed["items"][0]["client_status"] == "processing"
-        assert listed["items"][0]["client_status_label"] == "Processing"
+        # The words, in whatever the platform speaks - not a hard-coded
+        # "Processing", which pinned English into a test about statuses.
+        assert listed["items"][0]["client_status_label"] == translate(
+            "status.processing", DEFAULT_LANGUAGE)
 
     async def test_a_finished_request_reads_as_completed(self, db):
         opened = await service.create_request(

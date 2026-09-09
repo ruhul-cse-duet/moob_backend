@@ -15,6 +15,7 @@ from app.core.enums import (
     UserStatus,
 )
 from app.core.exceptions import BadRequest, Conflict, NotFound, Unauthorized
+from app.core.i18n import DEFAULT_LANGUAGE
 from app.core.security import (
     create_access_token,
     create_onboarding_token,
@@ -275,7 +276,10 @@ async def complete_payment(token: str, data) -> Dict[str, Any]:
             "title": "Senior Consultant",
             "status": UserStatus.ACTIVE.value,
             "email_verified": True,
-            "language": "EN",
+            # The platform's language, not a hard-coded one: an owner in a
+            # Spanish-speaking market should not have to change this on the
+            # settings screen before their first email reads properly.
+            "language": DEFAULT_LANGUAGE.upper(),
             "avatar_url": None,
             "created_at": now,
             "updated_at": now,
