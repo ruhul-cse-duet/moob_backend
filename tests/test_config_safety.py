@@ -122,3 +122,37 @@ def test_docs_are_off_in_production_unless_explicitly_enabled():
     assert make().docs_enabled is False
     assert make(ENABLE_DOCS=True).docs_enabled is True
     assert make(ENVIRONMENT="development").docs_enabled is True
+
+
+class TestStripeCurrency:
+    """`usd` typed as `us`, caught at boot instead of at checkout.
+
+    Stripe refuses to create a Price in a currency that is not a three-letter
+    ISO code. The app turns that refusal into "Stripe subscriptions are not
+    configured" on the payment screen - a message that sends whoever reads it
+    to check the API keys, which are fine. Nothing points at the currency.
+    """
+
+    def _problems(self, value):
+        from app.core.config import Settings
+
+        settings = Settings(STRIPE_CURRENCY=value, JWT_SECRET_KEY="x" * 40,
+                            STRIPE_WEBHOOK_SECRET="whsec_test")
+        return [p for p in settings.insecure_settings() if "STRIPE_CURRENCY" in p]
+
+    def test_a_two_letter_country_code_is_caught(self):
+        problems = self._problems("us")
+
+        assert problems, "'us' is a country, not a currency - Stripe rejects it"
+        # The message has to name the fix, or it is just another thing to search.
+        assert "three-letter" in problems[0]
+        assert "usd" in problems[0]
+
+    def test_a_real_currency_passes(self):
+        assert not self._problems("usd")
+        assert not self._problems("eur")
+
+    def test_so_does_an_empty_one_being_refused(self):
+        # Empty is not "use the default" by the time it reaches Stripe - it is
+        # an empty currency, and every price creation fails on it.
+        assert self._problems("")

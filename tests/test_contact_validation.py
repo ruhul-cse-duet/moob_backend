@@ -140,3 +140,38 @@ class TestTheSchemasActuallyUseThem:
     def test_but_a_number_that_is_given_is_still_checked(self):
         with pytest.raises(ValidationError):
             user_schemas.ProfileUpdate(mobile="not a phone")
+
+
+class TestReadingIsNotWriting:
+    """The rules belong on the way in, and only on the way in.
+
+    Putting `Phone` on a response model looked like consistency and was a
+    regression: `GET /me` answered 500 for anyone whose number had been stored
+    before the rules existed - '019966855844', written when `mobile` was any
+    string at all. A response model describes what is stored. Refusing to
+    serialise it does not fix the row, it hides the whole account behind an
+    error nobody outside the database can clear.
+    """
+
+    #: The exact value that took /me down in production.
+    LEGACY = "019966855844"
+
+    def test_a_number_from_before_the_rules_still_reads(self):
+        out = user_schemas.UserOut(
+            id="1", full_name="Ruhul", email="ruhul@example.com",
+            mobile=self.LEGACY, role="client", status="active")
+
+        assert out.mobile == self.LEGACY
+
+    def test_the_same_for_a_partner(self):
+        out = partner_schemas.PartnerOut(
+            id="1", full_name="Nadia Volkova", email="nadia@translations.com",
+            mobile=self.LEGACY, status="active")
+
+        assert out.mobile == self.LEGACY
+
+    def test_but_writing_one_is_still_refused(self):
+        # The point of the split: old rows are readable, new ones are checked.
+        with pytest.raises(ValidationError):
+            user_schemas.ClientCreate(
+                full_name="Ruhul", email="ruhul@example.com", mobile=self.LEGACY)
