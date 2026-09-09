@@ -305,6 +305,18 @@ class Settings(BaseSettings):
         # listed here: it forces credentials off, which leaves a hostile page
         # able to make only unauthenticated calls it could make from its own
         # server anyway. main.py logs the effective policy on boot instead.
+        # Three letters, ISO 4217. Caught here because the only other place it
+        # is noticed is Stripe refusing to create a Price - which surfaces to
+        # the customer as "subscriptions are not configured" and sends whoever
+        # reads it looking at the API keys, which are fine. `usd` typed as `us`
+        # costs an afternoon.
+        currency = (self.STRIPE_CURRENCY or "").strip()
+        if len(currency) != 3 or not currency.isalpha():
+            problems.append(
+                f"STRIPE_CURRENCY is {currency!r} - it must be a three-letter "
+                f"ISO code such as 'usd' or 'eur'. Stripe refuses every price "
+                f"and subscription until this is right."
+            )
         if not self.STRIPE_WEBHOOK_SECRET:
             problems.append(
                 "STRIPE_WEBHOOK_SECRET is empty - renewals and failed payments "

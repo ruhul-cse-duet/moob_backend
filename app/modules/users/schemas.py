@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 from app.core.validators import Email, OptionalPhone, Phone
 
@@ -42,8 +42,12 @@ class AssignPartnerPayload(BaseModel):
 class UserOut(BaseModel):
     id: str
     full_name: str
-    email: Email
-    mobile: OptionalPhone = None
+    email: EmailStr
+    # Plain str, not `Phone`: this describes what is stored, and rows
+    # written before the rules existed still have to be readable. A
+    # validator here turns one old number into a 500 on the whole
+    # endpoint, which is a worse answer than an unnormalised string.
+    mobile: Optional[str] = None
     role: Role
     title: Optional[str] = None
     partner_role: Optional[str] = None
@@ -79,8 +83,12 @@ class ClientDetailView(BaseModel):
     id: str
     full_name: str
     status: str = "Active"
-    email: Email
-    mobile: OptionalPhone = None
+    email: EmailStr
+    # Plain str, not `Phone`: this describes what is stored, and rows
+    # written before the rules existed still have to be readable. A
+    # validator here turns one old number into a 500 on the whole
+    # endpoint, which is a worse answer than an unnormalised string.
+    mobile: Optional[str] = None
     country: Optional[str] = None
     consultant_id: str
     partner_id: Optional[str] = None
