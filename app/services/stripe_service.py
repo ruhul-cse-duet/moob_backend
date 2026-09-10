@@ -14,6 +14,7 @@ Two things live here:
 Every call is a no-op returning ``None`` when Stripe is not configured, so a
 development environment without keys still boots and serves the rest of the API.
 """
+import hashlib
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -113,11 +114,34 @@ def supports_subscriptions(plan_code: PlanCode, billing_cycle: BillingCycle) -> 
 _INTERVALS = {BillingCycle.MONTHLY: "month", BillingCycle.ANNUAL: "year"}
 
 
+def _account_scope() -> str:
+    """Which Stripe account these cached ids belong to.
+
+    A Product or Price id only means anything inside the account that issued it.
+    The cache used to be keyed on the plan alone, so swapping STRIPE_SECRET_KEY
+    for a different account left it handing out ids from the old one - and the
+    first anybody heard of it was `No such price: price_...` on a customer's
+    payment screen, with nothing in the message pointing at a stale cache.
+
+    A hash of the key rather than the key itself, because these ids are stored
+    in the database and read by the admin screens; and a hash of the *key*
+    rather than an `Account.retrieve()` call, because this runs on the signup
+    path and a network round trip to learn something local is a poor trade.
+    Rotating a key within one account re-creates the Product and Price, which is
+    idempotent on Stripe's side and costs one extra API call, once.
+    """
+    return hashlib.sha256(
+        (settings.STRIPE_SECRET_KEY or "").encode()
+    ).hexdigest()[:12]
+
+
 async def _ensure_product(plan_code: PlanCode, plan_name: str) -> Optional[str]:
     from app.db.mongo import platform_db
 
     db = platform_db()
-    cached = await db.stripe_products.find_one({"_id": plan_code.value})
+    scope = _account_scope()
+    cache_id = f"{scope}_{plan_code.value}"
+    cached = await db.stripe_products.find_one({"_id": cache_id})
     if cached and cached.get("product_id"):
         return cached["product_id"]
 
@@ -127,11 +151,12 @@ async def _ensure_product(plan_code: PlanCode, plan_name: str) -> Optional[str]:
     product = await api.Product.create_async(
         name=f"WebImove {plan_name}",
         metadata={"plan_code": plan_code.value},
-        idempotency_key=f"product_{plan_code.value}",
+        idempotency_key=f"product_{cache_id}",
     )
     await db.stripe_products.update_one(
-        {"_id": plan_code.value},
-        {"$set": {"product_id": product.id, "name": plan_name, "created_at": utcnow()}},
+        {"_id": cache_id},
+        {"$set": {"product_id": product.id, "name": plan_name,
+                  "plan_code": plan_code.value, "created_at": utcnow()}},
         upsert=True,
     )
     return product.id
@@ -158,7 +183,9 @@ async def ensure_price(plan_code: PlanCode, billing_cycle: BillingCycle,
     db = platform_db()
     cents = int(round(float(amount) * 100))
     currency = (settings.STRIPE_CURRENCY or "usd").lower()
-    key = f"{plan_code.value}_{billing_cycle.value}_{currency}_{cents}"
+    # The account is part of the key, not just the plan - see `_account_scope`.
+    key = (f"{_account_scope()}_{plan_code.value}_{billing_cycle.value}"
+           f"_{currency}_{cents}")
 
     cached = await db.stripe_prices.find_one({"_id": key})
     if cached and cached.get("price_id"):

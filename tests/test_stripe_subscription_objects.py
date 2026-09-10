@@ -170,3 +170,49 @@ async def test_a_subscription_with_no_items_is_reported_not_crashed(stripe_ready
 
     assert result["success"] is False
     assert "no billable item" in result["message"]
+
+
+class TestCachedIdsBelongToOneAccount:
+    """`No such price: price_...`, reported from a customer's payment screen.
+
+    Products and Prices are created on demand and their ids cached in Mongo, so
+    a second signup on the same plan reuses them instead of piling up duplicates
+    in Stripe. But an id only means anything inside the account that issued it,
+    and the cache key was the plan alone - so pointing STRIPE_SECRET_KEY at a
+    different account left it confidently handing back ids from the old one.
+
+    Nothing in the failure said "stale cache": the message names a price that
+    looks perfectly real, and the keys, the currency and the plan are all
+    correct. Scoping the key to the account is what makes the swap a cache miss
+    instead of a lie.
+    """
+
+    def _scope_for(self, key, monkeypatch):
+        from app.services import stripe_service
+
+        monkeypatch.setattr(stripe_service.settings, "STRIPE_SECRET_KEY", key)
+        return stripe_service._account_scope()
+
+    def test_two_accounts_do_not_share_a_cache_entry(self, monkeypatch):
+        first = self._scope_for("sk_test_aaaaaaaaaaaaaaaa", monkeypatch)
+        second = self._scope_for("sk_test_bbbbbbbbbbbbbbbb", monkeypatch)
+
+        assert first != second
+
+    def test_the_same_account_keeps_reusing_its_own(self, monkeypatch):
+        # Otherwise every signup would create another Product and Price, which
+        # is what the cache exists to prevent.
+        once = self._scope_for("sk_test_aaaaaaaaaaaaaaaa", monkeypatch)
+        again = self._scope_for("sk_test_aaaaaaaaaaaaaaaa", monkeypatch)
+
+        assert once == again
+
+    def test_the_secret_key_is_not_stored_in_the_id(self, monkeypatch):
+        # These ids are written to the database and read back by the admin
+        # screens; the key must not travel with them.
+        key = "sk_test_51ThisIsTheActualSecret"
+        scope = self._scope_for(key, monkeypatch)
+
+        assert key not in scope
+        assert "sk_test" not in scope
+        assert len(scope) == 12
