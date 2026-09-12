@@ -1,22 +1,24 @@
-"""Who is allowed to put work into a consultant's queue.
+"""Who opens a request, and what happens to it afterwards.
 
-The client asked for this: a request is the consultant's work, so the consultant
-is the one who opens it. A client may still ask - they are the person who knows
-they need something - but asking is not the same as scheduling, and until now it
-was: `POST /requests` was client-only and dropped straight into the queue as
-`new`, which meant anyone with an account could create work nobody accepted.
+The product review settled this: WebImove's customer is the consultancy, and the
+consultant decides which procedure a client follows. So the consultant opens the
+request. A client cannot - not because their queue permissions are wrong, but
+because choosing the procedure was never theirs to do.
 
-So there are two doors now, and they lead to different places.
+An earlier build let a client raise one that waited at PENDING_APPROVAL for the
+consultant to accept. That status and `approve_request` still exist, for the rows
+created while it did; nothing creates a new one. The tests below build those rows
+directly, which is the only way they can come about now.
 """
 import pytest
 from bson import ObjectId
 from mongomock_motor import AsyncMongoMockClient
 
 from app.core.enums import RequestStatus, Role
-from app.core.i18n import DEFAULT_LANGUAGE, translate
-from app.schemas.common import PageParams
 from app.core.exceptions import BadRequest, Forbidden
+from app.core.i18n import DEFAULT_LANGUAGE, translate
 from app.modules.requests import service
+from app.schemas.common import PageParams
 
 CLIENT_ID = ObjectId()
 CONSULTANT_ID = ObjectId()
@@ -83,7 +85,19 @@ async def db(monkeypatch):
     return database
 
 
-class TestAConsultantOpensARequest:
+async def _legacy_pending(db, status=RequestStatus.PENDING_APPROVAL.value):
+    """A row from before the consultant became the only one who opens requests."""
+    result = await db.requests.insert_one({
+        "reference": "REQ-100", "visa_type": "Student Visa",
+        "destination_country": "Canada", "purpose": "Masters programme",
+        "status": status, "client_id": str(CLIENT_ID),
+        "client_name": "Ayesha Rahman", "consultant_id": str(CONSULTANT_ID),
+        "raised_by_consultant": False, "case_id": None, "is_draft": False,
+    })
+    return str(result.inserted_id)
+
+
+class TestOnlyTheConsultantOpensOne:
     async def test_it_goes_straight_into_the_queue(self, db):
         out = await service.create_request(
             db, _consultant(), _Payload(client_id=str(CLIENT_ID)))
@@ -91,11 +105,10 @@ class TestAConsultantOpensARequest:
         assert out["status"] == RequestStatus.NEW.value
         assert out["client_id"] == str(CLIENT_ID)
         assert out["client_name"] == "Ayesha Rahman"
-        assert out["raised_by_consultant"] is True
-        # Approved by the act of creating it, so nothing is left to press.
+        # Decided by the act of opening it, so nothing is left to press.
         assert out["approved_at"] is not None
 
-    async def test_the_client_is_the_one_told_about_it(self, db):
+    async def test_the_client_is_told_what_was_opened_for_them(self, db):
         await service.create_request(
             db, _consultant(), _Payload(client_id=str(CLIENT_ID)))
 
@@ -106,59 +119,132 @@ class TestAConsultantOpensARequest:
         with pytest.raises(BadRequest):
             await service.create_request(db, _consultant(), _Payload())
 
+    async def test_a_client_cannot_open_one(self, db):
+        with pytest.raises(Forbidden, match="consultant opens requests"):
+            await service.create_request(db, _client(), _Payload())
 
-class TestAClientAsksForOne:
-    async def test_it_waits_for_the_consultant(self, db):
-        out = await service.create_request(db, _client(), _Payload())
+        assert await db.requests.count_documents({}) == 0
 
-        assert out["status"] == RequestStatus.PENDING_APPROVAL.value
-        assert out["raised_by_consultant"] is False
-        assert out["approved_at"] is None
+    async def test_a_partner_cannot_either(self, db):
+        partner = _User(str(ObjectId()), Role.PARTNER, {"full_name": "Nadia Volkova"})
 
-    async def test_the_consultant_is_asked_not_informed(self, db):
-        await service.create_request(db, _client(), _Payload())
-
-        assert db.told[0]["user_ids"] == [str(CONSULTANT_ID)]
-        assert db.told[0]["title_key"] == "notify.request_needs_approval"
-
-    async def test_a_client_cannot_open_one_for_somebody_else(self, db):
-        # The body is ignored for a client; the token decides whose it is.
-        someone_else = str(ObjectId())
-        out = await service.create_request(
-            db, _client(), _Payload(client_id=someone_else))
-
-        assert out["client_id"] == str(CLIENT_ID)
+        with pytest.raises(Forbidden):
+            await service.create_request(
+                db, partner, _Payload(client_id=str(CLIENT_ID)))
 
 
-class TestTheConsultantDecides:
-    async def _pending(self, db):
-        return await service.create_request(db, _client(), _Payload())
+class TestOpeningTheCase:
+    """Finding 13: the request had nowhere to go.
 
-    async def test_approving_moves_it_into_the_queue(self, db):
-        pending = await self._pending(db)
+    The only route to a case was `complete_consultation`, which requires every
+    requested document to be approved - the gate for *closing* a consultation,
+    used to open one. Documents are collected inside the case, so requiring them
+    first meant the process could not start at all, and the reviewer stopped
+    testing there.
+    """
+
+    async def test_a_case_opens_without_the_document_checklist(self, db):
+        opened = await service.create_request(
+            db, _consultant(), _Payload(client_id=str(CLIENT_ID)))
         db.told.clear()
 
-        out = await service.approve_request(db, _consultant(), pending["id"])
+        case = await service.open_case(db, _consultant(), opened["id"], _OpenCase())
+
+        assert case["reference"].startswith("CAS")
+        assert case["client_id"] == str(CLIENT_ID)
+        assert await db.cases.count_documents({}) == 1
+
+    async def test_the_request_is_bound_to_it(self, db):
+        opened = await service.create_request(
+            db, _consultant(), _Payload(client_id=str(CLIENT_ID)))
+
+        case = await service.open_case(db, _consultant(), opened["id"], _OpenCase())
+
+        request = await db.requests.find_one({"_id": ObjectId(opened["id"])})
+        assert request["case_id"] == case["id"]
+        assert request["status"] == RequestStatus.UNDER_REVIEW.value
+
+    async def test_documents_already_raised_move_with_it(self, db):
+        opened = await service.create_request(
+            db, _consultant(), _Payload(client_id=str(CLIENT_ID)))
+        await db.documents.insert_one(
+            {"request_id": opened["id"], "name": "Passport", "case_id": None})
+
+        case = await service.open_case(db, _consultant(), opened["id"], _OpenCase())
+
+        # Anything scoped by case - a delegated partner's access among it -
+        # cannot see a document whose case_id is still null.
+        document = await db.documents.find_one({"name": "Passport"})
+        assert document["case_id"] == case["id"]
+
+    async def test_the_client_hears_that_their_case_is_open(self, db):
+        opened = await service.create_request(
+            db, _consultant(), _Payload(client_id=str(CLIENT_ID)))
+        db.told.clear()
+
+        await service.open_case(db, _consultant(), opened["id"], _OpenCase())
+
+        assert db.told[0]["user_ids"] == [str(CLIENT_ID)]
+        assert db.told[0]["title_key"] == "notify.case_opened"
+
+    async def test_the_consultant_may_assign_the_procedure_here(self, db):
+        opened = await service.create_request(
+            db, _consultant(), _Payload(client_id=str(CLIENT_ID)))
+
+        case = await service.open_case(
+            db, _consultant(), opened["id"],
+            _OpenCase(process_area="labour", case_type="Dismissal claim"))
+
+        assert case["process_area"] == "labour"
+        assert case["case_type"] == "Dismissal claim"
+
+    async def test_a_second_case_is_refused(self, db):
+        opened = await service.create_request(
+            db, _consultant(), _Payload(client_id=str(CLIENT_ID)))
+        await service.open_case(db, _consultant(), opened["id"], _OpenCase())
+
+        with pytest.raises(BadRequest, match="already been opened"):
+            await service.open_case(db, _consultant(), opened["id"], _OpenCase())
+
+    async def test_an_unapproved_legacy_request_is_refused(self, db):
+        request_id = await _legacy_pending(db)
+
+        with pytest.raises(BadRequest, match="Approve this request"):
+            await service.open_case(db, _consultant(), request_id, _OpenCase())
+
+
+class _OpenCase:
+    def __init__(self, **kwargs):
+        self.process_area = kwargs.get("process_area")
+        self.procedure_id = kwargs.get("procedure_id")
+        self.case_type = kwargs.get("case_type")
+        self.deadline = kwargs.get("deadline")
+
+
+class TestLegacyPendingRows:
+    """Approve and decline still work, for the rows that already exist."""
+
+    async def test_approving_moves_it_into_the_queue(self, db):
+        request_id = await _legacy_pending(db)
+
+        out = await service.approve_request(db, _consultant(), request_id)
 
         assert out["status"] == RequestStatus.NEW.value
         assert out["approved_by"] == str(CONSULTANT_ID)
-        assert db.told[0]["user_ids"] == [str(CLIENT_ID)]
         assert db.told[0]["title_key"] == "notify.request_approved"
 
     async def test_declining_keeps_the_record_and_says_why(self, db):
-        pending = await self._pending(db)
-        db.told.clear()
+        request_id = await _legacy_pending(db)
 
         out = await service.decline_request(
-            db, _consultant(), pending["id"], "You already have an open case.")
+            db, _consultant(), request_id, "You already have an open case.")
 
         assert out["status"] == RequestStatus.DECLINED.value
         assert out["decline_reason"] == "You already have an open case."
         # Kept, not deleted - the client asked and is owed the answer.
         assert await db.requests.count_documents({}) == 1
-        assert db.told[0]["title_key"] == "notify.request_declined"
 
-    async def test_a_request_already_in_the_queue_cannot_be_approved_again(self, db):
+    async def test_a_request_already_in_the_queue_cannot_be_approved(self, db):
         opened = await service.create_request(
             db, _consultant(), _Payload(client_id=str(CLIENT_ID)))
 
@@ -166,26 +252,19 @@ class TestTheConsultantDecides:
             await service.approve_request(db, _consultant(), opened["id"])
 
     async def test_documents_cannot_be_asked_for_before_approval(self, db):
-        pending = await self._pending(db)
+        request_id = await _legacy_pending(db)
 
         with pytest.raises(BadRequest):
-            await service.request_documents(db, _consultant(), pending["id"], None)
-
-
-async def test_a_partner_cannot_open_a_request(db):
-    partner = _User(str(ObjectId()), Role.PARTNER, {"full_name": "Nadia Volkova"})
-
-    with pytest.raises(Forbidden):
-        await service.create_request(db, partner, _Payload(client_id=str(CLIENT_ID)))
+            await service.request_documents(db, _consultant(), request_id, None)
 
 
 class TestWhatTheClientIsShown:
-    """Four honest answers, not the consultant's five queue tabs.
+    """Four honest answers, not the consultant's own queue tabs.
 
     `new`, `waiting_for_client`, `documents_received` and `under_review` are how
-    the consultant organises their own work. To the client they all mean the
-    same thing - somebody is working on it - and showing the internal one made a
-    note the consultant wrote to themselves read as a status about the client.
+    the consultant organises their work. To the client they all mean the same
+    thing - somebody is working on it - and showing the internal one made a note
+    the consultant wrote to themselves read as a status about the client.
     """
 
     def test_everything_in_the_queue_reads_as_processing(self):
@@ -205,7 +284,6 @@ class TestWhatTheClientIsShown:
     def test_a_status_we_do_not_know_still_reads_as_work(self):
         from app.core.enums import client_status
 
-        # Better to say "processing" than to show a raw code, or nothing.
         assert client_status("something_added_later") == "processing"
 
     def test_every_client_facing_status_has_words(self):
@@ -215,18 +293,14 @@ class TestWhatTheClientIsShown:
         for shown in set(CLIENT_FACING_STATUS.values()):
             assert f"status.{shown}" in CATALOGUE, shown
 
-    async def test_approving_moves_the_client_from_waiting_to_processing(self, db):
-        pending = await service.create_request(db, _client(), _Payload())
-        listed = await service.list_requests(db, _client(), PageParams())
-        assert listed["items"][0]["client_status"] == "pending_approval"
-
-        await service.approve_request(db, _consultant(), pending["id"])
+    async def test_a_request_opened_for_them_reads_as_processing(self, db):
+        await service.create_request(
+            db, _consultant(), _Payload(client_id=str(CLIENT_ID)))
 
         listed = await service.list_requests(db, _client(), PageParams())
+
         assert listed["items"][0]["status"] == RequestStatus.NEW.value
         assert listed["items"][0]["client_status"] == "processing"
-        # The words, in whatever the platform speaks - not a hard-coded
-        # "Processing", which pinned English into a test about statuses.
         assert listed["items"][0]["client_status_label"] == translate(
             "status.processing", DEFAULT_LANGUAGE)
 
@@ -241,29 +315,25 @@ class TestWhatTheClientIsShown:
         assert listed["items"][0]["client_status"] == "completed"
 
 
-
-
 class TestWithdrawingARequest:
     """A client may take back what is still only theirs.
 
-    The line is whether a consultant has started. Before that the request is a
-    message nobody has answered; after it, files and a checklist hang off it, and
-    deleting does not undo that work - it hides it.
+    Which, now that only consultants open requests, means the rows raised before
+    that changed. The consultant can remove any of their own.
     """
 
-    async def test_a_client_can_remove_one_that_is_still_waiting(self, db):
-        pending = await service.create_request(db, _client(), _Payload())
+    async def test_a_client_can_remove_a_legacy_pending_one(self, db):
+        request_id = await _legacy_pending(db)
 
-        out = await service.delete_request(db, _client(), pending["id"])
+        out = await service.delete_request(db, _client(), request_id)
 
         assert out["deleted"] is True
         assert await db.requests.count_documents({}) == 0
 
     async def test_a_declined_one_can_be_cleared_away(self, db):
-        pending = await service.create_request(db, _client(), _Payload())
-        await service.decline_request(db, _consultant(), pending["id"], "Not eligible.")
+        request_id = await _legacy_pending(db, RequestStatus.DECLINED.value)
 
-        await service.delete_request(db, _client(), pending["id"])
+        await service.delete_request(db, _client(), request_id)
 
         assert await db.requests.count_documents({}) == 0
 
@@ -277,19 +347,19 @@ class TestWithdrawingARequest:
         assert await db.requests.count_documents({}) == 1
 
     async def test_a_request_with_a_case_is_never_the_clients_to_delete(self, db):
-        pending = await service.create_request(db, _client(), _Payload())
-        await db.requests.update_one({"_id": ObjectId(pending["id"])},
+        request_id = await _legacy_pending(db)
+        await db.requests.update_one({"_id": ObjectId(request_id)},
                                      {"$set": {"case_id": str(ObjectId())}})
 
         with pytest.raises(BadRequest):
-            await service.delete_request(db, _client(), pending["id"])
+            await service.delete_request(db, _client(), request_id)
 
     async def test_a_client_cannot_remove_somebody_elses(self, db):
-        pending = await service.create_request(db, _client(), _Payload())
+        request_id = await _legacy_pending(db)
         stranger = _User(str(ObjectId()), Role.CLIENT, {"full_name": "Someone Else"})
 
         with pytest.raises(Forbidden):
-            await service.delete_request(db, stranger, pending["id"])
+            await service.delete_request(db, stranger, request_id)
 
     async def test_the_consultant_can_remove_any_of_theirs(self, db):
         opened = await service.create_request(
@@ -307,14 +377,14 @@ class TestWithdrawingARequest:
 
         monkeypatch.setattr(service.storage, "delete_file", _delete_file)
 
-        pending = await service.create_request(db, _client(), _Payload())
+        request_id = await _legacy_pending(db)
         await db.documents.insert_many([
-            {"request_id": pending["id"], "name": "Passport",
+            {"request_id": request_id, "name": "Passport",
              "file": {"file_id": "gridfs-1"}},
-            {"request_id": pending["id"], "name": "Bank Statement"},
+            {"request_id": request_id, "name": "Bank Statement"},
         ])
 
-        out = await service.delete_request(db, _client(), pending["id"])
+        out = await service.delete_request(db, _client(), request_id)
 
         assert out["documents_removed"] == 2
         assert await db.documents.count_documents({}) == 0
@@ -322,10 +392,10 @@ class TestWithdrawingARequest:
         assert dropped == ["gridfs-1"]
 
     async def test_the_consultant_is_told_when_a_client_withdraws(self, db):
-        pending = await service.create_request(db, _client(), _Payload())
+        request_id = await _legacy_pending(db)
         db.told.clear()
 
-        await service.delete_request(db, _client(), pending["id"])
+        await service.delete_request(db, _client(), request_id)
 
         assert db.told[0]["user_ids"] == [str(CONSULTANT_ID)]
         assert db.told[0]["title_key"] == "notify.request_withdrawn"

@@ -79,8 +79,19 @@ async def list_users(db, current_user: CurrentUser, params: PageParams, role: Op
 
     page = await paginate(db, "users", query, params, sort=[("created_at", -1)])
 
+    # Invited / Expired / Active, which `status` alone cannot say: a row sits at
+    # INVITED whether the link is still good or ran out a week ago, and those
+    # need different actions from whoever is looking at the list.
+    invite_states = await invites.states_for(
+        [i.get("email") for i in page["items"]
+         if i.get("status") == UserStatus.INVITED.value])
+
     for item in page["items"]:
         item.pop("password_hash", None)
+        if item.get("status") == UserStatus.INVITED.value:
+            state = invite_states.get((item.get("email") or "").lower(), "invited")
+            item["invite_state"] = state
+            item["invite_expired"] = state == "expired"
     return page
 
 
@@ -148,6 +159,39 @@ async def create_client(db, user: CurrentUser, tenant: Dict[str, Any],
     return {**_clean({**doc, "_id": oid(user_id)}),
             "invite_token": token,
             "invite_email_sent": emailed}
+
+
+async def resend_client_invite(db, tenant: Dict[str, Any], user: CurrentUser,
+                               client_id: str) -> Dict[str, Any]:
+    """A fresh link for a client who never used theirs, or whose link expired.
+
+    The old token stops working the moment this runs - `invites.refresh` issues
+    a new one over the same directory entry - so a link that leaked is also a
+    link that can be revoked by resending.
+    """
+    client = await db.users.find_one({"_id": oid(client_id),
+                                      "role": Role.CLIENT.value})
+    if not client:
+        raise NotFound("Client not found")
+    if client.get("status") != UserStatus.INVITED.value:
+        raise BadRequest("This client has already accepted their invitation")
+    if user.role == Role.CONSULTANT and client.get("consultant_id") != user.id:
+        raise Forbidden("This client belongs to another consultant")
+
+    token = await invites.refresh(client["email"])
+    await db.users.update_one({"_id": oid(client_id)},
+                              {"$set": {"invited_at": utcnow()}})
+    emailed = await send_client_invite_email(
+        to=client["email"], name=client.get("full_name"), org=tenant["name"],
+        link=invites.build_link(token),
+        consultant=user.raw.get("full_name"))
+    return {
+        "success": True,
+        "detail": ("Invitation resent." if emailed else
+                   "We could not email the invitation - send them the link below."),
+        "invite_token": token,
+        "invite_email_sent": emailed,
+    }
 
 
 async def get_client_profile_detail(db, user: CurrentUser, client_id: str) -> Dict[str, Any]:

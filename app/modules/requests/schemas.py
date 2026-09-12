@@ -15,16 +15,25 @@ class RequestedDocument(BaseModel):
 
 
 class RequestCreate(BaseModel):
-    """Opened by the consultant, or asked for by the client.
+    """Opened by the consultant, for one of their clients.
 
-    `client_id` is required of a consultant and ignored from a client - a client
-    can only ever open one for themselves, and reading it from the token rather
-    than the body is what makes that true rather than merely intended.
+    The procedure is what the request is *about*, and it comes from the
+    organization's own catalogue. `visa_type` and `destination_country` are kept
+    for the immigration procedures that want them, and for the requests that
+    already carry them - neither is required any more, because a dismissal claim
+    has no visa type and never did.
     """
     client_id: Optional[str] = Field(
-        None, description="Consultants only: the client this request is for")
-    visa_type: str = Field(min_length=2, max_length=80)
-    destination_country: str
+        None, description="The client this request is for")
+    process_area: Optional[str] = Field(
+        None, description="Area key, e.g. `immigration`, `labour`")
+    procedure_id: Optional[str] = Field(
+        None, description="A procedure from this organization's catalogue")
+    visa_type: Optional[str] = Field(
+        None, max_length=80,
+        description="Immigration procedures only. Falls back to the procedure name.")
+    destination_country: Optional[str] = Field(
+        None, description="Immigration procedures only")
     purpose: str = Field(min_length=2, max_length=2000)
     additional_information: Optional[str] = None
     client_notes: Optional[str] = None
@@ -105,6 +114,21 @@ class ConsultationOutcomeIn(BaseModel):
     notes: Optional[str] = None
     timeline: Optional[str] = None
     recommendations: Optional[str] = None
+
+
+class OpenCase(BaseModel):
+    """What the consultant assigns when they take the work on.
+
+    Every field is optional: the request already carries what was agreed, and a
+    consultant who just wants the case open should not have to retype it.
+    """
+    process_area: Optional[str] = Field(
+        None, description="Immigration, Labour, Civil, Tax - or a custom area")
+    procedure_id: Optional[str] = Field(
+        None, description="A procedure from this organization's catalogue")
+    case_type: Optional[str] = Field(
+        None, description="Free-text label when no procedure is assigned")
+    deadline: Optional[datetime] = None
 
 
 class CompleteConsultation(BaseModel):

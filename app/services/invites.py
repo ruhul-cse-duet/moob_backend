@@ -117,6 +117,37 @@ async def lookup(token: str) -> Dict[str, Any]:
     }
 
 
+async def states_for(emails) -> Dict[str, str]:
+    """Where each of these invitations stands: `invited`, `expired` or `accepted`.
+
+    One query for the whole list rather than one per row - a client list is
+    twenty of these, and the answer lives in a different database from the users
+    being listed.
+
+    An entry with no token left has been consumed, which is the only way a token
+    disappears; one whose expiry has passed is the state a consultant most needs
+    to see, because it looks identical to "invited" on the user row and means
+    the opposite.
+    """
+    wanted = [str(e).lower() for e in emails if e]
+    if not wanted:
+        return {}
+
+    out: Dict[str, str] = {}
+    async for entry in platform_db().user_directory.find(
+        {"email": {"$in": wanted}},
+        {"email": 1, "invite_token": 1, "invite_expires_at": 1},
+    ):
+        if not entry.get("invite_token"):
+            out[entry["email"]] = "accepted"
+            continue
+        expires = entry.get("invite_expires_at")
+        out[entry["email"]] = (
+            "expired" if expires and expires < _now_like(expires) else "invited"
+        )
+    return out
+
+
 async def consume(token: str) -> Dict[str, Any]:
     """Same validation as lookup, then burn the token so the link is single-use."""
     found = await lookup(token)

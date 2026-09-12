@@ -45,21 +45,22 @@ async def _client_for(db, client_id: str) -> Dict[str, Any]:
 
 
 async def create_request(db, user: CurrentUser, data) -> Dict[str, Any]:
-    """Open a request - as the consultant who will do the work, or as the client.
+    """Open a request. The consultant does this; the client never does.
 
-    Both roles arrive here, and what separates them is who decided the work
-    exists. A consultant opening a request for their client has already made
-    that decision, so it starts in the queue as NEW. A client is *asking*, so
-    theirs starts at PENDING_APPROVAL and is not work until the consultant takes
-    it - the queue is the consultant's own workload, and anyone with an account
-    should not be able to write into it unasked.
+    It used to work both ways, with a client's request waiting at
+    PENDING_APPROVAL for the consultant to take it. The product review settled
+    the question differently: the consultant decides what procedure a client
+    follows, so a client naming their own is not a request awaiting approval - it
+    is a decision they were never the one to make.
+
+    PENDING_APPROVAL and `approve_request` stay, for rows raised before this
+    changed. Nothing creates a new one.
     """
     if user.role == Role.CLIENT:
-        client_id = user.id
-        client = user.raw
-        consultant_id = data.consultant_id or user.raw.get("consultant_id")
-        raised_by_consultant = False
-    elif user.role in CONSULTANT_ROLES:
+        raise Forbidden(
+            "Your consultant opens requests for you. Message them with what you need."
+        )
+    if user.role in CONSULTANT_ROLES:
         if not data.client_id:
             raise BadRequest("Name the client this request is for")
         client = await _client_for(db, data.client_id)
@@ -69,17 +70,32 @@ async def create_request(db, user: CurrentUser, data) -> Dict[str, Any]:
         consultant_id = data.consultant_id or user.id
         raised_by_consultant = True
     else:
-        raise Forbidden("Only a consultant or a client can open a request")
+        raise Forbidden("Only a consultant can open a request")
 
     if not consultant_id:
         owner = await db.users.find_one({"role": Role.CONSULTANT_OWNER.value})
         consultant_id = str(owner["_id"]) if owner else None
 
+    # What the consultant assigned. A copy of the checklist travels with the
+    # case when one is opened, not with the request - see `catalog.snapshot_for_case`.
+    procedure = None
+    if getattr(data, "procedure_id", None):
+        from app.modules.catalog import service as catalog
+
+        procedure = await catalog.snapshot_for_case(db, data.procedure_id)
+
     seq = await next_sequence(db, "request", start=100)
     now = utcnow()
     doc = {
         "reference": build_reference("REQ", seq),
-        "visa_type": data.visa_type,
+        "process_area": (procedure or {}).get("process_area")
+                        or getattr(data, "process_area", None),
+        "procedure_id": (procedure or {}).get("procedure_id"),
+        "procedure_name": (procedure or {}).get("procedure_name"),
+        # The label everything falls back to when no procedure is assigned. Kept
+        # under its old name so nothing that reads a request has to change.
+        "visa_type": (data.visa_type or (procedure or {}).get("procedure_name")
+                      or "Consultation"),
         "destination_country": data.destination_country,
         "origin_country": client.get("country_of_residence"),
         "purpose": data.purpose,
@@ -89,8 +105,9 @@ async def create_request(db, user: CurrentUser, data) -> Dict[str, Any]:
         "review_notes": None,
         # A draft is a NEW request flagged as one — "draft" is not a status
         # the rest of the API (or its enum) knows about.
-        "status": (RequestStatus.NEW.value if raised_by_consultant
-                   else RequestStatus.PENDING_APPROVAL.value),
+        # Straight into the queue: a consultant opening a request has already
+        # decided the work exists.
+        "status": RequestStatus.NEW.value,
         "raised_by": user.id,
         "raised_by_consultant": raised_by_consultant,
         "approved_by": user.id if raised_by_consultant else None,
@@ -109,25 +126,16 @@ async def create_request(db, user: CurrentUser, data) -> Dict[str, Any]:
     request_id = str(result.inserted_id)
 
     if not data.is_draft:
-        if raised_by_consultant:
-            # The client did not ask for this one, so they are who needs telling.
-            await notify(db, user_ids=[client_id],
-                         type=NotificationType.REQUEST_SUBMITTED,
-                         title_key="notify.request_opened_for_you",
-                         params={"consultant": user.raw.get("full_name") or ""},
-                         body=f"{doc['visa_type']} · {doc['reference']}",
-                         data={"request_id": request_id})
-        else:
-            await notify(db, user_ids=[consultant_id],
-                         type=NotificationType.REQUEST_SUBMITTED,
-                         title_key="notify.request_needs_approval",
-                         params={"client": doc["client_name"]},
-                         body=f"{doc['visa_type']} · {doc['reference']}",
-                         data={"request_id": request_id})
+        # The client did not ask for this, so they are the one who needs telling.
+        await notify(db, user_ids=[client_id],
+                     type=NotificationType.REQUEST_SUBMITTED,
+                     title_key="notify.request_opened_for_you",
+                     params={"consultant": user.raw.get("full_name") or ""},
+                     body=f"{doc['visa_type']} · {doc['reference']}",
+                     data={"request_id": request_id})
         await log_activity(db, actor_id=user.id,
                            actor_name=user.raw.get("full_name") or "",
-                           action=("opened a request" if raised_by_consultant
-                                   else "asked to open a request"),
+                           action="opened a request",
                            subject=doc["reference"], request_id=request_id)
     return serialize({**doc, "_id": result.inserted_id})
 
@@ -380,24 +388,32 @@ async def get_client_dashboard(db, user: CurrentUser,
     }
 
 
-async def get_client_categories(lang: str = DEFAULT_LANGUAGE) -> List[Dict[str, Any]]:
-    """The visa categories offered on the new-request screen.
+async def get_client_categories(db, lang: str = DEFAULT_LANGUAGE) -> List[Dict[str, Any]]:
+    """What this organization actually does, from its own catalogue.
 
-    Ids and icon tokens only. The name and blurb for each are copy, and a
-    catalogue that ships its own English is a catalogue that is English in
-    every locale - "Student Visa" has to become "Visa de Estudiante" somewhere,
-    and the app is the only place that knows which language it is running in.
+    This used to be nine hard-coded visa types - the same nine for every
+    customer, uneditable, and useless to a firm whose work is labour or tax. It
+    is now the tenant's procedures, grouped by process area.
+
+    Still on the client side of the API because the client's app labels their
+    own case with it. Choosing from it is not theirs to do: the consultant
+    assigns the procedure, and `POST /requests` refuses a client outright.
     """
-    ids = ("student_visa", "work_permit", "family_reunification", "residency",
-           "citizenship", "digital_nomad_visa", "business_visa", "investor_visa",
-           "others")
-    icons = {"student_visa": "academic_cap", "work_permit": "briefcase",
-             "family_reunification": "heart", "residency": "home",
-             "citizenship": "user_check", "digital_nomad_visa": "airplane",
-             "business_visa": "building", "investor_visa": "bank",
-             "others": "document"}
-    return [{"id": vid, "icon": icons[vid], "name": translate(f"visa.{vid}", lang)}
-            for vid in ids]
+    from app.modules.catalog import service as catalog
+
+    areas = {a["key"]: a for a in await catalog.list_areas(db)}
+    out = []
+    for procedure in await catalog.list_procedures(db):
+        area = areas.get(procedure.get("area_key")) or {}
+        out.append({
+            "id": procedure["id"],
+            "name": procedure["name"],
+            "description": procedure.get("description"),
+            "process_area": procedure.get("area_key"),
+            "process_area_name": area.get("name"),
+            "icon": area.get("icon") or "document",
+        })
+    return out
 
 
 async def list_requests(db, user: CurrentUser, params: PageParams,
@@ -688,6 +704,92 @@ async def save_review_notes(db, user: CurrentUser, request_id: str, notes: str) 
         {"$set": {"review_notes": notes, "reviewed_by": user.id, "updated_at": utcnow()}},
     )
     return {"detail": "Notes saved"}
+
+
+async def open_case(db, user: CurrentUser, request_id: str, data) -> Dict[str, Any]:
+    """Turn a request into a case, without waiting on the document checklist.
+
+    `complete_consultation` below is the *end* of a consultation: it requires
+    every requested document to be approved, because it writes an outcome. That
+    is the right gate for closing something, and the wrong one for starting it -
+    the review found the only path to a case locked behind "approve all required
+    documents", with no way to open the case in which those documents would be
+    collected. The process could not move at all.
+
+    So this is the beginning: the consultant accepts the work, the case exists,
+    and the documents are gathered inside it.
+    """
+    doc = await _get(db, request_id)
+    await assert_request_access(db, user, doc)
+    if doc.get("case_id"):
+        raise BadRequest("A case has already been opened from this request")
+    if doc["status"] == RequestStatus.PENDING_APPROVAL.value:
+        raise BadRequest("Approve this request before opening a case")
+    if doc["status"] == RequestStatus.DECLINED.value:
+        raise BadRequest("This request was declined")
+
+    # Assigned here if the consultant is assigning one now, otherwise whatever
+    # the request already carries. The client never chooses this.
+    procedure_id = getattr(data, "procedure_id", None) or doc.get("procedure_id")
+    procedure = {}
+    if procedure_id:
+        from app.modules.catalog import service as catalog
+
+        procedure = await catalog.snapshot_for_case(db, procedure_id)
+
+    seq = await next_sequence(db, "case", start=80)
+    now = utcnow()
+    case = {
+        "reference": build_reference("CAS", seq),
+        "request_id": request_id,
+        "client_id": doc["client_id"],
+        "client_name": doc.get("client_name"),
+        "consultant_id": doc.get("consultant_id") or user.id,
+        "process_area": (procedure.get("process_area")
+                         or getattr(data, "process_area", None)
+                         or doc.get("process_area")),
+        "procedure_id": procedure.get("procedure_id"),
+        "procedure_name": procedure.get("procedure_name"),
+        # The checklist as it stood today. A copy, so editing the catalogue
+        # later leaves this case assessed against what it was opened with.
+        "required_documents": procedure.get("required_documents", []),
+        "client_fields": procedure.get("client_fields", []),
+        "case_type": (getattr(data, "case_type", None)
+                      or procedure.get("procedure_name")
+                      or doc.get("procedure_name") or doc.get("visa_type")),
+        "destination_country": doc.get("destination_country"),
+        "stage": CaseStage.NEW_REQUEST.value,
+        "progress": 0,
+        "deadline": getattr(data, "deadline", None),
+        "timeline": [{"stage": CaseStage.NEW_REQUEST.value, "at": now, "by": user.id}],
+        "ai_guidance": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+    case_id = str((await db.cases.insert_one(case)).inserted_id)
+
+    await db.requests.update_one(
+        {"_id": oid(request_id)},
+        {"$set": {"case_id": case_id, "status": RequestStatus.UNDER_REVIEW.value,
+                  "updated_at": now}},
+    )
+    # Documents raised against the request belong to the case now, or anything
+    # scoped by case - a delegated partner's access among it - cannot see them.
+    await db.documents.update_many(
+        {"request_id": request_id},
+        {"$set": {"case_id": case_id, "updated_at": now}},
+    )
+
+    await notify(db, user_ids=[doc["client_id"]],
+                 type=NotificationType.CASE_STAGE_CHANGED,
+                 title_key="notify.case_opened",
+                 body=f"{case['case_type'] or ''} · {case['reference']}",
+                 data={"case_id": case_id, "request_id": request_id})
+    await log_activity(db, actor_id=user.id, actor_name=user.raw.get("full_name") or "",
+                       action="opened a case for", subject=case["reference"],
+                       request_id=request_id, case_id=case_id)
+
+    return serialize({**case, "_id": oid(case_id)})
 
 
 async def complete_consultation(db, user: CurrentUser, request_id: str, data) -> Dict[str, Any]:

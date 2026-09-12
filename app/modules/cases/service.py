@@ -38,6 +38,15 @@ async def create_case(db, user: CurrentUser, data) -> Dict[str, Any]:
     client = await db.users.find_one({"_id": oid(data.client_id)})
     if not client:
         raise NotFound("Client not found")
+
+    # A copy of the procedure, not a pointer to it. Editing the catalogue next
+    # month must not rewrite the checklist this case was assessed against.
+    procedure = {}
+    if getattr(data, "procedure_id", None):
+        from app.modules.catalog import service as catalog
+
+        procedure = await catalog.snapshot_for_case(db, data.procedure_id)
+
     now = utcnow()
     doc = {
         "reference": build_reference("CAS", seq),
@@ -46,7 +55,13 @@ async def create_case(db, user: CurrentUser, data) -> Dict[str, Any]:
         "client_name": client.get("full_name"),
         # The client's owning consultant keeps the case unless one is acting directly.
         "consultant_id": client.get("consultant_id") or user.id,
-        "case_type": data.case_type,
+        "process_area": procedure.get("process_area")
+                        or getattr(data, "process_area", None),
+        "procedure_id": procedure.get("procedure_id"),
+        "procedure_name": procedure.get("procedure_name"),
+        "required_documents": procedure.get("required_documents", []),
+        "client_fields": procedure.get("client_fields", []),
+        "case_type": data.case_type or procedure.get("procedure_name"),
         "destination_country": data.destination_country,
         "stage": CaseStage.NEW_REQUEST.value,
         "progress": 0,

@@ -35,7 +35,7 @@ from app.core.utils import (
 from app.db.indexes import ensure_tenant_indexes
 from app.db.mongo import drop_tenant_db, platform_db, tenant_db
 from app.modules.subscriptions.plans import order_summary, plan_by_code
-from app.services import audit, consents as consent_service, throttle
+from app.services import audit, throttle
 from app.services import invites
 from app.services import otp as otp_service
 from app.services import stripe_service
@@ -266,6 +266,12 @@ async def complete_payment(token: str, data) -> Dict[str, Any]:
 
         tdb = tenant_db(tenant_id)
         await ensure_tenant_indexes(tdb)
+        # Four process areas to start from, which the owner renames, switches
+        # off or adds to. Seeded rather than assumed: a firm that only does tax
+        # should not have to look at three areas it will never touch.
+        from app.modules.catalog.service import ensure_defaults as seed_catalog
+
+        await seed_catalog(tdb)
 
         owner = {
             "email": signup["email"],
@@ -824,451 +830,29 @@ async def change_password(user, current: str, new: str) -> None:
 # --------------------------------------------------------------------------- #
 # Client self-registration under a chosen consultant organization
 # --------------------------------------------------------------------------- #
-async def list_organizations(search: Optional[str] = None) -> list:
-    db = platform_db()
-    query: Dict[str, Any] = {"status": TenantStatus.ACTIVE.value}
-    if search:
-        query["name"] = {"$regex": search, "$options": "i"}
-    out = []
-    async for t in db.tenants.find(query).sort("name", 1).limit(100):
-        tid = str(t["_id"])
-        partner_count = await tenant_db(tid).users.count_documents({"role": Role.PARTNER.value})
-        out.append({
-            "id": tid,
-            "name": t["name"],
-            "country": t.get("country", ""),
-            "consultant_name": t.get("owner_name", ""),
-            "logo_url": t.get("logo_url"),
-            "partner_count": partner_count,
-        })
-    return out
 
 
-async def list_public_consultants(search: Optional[str] = None,
-                                  organization_id: Optional[str] = None) -> list:
-    """
-    The directory a client picks from at signup. Spans every active organization,
-    because a client chooses a consultant, not a firm.
-    """
-    db = platform_db()
-    query: Dict[str, Any] = {"status": TenantStatus.ACTIVE.value}
-    if organization_id:
-        query["_id"] = oid(organization_id)
-
-    out = []
-    async for tenant in db.tenants.find(query).sort("name", 1).limit(200):
-        tid = str(tenant["_id"])
-        tdb = tenant_db(tid)
-        user_query: Dict[str, Any] = {
-            "role": {"$in": [Role.CONSULTANT_OWNER.value, Role.CONSULTANT.value]},
-            "status": UserStatus.ACTIVE.value,
-        }
-        if search:
-            user_query["$or"] = [
-                {"full_name": {"$regex": search, "$options": "i"}},
-                {"title": {"$regex": search, "$options": "i"}},
-            ]
-        async for c in tdb.users.find(user_query):
-            cid = str(c["_id"])
-            out.append({
-                "id": cid,
-                "full_name": c.get("full_name"),
-                "title": c.get("title") or "Consultant",
-                "avatar_url": c.get("avatar_url"),
-                "is_owner": c.get("role") == Role.CONSULTANT_OWNER.value,
-                "organization": {"id": tid, "name": tenant["name"],
-                                 "country": tenant.get("country")},
-                "active_clients": await tdb.users.count_documents(
-                    {"role": Role.CLIENT.value, "consultant_id": cid}),
-            })
-    if search:
-        needle = search.lower()
-        out = [c for c in out
-               if needle in (c["full_name"] or "").lower()
-               or needle in (c["organization"]["name"] or "").lower()]
-    return out
-
-
-async def register_client(data) -> Dict[str, Any]:
-    """
-    Client self-signup. They pick a CONSULTANT; the organization follows from that,
-    and they land in that consultant's workspace under that consultant.
-    """
-    db = platform_db()
-    email = data.email.lower()
-    if await db.user_directory.find_one({"email": email}):
-        raise Conflict("An account with this email already exists")
-
-    tenant, consultant_id = await _resolve_signup_target(data)
-    tid = str(tenant["_id"])
-    tdb = tenant_db(tid)
-    now = utcnow()
-    consultant = await tdb.users.find_one({"_id": oid(consultant_id)})
-
-    user = {
-        "email": email,
-        "full_name": data.full_name,
-        "mobile": data.mobile,
-        "password_hash": hash_password(data.password),
-        "role": Role.CLIENT.value,
-        "status": UserStatus.PENDING_VERIFICATION.value,
-        "email_verified": False,
-        "passport_number": getattr(data, "passport_number", None),
-        "nationality": data.nationality,
-        "destination_country": getattr(data, "destination_country", None),
-        "preferred_immigration_type": getattr(data, "preferred_immigration_type", None),
-        "language": data.language,
-        "country_of_residence": data.country_of_residence,
-        "consultant_id": consultant_id,
-        "created_at": now,
-        "updated_at": now,
-    }
-    user_id = str((await tdb.users.insert_one(user)).inserted_id)
-    await db.user_directory.insert_one({
-        "email": email, "tenant_id": tid, "user_id": user_id,
-        "role": Role.CLIENT.value, "created_at": now,
-    })
-    issued = await otp_service.issue_otp(email=email, purpose=OtpPurpose.EMAIL_VERIFICATION,
-                                         tenant_id=tid)
-    return {
-        "user_id": user_id,
-        "tenant_id": tid,
-        "organization_name": tenant["name"],
-        "consultant": {
-            "id": consultant_id,
-            "full_name": (consultant or {}).get("full_name"),
-            "title": (consultant or {}).get("title") or "Consultant",
-        },
-        "next_step": "verify_email",
-        **issued,
-    }
-
-
-# --------------------------------------------------------------------------- #
-# Client 7-Step Onboarding Flow
-# Step 1: Account
-# Step 2: Verification
-# Step 3: Create Password
-# Step 4: Immigration Profile
-# Step 5: Choose Consultant / Organization
-# Step 6: Confirm & Submit Request
-# Step 7: Agreements & Finalize Account
-# --------------------------------------------------------------------------- #
-async def start_client_signup(data) -> Dict[str, Any]:
-    db = platform_db()
-    email = data.email.lower().strip()
-
-    if await db.user_directory.find_one({"email": email}):
-        raise Conflict("An account with this email already exists")
-
-    await db.signups.delete_many({"email": email, "completed": {"$ne": True}})
-    doc = {
-        "email": email,
-        "full_name": data.full_name,
-        "mobile": data.mobile,
-        "dob": data.dob,
-        "profile_photo_url": data.profile_photo_url,
-        "role": Role.CLIENT.value,
-        "step": "verification",
-        "email_verified": False,
-        "completed": False,
-        "created_at": utcnow(),
-    }
-    result = await db.signups.insert_one(doc)
-
-    issued = await otp_service.issue_otp(email=email, purpose=OtpPurpose.EMAIL_VERIFICATION)
-
-    return {
-        "client_onboarding_token": create_onboarding_token(
-            signup_id=str(result.inserted_id), step="verification"
-        ),
-        "step": "account",
-        "next_step": "verification",
-        "detail": f"Verification code sent to {email}",
-        **issued,
-    }
-
-
-async def verify_client_signup_email(token: str, code: str) -> Dict[str, Any]:
-    db = platform_db()
-    signup = await _load_signup(token)
-
-    await otp_service.verify_otp(
-        email=signup["email"], purpose=OtpPurpose.EMAIL_VERIFICATION, code=code
-    )
-
-    await db.signups.update_one(
-        {"_id": signup["_id"]},
-        {"$set": {"email_verified": True, "step": "create_password"}},
-    )
-
-    return {
-        "client_onboarding_token": create_onboarding_token(
-            signup_id=str(signup["_id"]), step="create_password"
-        ),
-        "step": "verification",
-        "next_step": "create_password",
-    }
-
-
-async def resend_client_signup_otp(token: str) -> Dict[str, Any]:
-    signup = await _load_signup(token)
-    return await otp_service.issue_otp(
-        email=signup["email"],
-        purpose=OtpPurpose.EMAIL_VERIFICATION,
-        tenant_id=signup.get("tenant_id"),
-    )
-
-
-async def set_client_password(token: str, data) -> Dict[str, Any]:
-    db = platform_db()
-    signup = await _load_signup(token)
-
-    if not signup.get("email_verified"):
-        raise BadRequest("Please verify your email before setting a password")
-
-    await db.signups.update_one(
-        {"_id": signup["_id"]},
-        {"$set": {
-            "password_hash": hash_password(data.password),
-            "step": "immigration",
-        }},
-    )
-
-    return {
-        "client_onboarding_token": create_onboarding_token(
-            signup_id=str(signup["_id"]), step="immigration"
-        ),
-        "step": "create_password",
-        "next_step": "immigration",
-    }
-
-
-async def set_client_immigration(token: str, data) -> Dict[str, Any]:
-    db = platform_db()
-    signup = await _load_signup(token)
-
-    profile = {
-        "passport_number": data.passport_number,
-        "nationality": data.nationality,
-        "destination_country": data.destination_country,
-        "preferred_immigration_type": data.preferred_immigration_type,
-        "country_of_residence": data.country_of_residence,
-    }
-    # Merged, not replaced: a client who steps back to fix one field would
-    # otherwise clear the four they did not retype.
-    stored = {**(signup.get("immigration_profile") or {}),
-              **{k: v for k, v in profile.items() if v is not None}}
-
-    await db.signups.update_one(
-        {"_id": signup["_id"]},
-        {"$set": {"immigration_profile": stored, "step": "consultant"}},
-    )
-
-    return {
-        "client_onboarding_token": create_onboarding_token(
-            signup_id=str(signup["_id"]), step="consultant"
-        ),
-        "step": "immigration",
-        "next_step": "consultant",
-        # Echoed back so the app can show what landed rather than assume it.
-        "saved": stored,
-    }
-
-
-async def set_client_consultant(token: str, data) -> Dict[str, Any]:
-    db = platform_db()
-    signup = await _load_signup(token)
-
-    tenant, consultant_id = await _resolve_signup_target(data)
-    tid = str(tenant["_id"])
-    tdb = tenant_db(tid)
-    consultant = await tdb.users.find_one({"_id": oid(consultant_id)}) if consultant_id else None
-
-    imm = signup.get("immigration_profile", {})
-
-    await db.signups.update_one(
-        {"_id": signup["_id"]},
-        {"$set": {
-            "tenant_id": tid,
-            "consultant_id": consultant_id,
-            "step": "confirm",
-        }},
-    )
-
-    return {
-        "client_onboarding_token": create_onboarding_token(
-            signup_id=str(signup["_id"]), step="confirm"
-        ),
-        "step": "consultant",
-        "next_step": "confirm",
-        "preview": {
-            "organization_name": tenant["name"],
-            "consultant_name": (consultant or {}).get("full_name") or tenant.get("owner_name", "Consultant"),
-            "consultant_country": tenant.get("country", ""),
-            "immigration_type": imm.get("preferred_immigration_type"),
-            "nationality": imm.get("nationality"),
-            "current_country": imm.get("country_of_residence"),
-            "passport_number": imm.get("passport_number"),
-        },
-    }
-
-
-async def confirm_client_signup(token: str, data) -> Dict[str, Any]:
-    db = platform_db()
-    signup = await _load_signup(token)
-
-    if not signup.get("tenant_id") or not signup.get("consultant_id"):
-        raise BadRequest("Please choose a consultant or organization first")
-
-    await db.signups.update_one(
-        {"_id": signup["_id"]},
-        {"$set": {
-            "gdpr_consent": data.gdpr_consent,
-            "accepted_terms_conditions": data.accept_terms_conditions,
-            "step": "agreements",
-        }},
-    )
-
-    return {
-        "client_onboarding_token": create_onboarding_token(
-            signup_id=str(signup["_id"]), step="agreements"
-        ),
-        "step": "confirm",
-        "next_step": "agreements",
-    }
-
-
-async def finalize_client_signup(token: str, data, session: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    db = platform_db()
-    signup = await _load_signup(token)
-
-    if not signup.get("tenant_id") or not signup.get("consultant_id"):
-        raise BadRequest("Signup process is incomplete. Missing consultant context.")
-
-    tid = signup["tenant_id"]
-    consultant_id = signup["consultant_id"]
-    tdb = tenant_db(tid)
-    now = utcnow()
-    imm = signup.get("immigration_profile", {})
-
-    consultant = await tdb.users.find_one({"_id": oid(consultant_id)})
-    tenant = await db.tenants.find_one({"_id": oid(tid)})
-
-    user = {
-        "email": signup["email"],
-        "full_name": signup["full_name"],
-        "mobile": signup["mobile"],
-        "dob": signup.get("dob"),
-        "profile_photo_url": signup.get("profile_photo_url"),
-        "password_hash": signup["password_hash"],
-        "role": Role.CLIENT.value,
-        "status": UserStatus.ACTIVE.value,
-        "email_verified": True,
-        "passport_number": imm.get("passport_number"),
-        "nationality": imm.get("nationality"),
-        "destination_country": imm.get("destination_country"),
-        "preferred_immigration_type": imm.get("preferred_immigration_type"),
-        "country_of_residence": imm.get("country_of_residence"),
-        "consultant_id": consultant_id,
-        "agreements": data.model_dump(),
-        "created_at": now,
-        "updated_at": now,
-    }
-    user_id = str((await tdb.users.insert_one(user)).inserted_id)
-
-    # `agreements` above is the raw record of what was asked. This is the same
-    # answers in the store the Privacy Centre actually reads - without it a
-    # client who has just accepted the Terms sees the toggle switched off.
-    await consent_service.record_signup_agreements(
-        tdb, user_id=user_id, agreements=data.model_dump(), session=session)
-
-    await db.user_directory.insert_one({
-        "email": signup["email"],
-        "tenant_id": tid,
-        "user_id": user_id,
-        "role": Role.CLIENT.value,
-        "created_at": now,
-    })
-
-    # Signing up is not the same as asking for something. A request the client
-    # never wrote arrives in the consultant's queue as real work, with a purpose
-    # sentence the server invented on their behalf - so registration only
-    # creates the account, and POST /requests stays the one way a request comes
-    # into being. The consultant is still told a client joined; that is a
-    # different thing from a request, and is worded as one.
-    await notify(tdb, user_ids=[consultant_id], type=NotificationType.CLIENT_JOINED,
-                 title_key="notify.client_registered",
-                 body_key="notify.client_registered.body",
-                 params={"client": signup.get("full_name") or "",
-                         "interest": imm.get("preferred_immigration_type") or ""},
-                 data={"client_id": user_id})
-
-    await db.signups.update_one(
-        {"_id": signup["_id"]},
-        {"$set": {"completed": True, "user_id": user_id}}
-    )
-
-    created_user = await tdb.users.find_one({"_id": oid(user_id)})
-    tokens = await _token_response(
-        created_user, Role.CLIENT, tid, tenant=tenant, session=session
-    )
-
-    return {
-        "token_pair": tokens,
-        # The key stays `request_summary` so the confirmation screen keeps
-        # parsing, but there is no request to summarise any more - what it now
-        # says is "your account is ready, here is who you are with, raise a
-        # request when you are ready to".
-        "request_summary": {
-            "status": "account_ready",
-            "request_id": None,
-            "request_number": None,
-            "organization_name": tenant["name"] if tenant else "",
-            "consultant_name": (consultant or {}).get("full_name") or "",
-            # organization_name and consultant_name are already above; the app
-            # composes the sentence from them in the caller's own language.
-            "message_key": "account_created_no_request_yet",
-            "next_steps_key": "submit_a_request_when_ready",
-        },
-    }
-
-
-
-
-async def _resolve_signup_target(data):
-    """Accepts consultant_id (preferred) or organization_id (falls back to the owner)."""
-    db = platform_db()
-    consultant_id = getattr(data, "consultant_id", None)
-    organization_id = getattr(data, "organization_id", None)
-
-    if not consultant_id and not organization_id:
-        raise BadRequest("Choose a consultant to work with")
-
-    if consultant_id:
-        query = {"status": TenantStatus.ACTIVE.value}
-        if organization_id:
-            query["_id"] = oid(organization_id)
-        async for tenant in db.tenants.find(query):
-            tdb = tenant_db(str(tenant["_id"]))
-            found = await tdb.users.find_one({
-                "_id": oid(consultant_id),
-                "role": {"$in": [Role.CONSULTANT_OWNER.value, Role.CONSULTANT.value]},
-                "status": UserStatus.ACTIVE.value,
-            })
-            if found:
-                return tenant, consultant_id
-        raise NotFound("That consultant is not available")
-
-    tenant = await db.tenants.find_one({"_id": oid(organization_id)})
-    if not tenant:
-        raise NotFound("That organization does not exist")
-    if tenant["status"] != TenantStatus.ACTIVE.value:
-        raise BadRequest("That organization is not accepting clients right now")
-    owner = await tenant_db(str(tenant["_id"])).users.find_one(
-        {"role": Role.CONSULTANT_OWNER.value})
-    return tenant, str(owner["_id"]) if owner else None
-
+# ---------------------------------------------------------------------------
+# Removed: public client signup and the tenant directory.
+#
+# A client used to be able to create their own account through eight steps under
+# /auth/client/signup/..., search every consultancy on the platform by name,
+# pick one (or skip and belong to none), and choose their own procedure. The
+# product review ruled all three out: WebImove's customer is the consultancy,
+# and it is the consultant who decides what procedure a client's matter follows.
+#
+# The code is deleted rather than left unreachable. Four hundred lines
+# implementing a model the product does not have is not harmless - it is a
+# working self-signup one wiring change away from being live again, and nothing
+# in it says it describes how things used to be.
+#
+# What replaces it:
+#
+#   POST /api/v1/users/clients        consultant creates the client, invite sent
+#   GET  /api/v1/auth/invite/{token}  the client sees who invited them
+#   POST /api/v1/auth/invite/accept   they set a password and are signed in
+#
+# ---------------------------------------------------------------------------
 
 async def resend_verification(email: str) -> Dict[str, Any]:
     db = platform_db()
