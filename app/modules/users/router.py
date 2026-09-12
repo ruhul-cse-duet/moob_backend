@@ -307,6 +307,17 @@ async def create_client(payload: s.ClientCreate,
     return await service.create_client(db, user, tenant, payload)
 
 
+@router.post("/clients/{client_id}/resend",
+             summary="Send a client's invitation again")
+async def resend_client_invite(client_id: str,
+                               user: CurrentUser = Depends(require_consultant),
+                               tenant: dict = Depends(require_active_tenant),
+                               db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+    """For a client who never opened their link, or whose link expired. The old
+    one stops working immediately."""
+    return await service.resend_client_invite(db, tenant, user, client_id)
+
+
 @router.get("/clients/{client_id}", response_model=s.ClientDetailView,
             summary="Client profile - the consultant's full view, or the part a "
                     "delegated partner needs")

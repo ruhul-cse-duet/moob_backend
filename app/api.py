@@ -6,6 +6,7 @@ from app.modules.auth.router import router as auth_router
 from app.modules.billing.router import router as invoices_router
 from app.modules.cases.reports import router as analysis_router
 from app.modules.cases.router import router as cases_router
+from app.modules.catalog.router import router as catalog_router
 from app.modules.consultants.router import router as consultants_router
 from app.modules.earnings.router import router as earnings_router
 from app.modules.documents.router import router as documents_router
@@ -34,6 +35,7 @@ api_router.include_router(organization_router)
 api_router.include_router(subscription_router)
 api_router.include_router(consultants_router)
 api_router.include_router(partners_router)
+api_router.include_router(catalog_router)
 api_router.include_router(requests_router)
 api_router.include_router(documents_router)
 api_router.include_router(cases_router)

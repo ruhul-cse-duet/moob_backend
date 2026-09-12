@@ -40,21 +40,26 @@ async def consultant_dashboard(user: CurrentUser = Depends(require_consultant),
     return await service.get_consultant_dashboard(db, user, lang)
 
 
-@router.get("/client/categories", summary="Get list of available immigration request types")
-async def client_categories(lang: str = Depends(request_language)):
-    return await service.get_client_categories(lang)
+@router.get("/client/categories",
+            summary="Procedures this organization offers, by process area")
+async def client_categories(user: CurrentUser = Depends(get_current_user),
+                            db: AsyncIOMotorDatabase = Depends(get_tenant_db),
+                            lang: str = Depends(request_language)):
+    """Read-only for a client: it labels their case. The consultant is the one
+    who assigns a procedure."""
+    return await service.get_client_categories(db, lang)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED,
-             summary="Open a request (consultant) or ask for one (client)")
+             summary="Open a request for a client")
 async def create_request(payload: s.RequestCreate,
-                         user: CurrentUser = Depends(get_current_user),
+                         user: CurrentUser = Depends(require_consultant),
                          db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
-    """A consultant's request enters the queue as `new` and needs `client_id`.
+    """The consultant opens it, names the client, and it enters the queue as `new`.
 
-    A client's enters as `pending_approval` and waits for the consultant to
-    approve or decline it - so a client can ask for work without being able to
-    put work into somebody else's queue.
+    Clients cannot: the consultant decides which procedure a client follows, so
+    there is nothing for a client to submit here. What they need is raised with
+    their consultant, who opens the request.
     """
     return await service.create_request(db, user, payload)
 
@@ -179,6 +184,21 @@ async def delete_attachment(request_id: str, file_id: str,
                             db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
     await service.remove_attachment(db, user, request_id, file_id)
     return {"detail": "Attachment removed"}
+
+
+@router.post("/{request_id}/open-case", status_code=status.HTTP_201_CREATED,
+             summary="Open a case from this request")
+async def open_case(request_id: str, payload: s.OpenCase,
+                    user: CurrentUser = Depends(require_consultant_or_partner),
+                    db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+    """The consultant takes the work on; documents are collected inside the case.
+
+    Deliberately not gated on the document checklist. `/complete` is the other
+    end of the same job - it writes an outcome and does require every requested
+    document to be approved - and using that gate to *start* a case left the
+    process with nowhere to go.
+    """
+    return await service.open_case(db, user, request_id, payload)
 
 
 @router.post("/{request_id}/complete", status_code=status.HTTP_201_CREATED,

@@ -125,6 +125,12 @@ async def ensure_tenant_indexes(db: AsyncIOMotorDatabase) -> None:
         db.users.create_index([("role", 1), ("consultant_ids", 1)]),
         db.counters.create_index("name", unique=True),
 
+        # The procedure catalogue. One key per organization, and procedures
+        # looked up by the area they sit in.
+        db.process_areas.create_index("key", unique=True),
+        db.procedures.create_index([("area_key", 1), ("active", 1)]),
+        db.procedures.create_index([("area_key", 1), ("name", 1)], unique=True),
+
         db.requests.create_index("reference", unique=True),
         db.requests.create_index([("status", 1), ("created_at", -1)]),
         db.requests.create_index("client_id"),

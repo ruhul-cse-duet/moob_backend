@@ -3,7 +3,7 @@ from typing import Optional
 
 from pydantic import BaseModel, EmailStr, Field
 
-from app.core.validators import Email, OptionalPhone, Phone
+from app.core.validators import Email, Phone
 
 from app.core.enums import UserStatus
 

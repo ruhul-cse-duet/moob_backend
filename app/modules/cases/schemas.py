@@ -1,14 +1,26 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.core.enums import CaseStage
 
 
 class CaseCreate(BaseModel):
+    """A case is a client plus the procedure the consultant assigned.
+
+    `case_type` was required and is not any more: when a procedure is named, its
+    own name is the type, and making the caller repeat it is how the two drift
+    apart. It stays for a case opened without a procedure - a consultation with
+    no catalogue entry yet.
+    """
     client_id: str
-    case_type: str
+    process_area: Optional[str] = Field(
+        None, description="Area key, e.g. `immigration`, `labour`")
+    procedure_id: Optional[str] = Field(
+        None, description="A procedure from this organization's catalogue")
+    case_type: Optional[str] = Field(
+        None, description="Free-text label when no procedure is assigned")
     destination_country: Optional[str] = None
     deadline: Optional[datetime] = None
     request_id: Optional[str] = None

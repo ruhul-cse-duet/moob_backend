@@ -90,76 +90,34 @@ async def signup_payment(payload: s.SignupPayment, token: str = Depends(_bearer)
     return await service.complete_payment(token, payload)
 
 
-# ------------------------- client self-registration (7-Step Flow) -------------------------
-@router.post("/client/signup/step1", response_model=s.ClientOnboardingToken,
-             status_code=status.HTTP_201_CREATED,
-             summary="Step 1 of 7 (Client) · Account")
-async def client_signup_step1(payload: s.ClientSignupStep1):
-    return await service.start_client_signup(payload)
+# ------------------------- clients join by invitation only -------------------------
+#
+# The public client signup used to live here: eight steps under
+# /auth/client/signup/... that let anyone create a client account, search a
+# public directory of consultancies, pick one (or skip), and choose their own
+# immigration procedure.
+#
+# All three are wrong for what this product is. WebImove's customer is the
+# consultancy; an end client is not a self-serve user, and the consultant - not
+# the client - decides what procedure a case follows. A client who could sign up
+# alone could also exist with no consultancy at all, which is an account nobody
+# owns and no workspace contains.
+#
+# The path that replaces it is already here:
+#
+#   POST /api/v1/users/clients   consultant creates the client, invitation sent
+#   GET  /api/v1/auth/invite/{token}   the client sees who invited them
+#   POST /api/v1/auth/invite/accept    they set a password and are signed in
+#
+# Personal and document data - passport number among it - is collected after
+# that, on the profile, which is after consent and inside the consultancy's
+# space rather than before either exists.
 
 
-@router.post("/client/signup/verify", response_model=s.ClientOnboardingToken,
-             summary="Step 2 of 7 (Client) · Verification")
-async def client_signup_verify(payload: s.ClientSignupVerify, token: str = Depends(_bearer)):
-    return await service.verify_client_signup_email(token, payload.code)
-
-
-@router.post("/client/signup/verify/resend", response_model=s.OtpIssued,
-             summary="Resend verification code for client signup")
-async def client_signup_resend(token: str = Depends(_bearer)):
-    issued = await service.resend_client_signup_otp(token)
-    return {"detail": "A new verification code has been sent to your email", **issued}
-
-
-@router.post("/client/signup/password", response_model=s.ClientOnboardingToken,
-             summary="Step 3 of 7 (Client) · Create Password")
-async def client_signup_password(payload: s.ClientSignupPassword, token: str = Depends(_bearer)):
-    return await service.set_client_password(token, payload)
-
-
-@router.post("/client/signup/immigration", response_model=s.ClientOnboardingToken,
-             summary="Step 4 of 7 (Client) · Immigration Profile")
-async def client_signup_immigration(payload: s.ClientSignupImmigration, token: str = Depends(_bearer)):
-    return await service.set_client_immigration(token, payload)
-
-
-@router.post("/client/signup/consultant", response_model=s.ClientOnboardingToken,
-             summary="Step 5 of 7 (Client) · Consultant Selection")
-async def client_signup_consultant(payload: s.ClientSignupConsultant, token: str = Depends(_bearer)):
-    return await service.set_client_consultant(token, payload)
-
-
-@router.post("/client/signup/confirm", response_model=s.ClientOnboardingToken,
-             summary="Step 6 of 7 (Client) · Confirm and Submit")
-async def client_signup_confirm(payload: s.ClientSignupConfirm, token: str = Depends(_bearer)):
-    return await service.confirm_client_signup(token, payload)
-
-
-@router.post("/client/signup/agreements", response_model=s.ClientSignupCompleteResponse,
-             summary="Step 7 of 7 (Client) · Agreements & Complete Account")
-async def client_signup_agreements(payload: s.ClientSignupAgreements, request: Request, token: str = Depends(_bearer)):
-    return await service.finalize_client_signup(token, payload, _session(request))
-
-
-@router.get("/consultants", response_model=List[s.ConsultantPublic],
-            summary="Consultants a client can sign up under (public)")
-async def public_consultants(search: Optional[str] = Query(None),
-                             organization_id: Optional[str] = Query(None)):
-    """Step 1 of client signup: choose a consultant. Spans every active organization."""
-    return await service.list_public_consultants(search, organization_id)
-
-
-@router.get("/organizations", response_model=List[s.OrganizationPublic],
-            summary="Organizations a client can join (public)")
-async def organizations(search: Optional[str] = Query(None)):
-    return await service.list_organizations(search)
-
-
-@router.post("/register/client", status_code=status.HTTP_201_CREATED,
-             summary="Legacy client registration endpoint")
-async def register_client(payload: s.ClientRegister):
-    """Sends an email OTP. The account cannot sign in until it is verified."""
-    return await service.register_client(payload)
+# The public consultant and organization directories used to be here. A client
+# never browses tenants: which consultancy they belong to comes from the
+# invitation, and listing every firm's name, city, rating and client count to
+# anonymous callers published one customer's business data to the next.
 
 
 @router.post("/verify-email", response_model=s.TokenPair,

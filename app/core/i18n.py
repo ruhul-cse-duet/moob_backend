@@ -234,7 +234,7 @@ CATALOGUE: Dict[str, Dict[str, Any]] = {
         "pt": "Concluir tarefas atribuídas e colaborar nos processos",
         "es": "Complete las tareas asignadas y colabore en los casos"},
     "role.client.description": {
-        "en": "Track your immigration request, documents and messages",
+        "en": "Track your request, documents and messages",
         "pt": "Acompanhe o seu pedido, documentos e mensagens",
         "es": "Siga su solicitud, documentos y mensajes"},
 
@@ -245,12 +245,12 @@ CATALOGUE: Dict[str, Dict[str, Any]] = {
                       "es": "Consentimiento otorgado"},
     "badge.active": {"en": "Active", "pt": "Ativo", "es": "Activo"},
     "notice.cases_created_after_request_approved": {
-        "en": "New immigration cases are created after the client submits a "
-              "request and a consultant approves the recommended process.",
-        "pt": "Novos processos são criados depois de o cliente enviar um pedido "
-              "e um consultor aprovar o processo recomendado.",
-        "es": "Los nuevos casos se crean después de que el cliente envía una "
-              "solicitud y un consultor aprueba el proceso recomendado."},
+        "en": "New cases are opened by a consultant, who assigns the "
+              "procedure the client's matter follows.",
+        "pt": "Os novos processos são abertos por um consultor, que atribui o "
+              "procedimento que o assunto do cliente segue.",
+        "es": "Los casos nuevos los abre un consultor, que asigna el "
+              "procedimiento que sigue el asunto del cliente.",},
 
     # ---- case timeline stages ----
     "stage.new_request": {"en": 'New request', "pt": 'Novo pedido', "es": 'Nueva solicitud'},
