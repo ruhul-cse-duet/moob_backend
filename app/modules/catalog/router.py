@@ -3,6 +3,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, Query, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
+from app.core.deps import language as request_language
 from app.core.deps import (
     CurrentUser,
     get_current_user,
@@ -25,13 +26,15 @@ router = APIRouter(prefix="/catalog", tags=["Procedure Catalog"])
             summary="Process areas this organization works in")
 async def list_areas(include_inactive: bool = Query(False),
                      user: CurrentUser = Depends(get_current_user),
-                     db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+                     db: AsyncIOMotorDatabase = Depends(get_tenant_db),
+                     lang: str = Depends(request_language)):
     """Readable by everyone in the workspace, clients included.
 
     A client sees the area their own case sits in; they never choose one. Read
     access is what lets the app label a case without a second round trip.
     """
-    return await service.list_areas(db, include_inactive=include_inactive)
+    return await service.list_areas(db, include_inactive=include_inactive,
+                                    lang=lang)
 
 
 @router.post("/areas", response_model=s.ProcessAreaOut,
@@ -48,10 +51,11 @@ async def create_area(payload: s.ProcessAreaIn,
               summary="Rename a process area, or switch it on and off")
 async def update_area(area_id: str, payload: s.ProcessAreaUpdate,
                       user: CurrentUser = Depends(require_owner),
-                      db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+                      db: AsyncIOMotorDatabase = Depends(get_tenant_db),
+                      lang: str = Depends(request_language)):
     """Switching an area off hides it from the pickers and leaves the procedures
     inside it alone - cases are still running on them."""
-    return await service.update_area(db, area_id, payload)
+    return await service.update_area(db, area_id, payload, lang)
 
 
 # --------------------------------------------------------------------------- #
@@ -64,17 +68,20 @@ async def update_area(area_id: str, payload: s.ProcessAreaUpdate,
 async def list_procedures(area: Optional[str] = Query(None, alias="area_key"),
                           include_inactive: bool = Query(False),
                           user: CurrentUser = Depends(get_current_user),
-                          db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+                          db: AsyncIOMotorDatabase = Depends(get_tenant_db),
+                          lang: str = Depends(request_language)):
     return await service.list_procedures(db, area_key=area,
-                                         include_inactive=include_inactive)
+                                         include_inactive=include_inactive,
+                                         lang=lang)
 
 
 @router.get("/procedures/{procedure_id}", response_model=s.ProcedureOut,
             summary="One procedure, with its documents, fields and stages")
 async def get_procedure(procedure_id: str,
                         user: CurrentUser = Depends(get_current_user),
-                        db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
-    return await service.get_procedure(db, procedure_id)
+                        db: AsyncIOMotorDatabase = Depends(get_tenant_db),
+                        lang: str = Depends(request_language)):
+    return await service.get_procedure(db, procedure_id, lang)
 
 
 @router.post("/procedures", response_model=s.ProcedureOut,

@@ -401,9 +401,9 @@ async def get_client_categories(db, lang: str = DEFAULT_LANGUAGE) -> List[Dict[s
     """
     from app.modules.catalog import service as catalog
 
-    areas = {a["key"]: a for a in await catalog.list_areas(db)}
+    areas = {a["key"]: a for a in await catalog.list_areas(db, lang=lang)}
     out = []
-    for procedure in await catalog.list_procedures(db):
+    for procedure in await catalog.list_procedures(db, lang=lang):
         area = areas.get(procedure.get("area_key")) or {}
         out.append({
             "id": procedure["id"],
