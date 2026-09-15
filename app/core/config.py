@@ -11,6 +11,12 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
         populate_by_name=True,
+        # Every string setting, trimmed. `ANTHROPIC_MODEL=claude-haiku-4-5  `
+        # with two trailing spaces sent Anthropic a model name that does not
+        # exist, and every AI feature answered "temporarily unavailable" - with
+        # nothing on screen or in the value to show that whitespace was the cause.
+        # No setting here means anything by leading or trailing blanks.
+        str_strip_whitespace=True,
     )
 
     # App

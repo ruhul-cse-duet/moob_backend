@@ -156,3 +156,16 @@ class TestStripeCurrency:
         # Empty is not "use the default" by the time it reaches Stripe - it is
         # an empty currency, and every price creation fails on it.
         assert self._problems("")
+
+
+def test_trailing_whitespace_in_a_setting_is_ignored():
+    """`ANTHROPIC_MODEL=claude-haiku-4-5  ` took every AI feature down with a
+    404 for a model that did not exist - the name had two spaces on the end."""
+    from app.core.config import Settings
+
+    settings = Settings(ANTHROPIC_MODEL="claude-haiku-4-5  ",
+                        STRIPE_CURRENCY=" usd ", EMAIL_PROVIDER="brevo\t")
+
+    assert settings.ANTHROPIC_MODEL == "claude-haiku-4-5"
+    assert settings.STRIPE_CURRENCY == "usd"
+    assert settings.EMAIL_PROVIDER == "brevo"
