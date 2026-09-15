@@ -305,3 +305,25 @@ async def test_one_tenants_catalogue_is_not_another_tenants():
 
     assert [p["name"] for p in await service.list_procedures(firm_a)] == ["Golden visa"]
     assert await service.list_procedures(firm_b) == []
+
+
+class TestAreaKeyFromName:
+    """The form asks for a name; the key is ours to derive."""
+
+    def test_the_key_is_derived(self):
+        from app.modules.catalog.schemas import ProcessAreaIn
+
+        assert ProcessAreaIn(name="Intellectual property").key == "intellectual_property"
+        assert ProcessAreaIn(name="Extranjería").key == "extranjeria"
+
+    def test_a_given_key_wins(self):
+        from app.modules.catalog.schemas import ProcessAreaIn
+
+        assert ProcessAreaIn(name="Labour law", key="labour").key == "labour"
+
+    def test_a_name_with_nothing_to_key_on_is_refused(self):
+        from pydantic import ValidationError
+        from app.modules.catalog.schemas import ProcessAreaIn
+
+        with pytest.raises(ValidationError):
+            ProcessAreaIn(name="!!")

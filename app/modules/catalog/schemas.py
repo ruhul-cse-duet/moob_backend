@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ProcessAreaIn(BaseModel):
@@ -11,12 +11,30 @@ class ProcessAreaIn(BaseModel):
     and machine-readable; `name` is what a person reads and may be renamed
     freely without moving any existing case.
     """
-    key: str = Field(min_length=2, max_length=40, pattern=r"^[a-z0-9_]+$",
-                     description="Stable id, e.g. `immigration`, `labour`, `tax`")
+    key: Optional[str] = Field(
+        None, min_length=2, max_length=40, pattern=r"^[a-z0-9_]+$",
+        description="Stable id, e.g. `labour`. Derived from `name` when omitted")
     name: str = Field(min_length=2, max_length=80)
     description: Optional[str] = Field(None, max_length=500)
     icon: Optional[str] = Field(None, max_length=40)
     active: bool = True
+
+    @model_validator(mode="after")
+    def derive_key(self) -> "ProcessAreaIn":
+        # A form asks a person for a name, not a machine id. "Intellectual
+        # property" becomes `intellectual_property`; a name with no letters or
+        # digits left after that is refused rather than keyed as "".
+        if not self.key:
+            import re
+            import unicodedata
+
+            ascii_name = (unicodedata.normalize("NFKD", self.name)
+                          .encode("ascii", "ignore").decode())
+            derived = re.sub(r"[^a-z0-9]+", "_", ascii_name.lower()).strip("_")[:40]
+            if len(derived) < 2:
+                raise ValueError("Use a name with at least two letters or digits")
+            self.key = derived
+        return self
 
 
 class ProcessAreaUpdate(BaseModel):
