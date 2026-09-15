@@ -142,10 +142,16 @@ jobs:
           # Healthy is not enough: the old container was healthy too, which is
           # how a deploy that changed nothing passed. The running task has to be
           # on this commit's image before its health counts.
+          #
+          # Asked of Swarm, not `docker ps`. With the containerd image store,
+          # `docker ps` shows a container's image by name one moment and by id
+          # the next, so the same healthy container read as the right version
+          # and then as a stranger. The task record keeps the reference exactly
+          # as the service was given it.
           want="moob-backend:${SHA:0:7}"
           for attempt in $(seq 1 20); do
             running=$(ssh -i ~/.ssh/deploy_key "${USER}@${HOST}" \
-              "docker ps --filter name=moob_api --format '{{.Image}}' | head -1" 2>/dev/null || true)
+              "docker service ps moob_api --filter desired-state=running --format '{{.Image}} {{.CurrentState}}' | grep ' Running' | head -1 | cut -d' ' -f1 | cut -d@ -f1" 2>/dev/null || true)
             body=""
             if [ "$running" = "$want" ]; then
               body=$(ssh -i ~/.ssh/deploy_key "${USER}@${HOST}" \
