@@ -164,7 +164,6 @@ class ClientDashboardSummary(BaseModel):
     recent_activities: List[dict] = []
     pending_documents_count: int = 0
 
-
 class ClientRequestCategory(BaseModel):
     id: str
     name: str
