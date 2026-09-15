@@ -285,7 +285,7 @@ async def complete_payment(token: str, data) -> Dict[str, Any]:
             # The platform's language, not a hard-coded one: an owner in a
             # Spanish-speaking market should not have to change this on the
             # settings screen before their first email reads properly.
-            "language": DEFAULT_LANGUAGE.upper(),
+            "language": DEFAULT_LANGUAGE,
             "avatar_url": None,
             "created_at": now,
             "updated_at": now,
