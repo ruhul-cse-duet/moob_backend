@@ -9,6 +9,8 @@ from app.core.i18n import translate
 from app.core.enums import BillingCycle, PlanCode
 from app.core.utils import client_ip
 from app.modules.auth import schemas as s
+from app.core.i18n import DEFAULT_LANGUAGE, translate
+from app.core.i18n import normalize as normalize_language
 from app.modules.auth import service
 from app.modules.subscriptions.plans import order_summary, plan_catalogue
 from app.schemas.common import Message
@@ -235,5 +237,14 @@ async def change_password(payload: s.ChangePasswordRequest,
 @router.get("/me", summary="Current session profile")
 async def me(user: CurrentUser = Depends(get_current_user)):
     from app.core.utils import serialize
-    return {"role": user.role, "tenant_id": user.tenant_id,
-            "user": serialize({k: v for k, v in user.raw.items() if k != "password_hash"})}
+    out = serialize({k: v for k, v in user.raw.items() if k != "password_hash"})
+    # Normalized, defaulted the same way /me/language already answers it - an
+    # account invited before a language was ever assigned to it (or one
+    # holding a stale value this app no longer serves) reads back a real
+    # code here instead of null, which is what the app actually syncs on
+    # every login. Without this, that account's session picks up whatever
+    # the browser already had - almost always English - and the workspace's
+    # own settings screen and the rest of the app disagree about what
+    # language the account is in.
+    out["language"] = normalize_language(out.get("language")) or DEFAULT_LANGUAGE
+    return {"role": user.role, "tenant_id": user.tenant_id, "user": out}

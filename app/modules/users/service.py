@@ -11,7 +11,8 @@ from app.services import invites
 from app.services.email import send_client_invite_email, send_partner_invite_email
 from app.services.ownership import assign_partner_to_client, partner_is_delegated
 from app.services.pagination import paginate
-
+from app.core.i18n import DEFAULT_LANGUAGE
+from app.core.i18n import normalize as normalize_language
 
 def _clean(doc: Dict[str, Any]) -> Dict[str, Any]:
     out = serialize(doc)
@@ -119,6 +120,7 @@ async def invite_team_member(db, user: CurrentUser, tenant: Dict[str, Any],
         "email": email, "full_name": data.full_name, "mobile": data.mobile,
         "password_hash": None, "role": Role.CONSULTANT.value, "title": data.title,
         "status": UserStatus.INVITED.value, "email_verified": False,
+        "language": DEFAULT_LANGUAGE,
         "invited_by": user.id, "invited_at": now, "created_at": now, "updated_at": now,
     }
     user_id = str((await db.users.insert_one(doc)).inserted_id)
@@ -145,7 +147,13 @@ async def create_client(db, user: CurrentUser, tenant: Dict[str, Any],
         "email": email, "full_name": data.full_name, "mobile": data.mobile,
         "password_hash": None, "role": Role.CLIENT.value,
         "status": UserStatus.INVITED.value, "email_verified": False,
-        "nationality": data.nationality, "language": data.language,
+        "nationality": data.nationality,
+        # Whatever the consultant's invite form sent, normalized - and the
+        # platform default when it sent nothing. Left as `None` here, the
+        # client's own screens would read it back through `normalize(...) or
+        # DEFAULT_LANGUAGE` and see "es" while `/me` handed back a null - one
+        # correct reading and one wrong one, from the same stored value.
+        "language": normalize_language(data.language) or DEFAULT_LANGUAGE,
         "country_of_residence": data.country_of_residence,
         "consultant_id": user.id, "created_at": now, "updated_at": now,
     }

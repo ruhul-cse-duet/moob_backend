@@ -11,7 +11,8 @@
 # belongs in that file, not in a repository.
 #
 # Deploy:
-#   docker build -t moob-backend:latest . && docker stack deploy -c docker-stack.yml --resolve-image never moob
+#   TAG=$(git rev-parse --short=7 HEAD)
+#   docker build -t moob-backend:$TAG . && IMAGE_TAG=$TAG docker stack deploy -c docker-stack.yml --resolve-image never moob
 #
 # `docker compose up` is the wrong tool here - the node is a Swarm manager and
 # Traefik discovers routes from *service* labels, which only exist under
@@ -19,7 +20,11 @@
 
 services:
   api:
-    image: moob-backend:latest
+    # Tagged per commit by the deploy workflow. A fixed `:latest` looks the same
+    # to Swarm on every deploy, so `stack deploy` saw no change in the service
+    # spec and left the old container running - while the workflow reported
+    # success. A new tag is a new spec, which is what makes Swarm roll.
+    image: moob-backend:${IMAGE_TAG:-latest}
     build: .
     # Everything comes from here, MONGODB_URI included. Deliberately not
     # repeated under `environment:` below - that key wins over env_file, so a

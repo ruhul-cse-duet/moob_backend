@@ -99,20 +99,27 @@ jobs:
           git fetch --prune origin main
           git checkout main
           git merge --ff-only origin/main
-          echo "Deploying \$(git rev-parse --short HEAD)"
+          TAG=\$(git rev-parse --short=7 HEAD)
+          echo "Deploying \$TAG"
 
-          docker build -t moob-backend:latest .
+          # Tagged by commit, not :latest. With a fixed tag the service spec was
+          # identical on every deploy, so Swarm changed nothing and the old
+          # container kept serving while this job went green.
+          docker build -t moob-backend:\$TAG -t moob-backend:latest .
 
-          # --resolve-image never: the image is local and has no registry to be
-          # looked up in. Without it Swarm tries to resolve a digest, fails, and
-          # keeps running the old tasks while reporting success.
-          docker stack deploy -c docker-stack.yml --resolve-image never moob
+          # --resolve-image never: the image is local, there is no registry to
+          # look a digest up in.
+          IMAGE_TAG=\$TAG docker stack deploy -c docker-stack.yml --resolve-image never moob
+
+          # Old images pile up at a few hundred MB per deploy otherwise.
+          docker image prune -f --filter "until=168h" >/dev/null || true
           REMOTE
 
       - name: Wait for it to answer
         env:
           HOST: ${{ secrets.DROPLET_HOST }}
           USER: ${{ secrets.DROPLET_USER }}
+          SHA: ${{ github.sha }}
         run: |
           set -uo pipefail
           # Swarm replaces the task rather than restarting it, so there is a
@@ -132,22 +139,31 @@ jobs:
           # moment can only ever report a timeout - never the answer,
           # which is the one thing worth reading.
           probe='import urllib.request as u; print(u.urlopen("http://localhost:8000/health", timeout=20).read().decode())'
+          # Healthy is not enough: the old container was healthy too, which is
+          # how a deploy that changed nothing passed. The running task has to be
+          # on this commit's image before its health counts.
+          want="moob-backend:${SHA:0:7}"
           for attempt in $(seq 1 20); do
-            body=$(ssh -i ~/.ssh/deploy_key "${USER}@${HOST}" \
-              "docker exec \$(docker ps -qf name=moob_api) python -c '${probe}'" 2>/dev/null || true)
+            running=$(ssh -i ~/.ssh/deploy_key "${USER}@${HOST}" \
+              "docker ps --filter name=moob_api --format '{{.Image}}' | head -1" 2>/dev/null || true)
+            body=""
+            if [ "$running" = "$want" ]; then
+              body=$(ssh -i ~/.ssh/deploy_key "${USER}@${HOST}" \
+                "docker exec \$(docker ps -qf name=moob_api) python -c '${probe}'" 2>/dev/null || true)
+            fi
             case "$body" in
               *'"database":true'*|*'"database": true'*)
-                echo "Healthy: $body"
-                echo "### Deployed and healthy" >> "$GITHUB_STEP_SUMMARY"
+                echo "Healthy on $running: $body"
+                echo "### Deployed $running and healthy" >> "$GITHUB_STEP_SUMMARY"
                 exit 0 ;;
             esac
-            echo "Attempt ${attempt}: not ready yet (${body:-no answer})"
+            echo "Attempt ${attempt}: running ${running:-nothing}, want ${want} (${body:-not checked})"
             sleep 10
           done
 
           # Loud on purpose, unlike the keep-alive workflow: this one is
           # actionable - a deploy just went out and the API is not answering.
-          echo "::error title=Deploy did not come up::/health never reported a healthy database after ~3 minutes."
+          echo "::error title=Deploy did not come up::the new image never came up healthy after ~3 minutes."
           ssh -i ~/.ssh/deploy_key "${USER}@${HOST}" \
             "docker service logs moob_api --tail 60" || true
           exit 1

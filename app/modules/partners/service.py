@@ -12,7 +12,7 @@ from app.schemas.common import PageParams
 from app.services import invites
 from app.services.email import send_partner_invite_email
 from app.services.pagination import paginate
-
+from app.core.i18n import DEFAULT_LANGUAGE
 
 async def _seat_limits(tenant: Dict[str, Any]) -> Dict[str, Optional[int]]:
     plan = PLANS[PlanCode(tenant["plan_code"])]
@@ -57,6 +57,7 @@ async def invite_partner(db, user: CurrentUser, tenant: Dict[str, Any],
         "partner_role": data.role,
         "status": UserStatus.INVITED.value,
         "email_verified": False,
+        "language": DEFAULT_LANGUAGE,
         # The inviting consultant OWNS this partner - they sign in and land under them.
         # `consultant_ids` additionally tracks every consultant who delegates work,
         # so a second consultant assigning a task never steals ownership.
