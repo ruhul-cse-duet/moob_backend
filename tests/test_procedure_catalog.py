@@ -327,3 +327,57 @@ class TestAreaKeyFromName:
 
         with pytest.raises(ValidationError):
             ProcessAreaIn(name="!!")
+
+
+class TestSeedingUnderConcurrency:
+    """Eight areas, each twice, on a real workspace.
+
+    The catalogue page loads areas and procedures at the same moment - and
+    React's development mode fetches everything twice - so seeding is always
+    asked for concurrently. Read-then-insert saw no areas in both requests and
+    inserted four in each. The unique index that should have stopped it is only
+    created at provisioning, and that workspace predated the catalogue.
+    """
+
+    @pytest.fixture(autouse=True)
+    def fresh_cache(self):
+        service._ENSURED.clear()
+        yield
+        service._ENSURED.clear()
+
+    async def test_concurrent_first_reads_seed_four_not_eight(self, db):
+        import asyncio
+
+        await asyncio.gather(*(service.list_areas(db) for _ in range(5)))
+
+        assert await db.process_areas.count_documents({}) == 4
+
+    async def test_duplicates_already_written_are_cleared(self, db):
+        """The workspace that already has eight has to come back to four."""
+        from app.core.utils import utcnow
+
+        for _ in range(2):
+            await db.process_areas.insert_many([
+                {"key": k, "name": k.title(), "active": True, "built_in": True,
+                 "created_at": utcnow()}
+                for k in ("immigration", "labour", "civil", "tax")
+            ])
+        assert await db.process_areas.count_documents({}) == 8
+
+        areas = await service.list_areas(db)
+
+        assert len(areas) == 4
+        assert await db.process_areas.count_documents({}) == 4
+
+    async def test_the_survivor_keeps_what_the_tenant_changed(self, db):
+        # Oldest first: a rename on the original row must not be thrown away in
+        # favour of the untouched copy the race added after it.
+        await db.process_areas.insert_one(
+            {"key": "immigration", "name": "Extranjería", "active": True})
+        await db.process_areas.insert_one(
+            {"key": "immigration", "name": "Immigration", "active": True})
+
+        await service.ensure_defaults(db)
+
+        row = await db.process_areas.find_one({"key": "immigration"})
+        assert row["name"] == "Extranjería"

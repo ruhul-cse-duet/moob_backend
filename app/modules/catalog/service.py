@@ -21,7 +21,10 @@ at the moment it is opened. Both exist for the same reason: editing a procedure
 must never reach backwards into matters already running on the old version of it.
 """
 import re
+import weakref
 from typing import Any, Dict, List, Optional
+
+from pymongo.errors import DuplicateKeyError
 
 from app.core.deps import CurrentUser
 from app.core.exceptions import BadRequest, Conflict, NotFound
@@ -29,26 +32,75 @@ from app.core.utils import oid, serialize, utcnow
 from app.modules.catalog.templates import BY_KEY, DEFAULT_AREAS, TEMPLATES
 
 
+#: Workspaces whose catalogue has been checked, per open connection. Seeding runs
+#: on every catalogue read, and without this each read would pay for an index
+#: build and a de-duplication pass that only ever needs to happen once.
+#:
+#: Weakly keyed on the client object, not on `id()` of it: CPython reuses ids
+#: after an object is freed, so a new connection could inherit a dead one's
+#: entry and skip seeding a database that has nothing in it.
+_ENSURED: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
+
+
 async def ensure_defaults(db) -> None:
-    """Give a new workspace the four common areas to start from.
+    """Give a workspace the four common areas, exactly once, however it is asked.
 
-    Seeded rather than hard-coded so they can be renamed, switched off or joined
-    by others. A firm that only does tax deactivates the other three; one that
-    does something none of these cover adds it.
+    The first version read the areas, saw none, and inserted four. Two requests
+    arriving together - the catalogue page loads areas and procedures at the
+    same moment, and React's development mode fetches everything twice - both
+    saw none and both inserted, and a workspace came out with eight areas.
 
-    Idempotent: run on every tenant provisioning and on first read, because a
-    workspace created before the catalogue existed has none of this.
+    A unique index on `key` was meant to stop that, but it is created when a
+    tenant is provisioned, and every tenant provisioned before the catalogue
+    existed has no such index. So this makes the guarantee itself, in order:
+
+      1. remove duplicates already written, keeping the oldest of each key -
+         procedures point at an area by key, never by id, so nothing is lost;
+      2. create the unique indexes, which now succeeds because (1) ran first;
+      3. upsert each default by key, which the index makes safe to race.
     """
-    existing = {row["key"] async for row in db.process_areas.find({}, {"key": 1})}
-    missing = [a for a in DEFAULT_AREAS if a["key"] not in existing]
-    if not missing:
+    # The connection as well as the name: a name alone survives a database being
+    # dropped and recreated, and would then skip seeding the new, empty one.
+    seeded = _ENSURED.setdefault(db.client, set())
+    if db.name in seeded:
         return
+
+    # (1) Clear what the race already wrote. Oldest first, so the survivor is
+    # the row that was there first and anything renamed on it is kept.
+    seen = set()
+    duplicates = []
+    async for row in db.process_areas.find({}, {"key": 1}).sort("_id", 1):
+        if row["key"] in seen:
+            duplicates.append(row["_id"])
+        else:
+            seen.add(row["key"])
+    if duplicates:
+        await db.process_areas.delete_many({"_id": {"$in": duplicates}})
+
+    # (2) Now safe to create. Idempotent, so a workspace provisioned with these
+    # indexes already costs nothing here.
+    await db.process_areas.create_index("key", unique=True)
+    await db.procedures.create_index([("area_key", 1), ("active", 1)])
+    await db.procedures.create_index([("area_key", 1), ("name", 1)], unique=True)
+
+    # (3) Upsert, not insert. Two callers racing on the same key both issue an
+    # upsert; the index lets one win and turns the other into a no-op instead
+    # of a second row.
     now = utcnow()
-    await db.process_areas.insert_many([
-        {**area, "active": True, "built_in": True, "created_at": now,
-         "updated_at": now}
-        for area in missing
-    ])
+    for area in DEFAULT_AREAS:
+        try:
+            await db.process_areas.update_one(
+                {"key": area["key"]},
+                {"$setOnInsert": {**area, "active": True, "built_in": True,
+                                  "created_at": now, "updated_at": now}},
+                upsert=True,
+            )
+        except DuplicateKeyError:
+            # The other request's upsert landed between our match and insert.
+            # The row exists, which is all this wanted.
+            pass
+
+    seeded.add(db.name)
 
 
 # --------------------------------------------------------------------------- #
