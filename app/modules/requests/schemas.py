@@ -72,10 +72,20 @@ class RequestOut(BaseModel):
     id: str
     reference: str
     visa_type: str
-    destination_country: str
+    # Immigration procedures only. A labour or tax request never had one to
+    # begin with, so this has to be optional or a response for one 500s on
+    # pydantic validation the moment `destination_country` is genuinely absent.
+    destination_country: Optional[str] = None
     origin_country: Optional[str] = None
     purpose: str
     status: RequestStatus
+    # What the consultant assigned from the organization's own catalogue —
+    # absent when the request predates it, or names no procedure. The app
+    # uses `process_area` to decide whether immigration-only fields like
+    # `destination_country` mean anything for this particular request.
+    process_area: Optional[str] = None
+    procedure_id: Optional[str] = None
+    procedure_name: Optional[str] = None
     # No `status_label` here on purpose. `status` is the enum code; the app
     # holds the wording for it in each language. A label built server-side
     # arrives as opaque English text that no translation file can reach.
@@ -103,7 +113,6 @@ class RequestOut(BaseModel):
     outcome: Optional[dict] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-
 
 
 class ConsultationOutcomeIn(BaseModel):
