@@ -28,6 +28,7 @@ from pymongo.errors import DuplicateKeyError
 
 from app.core.deps import CurrentUser
 from app.core.exceptions import BadRequest, Conflict, NotFound
+from app.core.i18n import DEFAULT_LANGUAGE, translate
 from app.core.utils import oid, serialize, utcnow
 from app.modules.catalog.templates import BY_KEY, DEFAULT_AREAS, TEMPLATES
 
@@ -36,10 +37,20 @@ from app.modules.catalog.templates import BY_KEY, DEFAULT_AREAS, TEMPLATES
 #: on every catalogue read, and without this each read would pay for an index
 #: build and a de-duplication pass that only ever needs to happen once.
 #:
-#: Weakly keyed on the client object, not on `id()` of it: CPython reuses ids
-#: after an object is freed, so a new connection could inherit a dead one's
-#: entry and skip seeding a database that has nothing in it.
-_ENSURED: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
+#: Keyed on identity and verified through a weak reference. Not `id()` alone -
+#: CPython reuses ids once an object is freed, so a new connection could inherit
+#: a dead one's entry. And not a WeakKeyDictionary - Mongo clients compare equal
+#: by host and port, so two separate connections would share one entry. Either
+#: way the result is the same: a database with nothing in it, never seeded.
+_ENSURED: Dict[int, Any] = {}
+
+
+def _seeded_names(client) -> set:
+    entry = _ENSURED.get(id(client))
+    if entry is None or entry[0]() is not client:
+        entry = (weakref.ref(client), set())
+        _ENSURED[id(client)] = entry
+    return entry[1]
 
 
 async def ensure_defaults(db) -> None:
@@ -61,7 +72,7 @@ async def ensure_defaults(db) -> None:
     """
     # The connection as well as the name: a name alone survives a database being
     # dropped and recreated, and would then skip seeding the new, empty one.
-    seeded = _ENSURED.setdefault(db.client, set())
+    seeded = _seeded_names(db.client)
     if db.name in seeded:
         return
 
@@ -108,16 +119,41 @@ async def ensure_defaults(db) -> None:
 # --------------------------------------------------------------------------- #
 
 
-async def list_areas(db, *, include_inactive: bool = False) -> List[Dict[str, Any]]:
+_DEFAULT_TEXT = {a["key"]: (a["name"], a.get("description")) for a in DEFAULT_AREAS}
+
+
+def _display(row: Dict[str, Any], lang: str) -> Dict[str, Any]:
+    """An area as this reader should see it.
+
+    A built-in area whose name and description are still the ones the platform
+    seeded is rendered in the reader's language. Anything the tenant has
+    changed - or any area they created - is theirs and is shown exactly as
+    stored. Checked field by field, so renaming an area but leaving its
+    description alone still translates the description.
+    """
+    item = serialize(row)
+    default = _DEFAULT_TEXT.get(row.get("key"))
+    if row.get("built_in") and default:
+        name, description = default
+        if row.get("name") == name:
+            item["name"] = translate(f"area.{row['key']}", lang)
+        if row.get("description") == description:
+            item["description"] = translate(f"area.{row['key']}.description", lang)
+    return item
+
+
+async def list_areas(db, *, include_inactive: bool = False,
+                     lang: str = DEFAULT_LANGUAGE) -> List[Dict[str, Any]]:
     await ensure_defaults(db)
     query: Dict[str, Any] = {} if include_inactive else {"active": True}
     out = []
-    async for row in db.process_areas.find(query).sort("name", 1):
-        item = serialize(row)
+    async for row in db.process_areas.find(query):
+        item = _display(row, lang)
         item["procedure_count"] = await db.procedures.count_documents(
             {"area_key": row["key"], "active": True})
         out.append(item)
-    return out
+    # Sorted after translation, so the order follows the names on screen.
+    return sorted(out, key=lambda a: a["name"].lower())
 
 
 async def create_area(db, user: CurrentUser, data) -> Dict[str, Any]:
@@ -130,7 +166,8 @@ async def create_area(db, user: CurrentUser, data) -> Dict[str, Any]:
     return serialize({**doc, "_id": result.inserted_id, "procedure_count": 0})
 
 
-async def update_area(db, area_id: str, data) -> Dict[str, Any]:
+async def update_area(db, area_id: str, data,
+                      lang: str = DEFAULT_LANGUAGE) -> Dict[str, Any]:
     changes = {k: v for k, v in data.model_dump().items() if v is not None}
     if not changes:
         raise BadRequest("Nothing to change")
@@ -144,7 +181,7 @@ async def update_area(db, area_id: str, data) -> Dict[str, Any]:
     # are left exactly as they are, because cases are still running on them.
     await db.process_areas.update_one({"_id": oid(area_id)}, {"$set": changes})
     updated = await db.process_areas.find_one({"_id": oid(area_id)})
-    out = serialize(updated)
+    out = _display(updated, lang)
     out["procedure_count"] = await db.procedures.count_documents(
         {"area_key": updated["key"], "active": True})
     return out
@@ -155,13 +192,14 @@ async def update_area(db, area_id: str, data) -> Dict[str, Any]:
 # --------------------------------------------------------------------------- #
 
 
-async def _area_names(db) -> Dict[str, str]:
-    return {row["key"]: row.get("name", row["key"])
-            async for row in db.process_areas.find({}, {"key": 1, "name": 1})}
+async def _area_names(db, lang: str = DEFAULT_LANGUAGE) -> Dict[str, str]:
+    return {row["key"]: _display(row, lang)["name"]
+            async for row in db.process_areas.find({})}
 
 
 async def list_procedures(db, *, area_key: Optional[str] = None,
-                          include_inactive: bool = False) -> List[Dict[str, Any]]:
+                          include_inactive: bool = False,
+                          lang: str = DEFAULT_LANGUAGE) -> List[Dict[str, Any]]:
     await ensure_defaults(db)
     query: Dict[str, Any] = {}
     if area_key:
@@ -169,7 +207,7 @@ async def list_procedures(db, *, area_key: Optional[str] = None,
     if not include_inactive:
         query["active"] = True
 
-    names = await _area_names(db)
+    names = await _area_names(db, lang)
     out = []
     async for row in db.procedures.find(query).sort("name", 1):
         item = serialize(row)
@@ -178,12 +216,13 @@ async def list_procedures(db, *, area_key: Optional[str] = None,
     return out
 
 
-async def get_procedure(db, procedure_id: str) -> Dict[str, Any]:
+async def get_procedure(db, procedure_id: str,
+                        lang: str = DEFAULT_LANGUAGE) -> Dict[str, Any]:
     row = await db.procedures.find_one({"_id": oid(procedure_id)})
     if not row:
         raise NotFound("Procedure not found")
     out = serialize(row)
-    out["area_name"] = (await _area_names(db)).get(row.get("area_key"))
+    out["area_name"] = (await _area_names(db, lang)).get(row.get("area_key"))
     return out
 
 

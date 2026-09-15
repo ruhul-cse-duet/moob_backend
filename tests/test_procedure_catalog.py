@@ -152,7 +152,10 @@ class TestProcedures:
             db, _User(), _ProcedureIn("labour", "Dismissal claim"))
 
         assert procedure["area_key"] == "labour"
-        assert procedure["area_name"] == "Labour"
+        # In the platform's language - the area was not renamed, so it follows
+        # the reader rather than the English it was seeded with.
+        from app.core.i18n import DEFAULT_LANGUAGE, translate
+        assert procedure["area_name"] == translate("area.labour", DEFAULT_LANGUAGE)
 
     async def test_an_unknown_area_is_refused_with_a_way_forward(self, db):
         await service.ensure_defaults(db)
@@ -381,3 +384,47 @@ class TestSeedingUnderConcurrency:
 
         row = await db.process_areas.find_one({"key": "immigration"})
         assert row["name"] == "Extranjería"
+
+
+class TestAreaNamesInTheReadersLanguage:
+    """The four seeded areas are the platform's words; renamed or custom ones are
+    the tenant's. Only the first kind is translated."""
+
+    async def test_a_built_in_area_reads_in_spanish(self, db):
+        areas = {a["key"]: a for a in await service.list_areas(db, lang="es")}
+
+        assert areas["immigration"]["name"] == "Extranjería"
+        assert areas["labour"]["name"] == "Laboral"
+        assert areas["tax"]["description"].startswith("Declaraciones")
+
+    async def test_the_same_rows_read_in_english(self, db):
+        areas = {a["key"]: a for a in await service.list_areas(db, lang="en")}
+
+        assert areas["immigration"]["name"] == "Immigration"
+
+    async def test_a_renamed_built_in_area_keeps_the_tenants_name(self, db):
+        await service.ensure_defaults(db)
+        await db.process_areas.update_one({"key": "labour"},
+                                          {"$set": {"name": "Derecho laboral"}})
+
+        areas = {a["key"]: a for a in await service.list_areas(db, lang="pt")}
+
+        assert areas["labour"]["name"] == "Derecho laboral"
+        # The description was left alone, so it still follows the reader.
+        assert areas["labour"]["description"].startswith("Contratos de trabalho")
+
+    async def test_a_custom_area_is_never_translated(self, db):
+        await service.ensure_defaults(db)
+        await service.create_area(db, _User(), _AreaIn("ruhul", "Ruhul"))
+
+        areas = {a["key"]: a for a in await service.list_areas(db, lang="es")}
+
+        assert areas["ruhul"]["name"] == "Ruhul"
+
+    async def test_a_procedure_names_its_area_in_the_readers_language(self, db):
+        await service.ensure_defaults(db)
+        await service.create_procedure(db, _User(), _ProcedureIn("immigration", "Visado"))
+
+        [procedure] = await service.list_procedures(db, lang="es")
+
+        assert procedure["area_name"] == "Extranjería"
