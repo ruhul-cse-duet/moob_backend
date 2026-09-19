@@ -37,6 +37,7 @@ import aiosmtplib
 import httpx
 
 from app.core.config import settings
+from app.core.i18n import DEFAULT_LANGUAGE, translate
 
 logger = logging.getLogger(__name__)
 
@@ -402,38 +403,48 @@ async def send_otp_email(*, to: str, code: str, purpose: str) -> bool:
 
 
 async def send_partner_invite_email(*, to: str, name: str, org: str, role: str, link: str,
-                                    invited_by: str | None = None) -> bool:
-    who = f"<strong>{invited_by}</strong> at " if invited_by else ""
+                                    invited_by: str | None = None,
+                                    lang: str | None = None) -> bool:
+    """The one email a partner gets before they have ever opened the app, so
+    there is no session and no `Accept-Language` header to read - `lang` is
+    the language stored on their own account (set at invite time, before they
+    could pick anything else) rather than the inviter's.
+    """
+    lang = lang or DEFAULT_LANGUAGE
+    body_key = "email.partner_invite.body_with_inviter" if invited_by else "email.partner_invite.body"
     body = f"""
-    <h2 style="margin:0 0 8px">You have been invited to {org}</h2>
-    <p style="color:#5b686c">Hi {name}, {who}{org} has added you as
-    <strong>{role}</strong>. Click below to set a password and activate your account.</p>
+    <h2 style="margin:0 0 8px">{translate('email.partner_invite.title', lang, org=org)}</h2>
+    <p style="color:#5b686c">{translate(body_key, lang, name=name, org=org, role=role, inviter=invited_by or '')}</p>
     <a href="{link}" style="display:inline-block;margin-top:16px;background:#0f9fa8;color:#fff;
-       padding:12px 20px;border-radius:8px;text-decoration:none">Set my password</a>
+       padding:12px 20px;border-radius:8px;text-decoration:none">{translate('email.partner_invite.cta', lang)}</a>
     <p style="color:#98a2a6;font-size:13px;margin-top:24px">
-      This link is single-use and expires in {settings.INVITE_EXPIRE_DAYS} days.
-      Partners never see billing.
+      {translate('email.partner_invite.footer', lang, days=settings.INVITE_EXPIRE_DAYS)}
     </p>"""
     return await send_email(
         to=to,
-        subject=f"{org} invited you to WebImove",
+        subject=translate('email.partner_invite.subject', lang, org=org),
         html=_wrap(body),
         text=f"{org} added you as {role} on WebImove. Set your password: {link}",
     )
 
 
 async def send_client_invite_email(*, to: str, name: str, org: str, link: str,
-                                   consultant: str | None = None) -> bool:
+                                   consultant: str | None = None,
+                                   lang: str | None = None) -> bool:
+    """Same reasoning as `send_partner_invite_email`: `lang` is the language
+    the client chose (or was given) when their workspace was created, since
+    this lands before they have ever signed in to say so themselves.
+    """
+    lang = lang or DEFAULT_LANGUAGE
+    body_key = "email.client_invite.body_with_consultant" if consultant else "email.client_invite.body"
     body = f"""
-    <h2 style="margin:0 0 8px">{org} created your client workspace</h2>
-    <p style="color:#5b686c">Hi {name}, {"your consultant " + consultant + " at " if consultant else ""}{org}
-    created your workspace. Track your request, upload documents and follow every stage
-    from the WebImove app.</p>
+    <h2 style="margin:0 0 8px">{translate('email.client_invite.title', lang, org=org)}</h2>
+    <p style="color:#5b686c">{translate(body_key, lang, name=name, org=org, consultant=consultant or '')}</p>
     <a href="{link}" style="display:inline-block;margin-top:16px;background:#0f9fa8;color:#fff;
-       padding:12px 20px;border-radius:8px;text-decoration:none">Get started</a>"""
+       padding:12px 20px;border-radius:8px;text-decoration:none">{translate('email.client_invite.cta', lang)}</a>"""
     return await send_email(
         to=to,
-        subject=f"{org} invited you to WebImove",
+        subject=translate('email.client_invite.subject', lang, org=org),
         html=_wrap(body),
         text=f"{org} created your WebImove workspace. Get started: {link}",
     )

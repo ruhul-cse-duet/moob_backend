@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from fastapi import UploadFile
@@ -13,7 +14,10 @@ from app.core.enums import (
     Role,
 )
 from app.core.exceptions import BadRequest, Forbidden, NotFound
+from app.core.i18n import DEFAULT_LANGUAGE
+from app.core.i18n import normalize as normalize_language
 from app.core.utils import oid, serialize, utcnow
+from app.modules.deadlines import service as deadlines
 from app.schemas.common import PageParams
 from app.services import storage
 from app.services.events import log_activity, notify
@@ -71,6 +75,41 @@ async def get_document(db, user: CurrentUser, document_id: str) -> Dict[str, Any
     return serialize(doc)
 
 
+def _parse_ai_date(value: Any) -> Optional[datetime]:
+    """The AI is asked for `YYYY-MM-DD or null`, not a timestamp - a date read
+    off a passport has no time of day. Anything else it might send back (a
+    stray sentence, a different format) is a date this module cannot trust,
+    so it is treated the same as no date at all rather than raising.
+    """
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        return datetime.strptime(value.strip()[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+async def _track_expiry(db, document_id: str, doc: Dict[str, Any],
+                        analysis: Dict[str, Any]) -> None:
+    """Mirrors what the AI read off the document itself onto the worklist -
+    the exact gap the client's own message named: an expiry date the AI
+    already extracts, sitting on the document record with nothing reading it
+    or alerting anyone as it approaches.
+
+    Re-run on every analysis (a fresh upload, or a manual re-check) so a
+    replaced file's new expiry replaces the old one, and a document that no
+    longer reads as having one - or failed to analyse - drops the deadline
+    rather than keep chasing a date from the file it replaced.
+    """
+    due = _parse_ai_date(analysis.get("expiry_date"))
+    await deadlines.upsert(
+        db, kind="document_expiry", source_collection="documents",
+        source_id=document_id, due_date=due, title=doc["name"],
+        consultant_id=doc.get("consultant_id"), client_id=doc.get("client_id"),
+        client_name=doc.get("client_name"), case_id=doc.get("case_id"),
+    )
+
+
 async def _run_analysis(db, document_id: str, doc: Dict[str, Any],
                         file_meta: Dict[str, Any]) -> Dict[str, Any]:
     """Read the stored file back and ask Claude what it is.
@@ -79,6 +118,15 @@ async def _run_analysis(db, document_id: str, doc: Dict[str, Any],
     upload has already been consumed by the time this runs in the background,
     and the stored copy is the one the consultant will actually open.
     """
+    # Written in the language of the consultant who will read it — the analysis
+    # is text generated per document, so it is the one thing on the screen that
+    # the translation files cannot reach.
+    reviewer_lang = None
+    reviewer_id = doc.get("consultant_id")
+    if reviewer_id:
+        reviewer = await db.users.find_one({"_id": oid(reviewer_id)}, {"language": 1})
+        reviewer_lang = (reviewer or {}).get("language")
+
     analysis = await analyze_document(
         file_bytes=await storage.read_bytes(
             db, file_meta["file_id"],
@@ -86,9 +134,11 @@ async def _run_analysis(db, document_id: str, doc: Dict[str, Any],
         mime_type=file_meta.get("mime_type", "application/octet-stream"),
         document_name=doc["name"],
         context=doc.get("category", ""),
+        lang=normalize_language(reviewer_lang) or DEFAULT_LANGUAGE,
     )
     await db.documents.update_one({"_id": oid(document_id)},
                                   {"$set": {"ai_analysis": analysis}})
+    await _track_expiry(db, document_id, doc, analysis)
     return analysis
 
 
@@ -161,16 +211,18 @@ async def upload(db, user: CurrentUser, document_id: str,
     # on purpose - see `_analyze_later`.
     asyncio.create_task(_analyze_later(db, document_id, doc, file_meta))
 
-    if doc.get("request_id"):
-        pending = await db.documents.count_documents({
-            "request_id": doc["request_id"],
-            "status": {"$in": [DocumentStatus.UPLOAD_NEEDED.value,
-                               DocumentStatus.NEEDS_REUPLOAD.value]},
-        })
-        new_status = (RequestStatus.DOCUMENTS_RECEIVED.value if pending == 0
-                      else RequestStatus.WAITING_FOR_CLIENT.value)
-        await db.requests.update_one({"_id": oid(doc["request_id"])},
-                                     {"$set": {"status": new_status, "updated_at": now}})
+    # The client answered it - nothing left on the worklist to chase.
+    await deadlines.clear(db, kind="document_request", source_collection="documents",
+                          source_id=document_id)
+
+    # One rule for what a request's status means, shared with the review path
+    # below. This used to have its own: it only moved off "waiting for client"
+    # once *every* requested document had been uploaded, so a request with
+    # three files sitting unread on the consultant's desk and ten still to come
+    # stayed filed under "Awaiting client" and counted as nothing to review -
+    # the queue header said "0 to review" while the card said "3 awaiting
+    # review", because the two were counting different things.
+    await _sync_request_status(db, doc)
 
     await notify(db, user_ids=[consultant_id], type=NotificationType.DOCUMENT_UPLOADED,
                  title_key="notify.document_uploaded",
@@ -254,7 +306,17 @@ async def reject(db, user: CurrentUser, document_id: str, feedback: str) -> Dict
         {"_id": oid(document_id)},
         {"$set": {"status": DocumentStatus.NEEDS_REUPLOAD.value,
                   "consultant_feedback": feedback, "rejected_by": user.id,
-                  "rejected_at": now, "updated_at": now}},
+                  "rejected_at": now, "updated_at": now},
+         # `consultant_feedback` is kept for whatever already reads it as "the
+         # current note", but it is overwritten every rejection - a second
+         # re-upload round loses what was said about the first. `comments`
+         # does not: every round is its own entry, dated and attributed, so a
+         # client on their third re-upload can still see what changed each
+         # time rather than just what is being asked of them now.
+         "$push": {"comments": {"author_id": user.id,
+                                "author_name": user.raw.get("full_name"),
+                                "text": feedback, "kind": "rejection",
+                                "created_at": now}}},
     )
     await notify(db, user_ids=[doc["client_id"]], type=NotificationType.DOCUMENT_REJECTED,
                  title_key="notify.document_rejected",
@@ -350,6 +412,10 @@ async def delete_document(db, user: CurrentUser, document_id: str) -> Dict[str, 
         await storage.delete_file(db, stored, storage.DOCUMENTS_BUCKET)
 
     await db.documents.delete_one({"_id": oid(document_id)})
+    # The requirement itself is gone, so whatever it put on the worklist -
+    # the upload deadline, any expiry read off a file already attached - goes
+    # with it.
+    await deadlines.clear_source(db, source_collection="documents", source_id=document_id)
 
     if doc.get("file"):
         # Only worth telling the client when they had actually done the work.

@@ -14,6 +14,7 @@ from app.core.deps import (
     require_consultant,
 )
 from app.core.utils import oid, serialize, utcnow
+from app.modules.deadlines import service as deadlines
 from app.schemas.common import Message, PageParams
 from app.services.events import notify
 from app.core.enums import NotificationType
@@ -43,11 +44,21 @@ async def create_appointment(payload: AppointmentCreate,
            "ends_at": payload.starts_at + timedelta(minutes=payload.duration_minutes),
            "status": "scheduled", "created_at": now, "updated_at": now}
     result = await db.appointments.insert_one(doc)
+    appointment_id = str(result.inserted_id)
+    # Mirrored onto the worklist so this shows up on "what is due today" the
+    # same as a document or a task does - a scheduled consultation is a
+    # deadline too, just one with a person waiting on the other end of it.
+    await deadlines.upsert(
+        db, kind="appointment", source_collection="appointments",
+        source_id=appointment_id, due_date=payload.starts_at, title=payload.title,
+        consultant_id=user.id, client_id=payload.client_id,
+        case_id=payload.case_id, owner_id=user.id, owner_name=user.raw.get("full_name"),
+    )
     if payload.client_id:
         await notify(db, user_ids=[payload.client_id],
                      type=NotificationType.CASE_STAGE_CHANGED,
                      title_key="notify.appointment_scheduled", body=payload.title,
-                     data={"appointment_id": str(result.inserted_id)})
+                     data={"appointment_id": appointment_id})
     return serialize({**doc, "_id": result.inserted_id})
 
 
@@ -75,4 +86,6 @@ async def cancel(appointment_id: str,
     await db.appointments.update_one({"_id": oid(appointment_id)},
                                      {"$set": {"status": "cancelled",
                                                "updated_at": utcnow()}})
+    await deadlines.clear(db, kind="appointment", source_collection="appointments",
+                          source_id=appointment_id)
     return {"detail": "Appointment cancelled"}

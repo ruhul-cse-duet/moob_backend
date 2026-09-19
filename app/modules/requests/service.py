@@ -1,4 +1,3 @@
-from datetime import timedelta
 from typing import Any, Dict, List, Optional
 
 from app.core.deps import CurrentUser
@@ -15,6 +14,7 @@ from app.core.enums import (
 from app.core.exceptions import BadRequest, Forbidden, NotFound
 from app.core.utils import build_reference, oid, serialize, utcnow
 from app.db.indexes import next_sequence
+from app.modules.deadlines import service as deadlines
 from app.schemas.common import PageParams
 from app.services.events import log_activity, notify
 from app.services.ai_service import suggest_required_documents
@@ -350,6 +350,7 @@ async def get_client_dashboard(db, user: CurrentUser,
             "id": r["id"],
             "reference": r["reference"],
             "visa_type": r["visa_type"],
+            "visa_type_label": _visa_type_label(r["visa_type"], lang),
             "status": r["status"],
             # Both: the code for the app to branch on, the words for it to show.
             # A client that would rather do its own wording is never forced
@@ -437,7 +438,23 @@ async def list_requests(db, user: CurrentUser, params: PageParams,
     for item in page["items"]:
         await _attach_document_counts(db, item)
         _attach_client_status(item, lang)
+        item["visa_type_label"] = _visa_type_label(item.get("visa_type"), lang)
     return page
+
+
+def _visa_type_label(visa_type: Optional[str], lang: str) -> str:
+    """`visa_type` in English translated, in most cases: it holds the name of
+    the procedure a consultant chose, or the raw text they typed - their own
+    wording, kept exactly as they wrote it (see `catalog/templates.py` for why
+    that is deliberate). The one exception is "Consultation", which nobody
+    typed - it is the value this module writes itself when a request carries
+    neither a procedure nor a free-typed type - and being the platform's own
+    word, it is the one translated here rather than shown as English on a
+    Portuguese or Spanish screen.
+    """
+    if (visa_type or "").strip().lower() == "consultation":
+        return translate("request.consultation_fallback", lang)
+    return visa_type or ""
 
 
 def _attach_client_status(item: Dict[str, Any], lang: str) -> None:
@@ -501,6 +518,7 @@ async def get_request(db, user: CurrentUser, request_id: str,
     # file, so the same response renders in Spanish, Portuguese or English
     # without the server knowing which.
     out["status_label"] = translate(f"status.{st}", lang)
+    out["visa_type_label"] = _visa_type_label(out.get("visa_type"), lang)
     _attach_client_status(out, lang)
     out["status_steps"] = [
         {"key": key, "label": translate(f"step.{key}", lang), "completed": done}
@@ -664,7 +682,12 @@ async def request_documents(db, user: CurrentUser, request_id: str, data) -> Dic
             "why": item.why,
             "is_required": item.is_required,
             "status": DocumentStatus.UPLOAD_NEEDED.value,
-            "due_date": item.due_date or (now + timedelta(days=14)),
+            # Only a date somebody actually chose. This used to invent
+            # `now + 14 days` when the consultant left it blank, and the client
+            # was then shown a hard "Vencimiento: 30 Sep" they were never given
+            # - a deadline nobody set, that nobody was tracking, and that the
+            # consultant could not see they had committed to.
+            "due_date": item.due_date,
             "file": None,
             "ai_analysis": None,
             "consultant_feedback": None,
@@ -672,7 +695,17 @@ async def request_documents(db, user: CurrentUser, request_id: str, data) -> Dic
             "created_at": now,
             "updated_at": now,
         })
-    await db.documents.insert_many(inserts)
+    result = await db.documents.insert_many(inserts)
+    # Mirrored onto the worklist one row at a time, keyed by the document's own
+    # id, so the calendar shows exactly the deadline this screen just set - and
+    # nothing when the consultant left `due_date` blank, same as before.
+    for item, document_id in zip(inserts, result.inserted_ids):
+        await deadlines.upsert(
+            db, kind="document_request", source_collection="documents",
+            source_id=str(document_id), due_date=item["due_date"], title=item["name"],
+            consultant_id=consultant_id, client_id=doc["client_id"],
+            client_name=doc.get("client_name"), case_id=doc.get("case_id"),
+        )
     await db.requests.update_one(
         {"_id": oid(request_id)},
         {"$set": {"status": RequestStatus.WAITING_FOR_CLIENT.value, "updated_at": now}},
@@ -901,6 +934,7 @@ async def get_consultant_dashboard(db, user: CurrentUser,
             "reference": req.get("reference", ""),
             "client_name": client_name,
             "visa_type": req.get("visa_type", ""),
+            "visa_type_label": _visa_type_label(req.get("visa_type"), lang),
             "status": status_val,
             "updated_at": req.get("updated_at"),
         })

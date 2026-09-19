@@ -129,7 +129,7 @@ async def invite_team_member(db, user: CurrentUser, tenant: Dict[str, Any],
     emailed = await send_partner_invite_email(
         to=email, name=data.full_name, org=tenant["name"],
         role=data.title, link=invites.build_link(token),
-        invited_by=user.raw.get("full_name"))
+        invited_by=user.raw.get("full_name"), lang=doc["language"])
     return {**_clean({**doc, "_id": oid(user_id)}),
             "invite_token": token,
             "invite_email_sent": emailed}
@@ -163,7 +163,8 @@ async def create_client(db, user: CurrentUser, tenant: Dict[str, Any],
     emailed = await send_client_invite_email(
         to=email, name=data.full_name, org=tenant["name"],
         link=invites.build_link(token),
-        consultant=user.raw.get("full_name"))
+        consultant=user.raw.get("full_name"),
+        lang=doc["language"])
     return {**_clean({**doc, "_id": oid(user_id)}),
             "invite_token": token,
             "invite_email_sent": emailed}
@@ -192,7 +193,8 @@ async def resend_client_invite(db, tenant: Dict[str, Any], user: CurrentUser,
     emailed = await send_client_invite_email(
         to=client["email"], name=client.get("full_name"), org=tenant["name"],
         link=invites.build_link(token),
-        consultant=user.raw.get("full_name"))
+        consultant=user.raw.get("full_name"),
+        lang=normalize_language(client.get("language")) or DEFAULT_LANGUAGE)
     return {
         "success": True,
         "detail": ("Invitation resent." if emailed else

@@ -130,8 +130,13 @@ async def update_request(request_id: str, payload: s.RequestUpdate,
 @router.post("/{request_id}/documents/request", response_model=Message,
              summary="Request the documents this client needs")
 async def request_documents(request_id: str, payload: s.RequestDocumentsRequest,
-                            user: CurrentUser = Depends(require_consultant_or_partner),
+                            user: CurrentUser = Depends(require_consultant),
                             db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
+    """Consultant only. A partner was allowed here on the reasoning that asking
+    for a missing page is part of reviewing the documents — but the partner
+    does not deal with the client at all: everything reaches the client through
+    the consultant, so a partner who needs another page asks for it in the task.
+    """
     result = await service.request_documents(db, user, request_id, payload)
     return {"detail": result["detail"]}
 
