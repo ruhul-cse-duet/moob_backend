@@ -82,7 +82,8 @@ Analyse the supplied document and return STRICT JSON with this shape:
   "confidence": 0-100,
   "extracted_fields": {"field_name": "value"},
   "issues": ["short description of each problem found"],
-  "expiry_date": "YYYY-MM-DD or null",
+  "issue_date": "YYYY-MM-DD or null - when the document itself was issued/signed",
+  "expiry_date": "YYYY-MM-DD or null - when the document itself expires, if it is the kind that does",
   "is_legible": true,
   "recommendation": "approve | request_reupload | manual_review",
   "summary": "one or two sentences for the consultant"
@@ -303,8 +304,14 @@ _GUIDANCE_EMPTY = {"process_guidance": [], "missing_documents": [],
 
 
 async def analyze_document(
-    *, file_bytes: bytes, mime_type: str, document_name: str, context: str = ""
+    *, file_bytes: bytes, mime_type: str, document_name: str, context: str = "",
+    lang: Optional[str] = None,
 ) -> Dict[str, Any]:
+    """`lang` is the language the summary, findings and extracted-field labels
+    come back in. Without it the analysis answered in English and was rendered
+    verbatim into a Portuguese or Spanish screen - the one part of the page no
+    translation file can reach, because it is written per document at runtime.
+    """
     if not configured():
         return {**_ANALYSIS_UNAVAILABLE,
                 "summary": "AI analysis unavailable (ANTHROPIC_API_KEY not configured)."}
@@ -326,7 +333,16 @@ async def analyze_document(
                      f"set is_legible to false and recommend manual_review."),
         })
 
-    text = await _complete(system=DOCUMENT_ANALYSIS_PROMPT, messages=[
+    lang_name = _LANG_NAMES.get(str(lang).lower(), "English")
+    system = (
+        f"{DOCUMENT_ANALYSIS_PROMPT}\n\n"
+        f"LANGUAGE INSTRUCTION: the JSON keys stay exactly as specified above, "
+        f"in English. Every human-readable value you write - summary, issues, "
+        f"recommendations, and the labels of extracted fields - MUST be written "
+        f"in {lang_name}. Do not translate names, numbers or dates copied from "
+        f"the document itself: those are reproduced exactly as they appear."
+    )
+    text = await _complete(system=system, messages=[
         {"role": "user", "content": content}
     ])
     if text is None:
@@ -341,6 +357,45 @@ async def case_guidance(*, case_context: Dict[str, Any]) -> Dict[str, Any]:
         messages=[{"role": "user", "content": json.dumps(case_context, default=str)}],
     )
     return _parse_json(text) if text else dict(_GUIDANCE_EMPTY)
+
+
+CASE_FORM_PROMPT = """You are filling in a government/case-intake form for an immigration
+consultant, from the documents already uploaded to the case. You are given:
+- "fields": the form's own fields, each with a "key", a "label" and a "type"
+  (text | date | country | textarea).
+- "documents": what has been read off each uploaded document so far - its
+  category, its AI-extracted fields, and its summary.
+
+Match documents to fields by meaning, not by exact key name (a document's
+"full_name" answers a field labelled "Full legal name"). For each field the
+documents actually answer, return STRICT JSON:
+{"fields": {"<field_key>": {"value": "...", "confidence": 0-100,
+                            "source_document": "<document name or empty>"}}}
+Only include a field when something in the documents actually supports the
+value. Never invent a value, and never fill a field from general knowledge -
+only from what these specific documents say. Omit any field nothing supports
+rather than guessing. Dates as YYYY-MM-DD. Return JSON only."""
+
+
+async def fill_case_form(*, fields: List[Dict[str, Any]],
+                         documents: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """What item 7.3 asked for: the consultant's intake form, pre-filled from
+    what the AI already read off the client's documents, for the consultant
+    to check rather than type from scratch. Every value it returns names the
+    document it came from, so a wrong read is easy to spot and correct - it
+    never overwrites what a consultant already typed by hand (see
+    `cases/service.py::fill_form`, which only applies these onto fields still
+    empty or still AI-sourced).
+    """
+    if not fields:
+        return {}
+    text = await _complete(
+        system=CASE_FORM_PROMPT,
+        messages=[{"role": "user", "content": json.dumps(
+            {"fields": fields, "documents": documents}, default=str)}],
+        effort="low",
+    )
+    return _parse_json(text).get("fields", {}) if text else {}
 
 
 async def assistant_reply(*, history: List[Dict[str, str]], message: str,

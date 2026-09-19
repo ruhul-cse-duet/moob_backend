@@ -6,6 +6,7 @@ from app.core.deps import CurrentUser
 from app.core.enums import NotificationType, Role, TaskAssigneeType, TaskStatus
 from app.core.exceptions import Forbidden, NotFound
 from app.core.utils import oid, serialize, utcnow
+from app.modules.deadlines import service as deadlines
 from app.schemas.common import PageParams
 from app.services import storage
 from app.services.events import log_activity, notify
@@ -57,6 +58,14 @@ async def create_task(db, user: CurrentUser, data) -> Dict[str, Any]:
     # A partner accumulates the consultants who delegate to them - many-to-many by design.
     if data.assignee_type == TaskAssigneeType.PARTNER:
         await link_partner_to_consultant(db, data.assignee_id, consultant_id)
+    if data.assignee_type == TaskAssigneeType.PARTNER:
+        await deadlines.upsert(
+            db, kind="partner_task", source_collection="tasks", source_id=task_id,
+            due_date=data.due_date, title=data.title, consultant_id=consultant_id,
+            client_id=case["client_id"], client_name=case.get("client_name"),
+            case_id=data.case_id, case_reference=case["reference"],
+            owner_id=data.assignee_id, owner_name=assignee.get("full_name"),
+        )
     await notify(db, user_ids=[data.assignee_id], type=NotificationType.TASK_ASSIGNED,
                  title=data.title,
                  body=f"{case['reference']} · {case.get('client_name', '')}",
@@ -102,6 +111,18 @@ async def update_task(db, user: CurrentUser, task_id: str, data) -> Dict[str, An
         payload["status"] = payload["status"].value if hasattr(payload["status"], "value") else payload["status"]
     payload["updated_at"] = utcnow()
     await db.tasks.update_one({"_id": oid(task_id)}, {"$set": payload})
+    if "due_date" in payload and doc.get("assignee_type") == TaskAssigneeType.PARTNER.value:
+        # Whatever the consultant just changed it to - including clearing it,
+        # which `upsert` treats as "nothing to track" rather than leaving the
+        # old date live on the calendar.
+        await deadlines.upsert(
+            db, kind="partner_task", source_collection="tasks", source_id=task_id,
+            due_date=payload["due_date"], title=doc.get("title", ""),
+            consultant_id=doc.get("consultant_id"), client_id=doc.get("client_id"),
+            client_name=doc.get("client_name"), case_id=doc.get("case_id"),
+            case_reference=doc.get("case_reference"),
+            owner_id=doc.get("assignee_id"), owner_name=doc.get("assignee_name"),
+        )
     return serialize(await _get(db, task_id))
 
 
@@ -117,6 +138,9 @@ async def set_status(db, user: CurrentUser, task_id: str, data) -> Dict[str, Any
                               {"$set": update,
                                "$push": {"history": {"status": data.status.value, "at": now,
                                                      "by": user.id, "note": data.note}}})
+    if data.status == TaskStatus.COMPLETED:
+        await deadlines.clear(db, kind="partner_task", source_collection="tasks",
+                              source_id=task_id)
     if data.status in {TaskStatus.COMPLETED, TaskStatus.SUBMITTED} and doc.get("assigned_by"):
         await notify(db, user_ids=[doc["assigned_by"]], type=NotificationType.TASK_COMPLETED,
                      title_key="notify.task_status_changed",
@@ -206,6 +230,8 @@ async def mark_completed(db, user: CurrentUser, task_id: str,
          "$push": {"history": {"status": TaskStatus.COMPLETED.value, "at": now,
                                "by": user.id, "note": data.delivery_notes}}},
     )
+    await deadlines.clear(db, kind="partner_task", source_collection="tasks",
+                          source_id=task_id)
     # Notify the consultant who assigned this task
     if doc.get("assigned_by"):
         await notify(db, user_ids=[doc["assigned_by"]],

@@ -13,6 +13,7 @@ from app.services import invites
 from app.services.email import send_partner_invite_email
 from app.services.pagination import paginate
 from app.core.i18n import DEFAULT_LANGUAGE
+from app.core.i18n import normalize as normalize_language
 
 async def _seat_limits(tenant: Dict[str, Any]) -> Dict[str, Optional[int]]:
     plan = PLANS[PlanCode(tenant["plan_code"])]
@@ -74,7 +75,7 @@ async def invite_partner(db, user: CurrentUser, tenant: Dict[str, Any],
     emailed = await send_partner_invite_email(
         to=email, name=data.full_name, org=tenant["name"], role=data.role,
         link=invites.build_link(token),
-        invited_by=user.raw.get("full_name"),
+        invited_by=user.raw.get("full_name"), lang=doc["language"],
     )
     out = serialize({**doc, "_id": oid(user_id)})
     out["invite_expires_in_days"] = settings.INVITE_EXPIRE_DAYS
@@ -131,6 +132,7 @@ async def resend_invite(db, tenant: Dict[str, Any], partner_id: str) -> Dict[str
         to=partner["email"], name=partner["full_name"], org=tenant["name"],
         role=partner.get("partner_role", "Partner"),
         link=invites.build_link(token),
+        lang=normalize_language(partner.get("language")) or DEFAULT_LANGUAGE,
     )
     return {
         "detail": (

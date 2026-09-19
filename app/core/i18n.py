@@ -106,6 +106,21 @@ def resolve(*, header: Optional[str] = None, stored: Optional[str] = None) -> st
 # is what tells you none were forgotten.
 # --------------------------------------------------------------------------- #
 CATALOGUE: Dict[str, Dict[str, Any]] = {
+    # ---- client/partner welcome & invite emails ----
+    # The one message the platform sends to someone who has never opened the
+    # app, so `Accept-Language` cannot help - rendered from the invitee's
+    # stored `language` instead. See `email.py`.
+    "email.client_invite.subject": {"en": "{org} invited you to WebImove", "pt": "A {org} convidou-o para o WebImove", "es": "{org} le invitó a WebImove"},
+    "email.client_invite.title": {"en": "{org} created your client workspace", "pt": "A {org} criou o seu espaço de cliente", "es": "{org} creó su espacio de cliente"},
+    "email.client_invite.body_with_consultant": {"en": "Hi {name}, your consultant {consultant} at {org} created your workspace. Track your request, upload documents and follow every stage from the WebImove app.", "pt": "Olá {name}, o seu consultor {consultant} da {org} criou o seu espaço. Acompanhe o seu pedido, envie documentos e siga cada etapa a partir da aplicação WebImove.", "es": "Hola {name}, su consultor {consultant} de {org} creó su espacio. Siga su solicitud, suba documentos y siga cada etapa desde la aplicación WebImove."},
+    "email.client_invite.body": {"en": "Hi {name}, {org} created your workspace. Track your request, upload documents and follow every stage from the WebImove app.", "pt": "Olá {name}, a {org} criou o seu espaço. Acompanhe o seu pedido, envie documentos e siga cada etapa a partir da aplicação WebImove.", "es": "Hola {name}, {org} creó su espacio. Siga su solicitud, suba documentos y siga cada etapa desde la aplicación WebImove."},
+    "email.client_invite.cta": {"en": "Get started", "pt": "Começar", "es": "Comenzar"},
+    "email.partner_invite.subject": {"en": "{org} invited you to WebImove", "pt": "A {org} convidou-o para o WebImove", "es": "{org} le invitó a WebImove"},
+    "email.partner_invite.title": {"en": "You have been invited to {org}", "pt": "Foi convidado para a {org}", "es": "Ha sido invitado a {org}"},
+    "email.partner_invite.body_with_inviter": {"en": "Hi {name}, {inviter} at {org} has added you as {role}. Click below to set a password and activate your account.", "pt": "Olá {name}, {inviter} da {org} adicionou-o como {role}. Clique abaixo para definir uma palavra-passe e ativar a sua conta.", "es": "Hola {name}, {inviter} de {org} le agregó como {role}. Haga clic abajo para establecer una contraseña y activar su cuenta."},
+    "email.partner_invite.body": {"en": "Hi {name}, {org} has added you as {role}. Click below to set a password and activate your account.", "pt": "Olá {name}, a {org} adicionou-o como {role}. Clique abaixo para definir uma palavra-passe e ativar a sua conta.", "es": "Hola {name}, {org} le agregó como {role}. Haga clic abajo para establecer una contraseña y activar su cuenta."},
+    "email.partner_invite.cta": {"en": "Set my password", "pt": "Definir a minha palavra-passe", "es": "Establecer mi contraseña"},
+    "email.partner_invite.footer": {"en": "This link is single-use and expires in {days} days. Partners never see billing.", "pt": "Esta ligação é de utilização única e expira em {days} dias. Os parceiros nunca veem a faturação.", "es": "Este enlace es de un solo uso y caduca en {days} días. Los socios nunca ven la facturación."},
     # ---- request status ----
     "status.pending_approval": {"en": "Awaiting consultant approval",
                                 "pt": "A aguardar aprovação do consultor",
@@ -372,6 +387,25 @@ CATALOGUE: Dict[str, Dict[str, Any]] = {
     "area.civil.description": {"en": 'Family, property and other civil matters.', "pt": 'Família, propriedade e outros assuntos civis.', "es": 'Familia, propiedad y otros asuntos civiles.'},
     "area.tax": {"en": 'Tax', "pt": 'Fiscal', "es": 'Fiscal'},
     "area.tax.description": {"en": 'Filings, assessments and tax representation.', "pt": 'Declarações, liquidações e representação fiscal.', "es": 'Declaraciones, liquidaciones y representación fiscal.'},
+    # ---- case history (activity feed, scoped to one case) ----
+    "activity.approved": {"en": "Approved a document", "pt": "Aprovou um documento", "es": "Aprobó un documento"},
+    "activity.approved_request": {"en": "Approved a request", "pt": "Aprovou um pedido", "es": "Aprobó una solicitud"},
+    "activity.assigned_task": {"en": "Assigned a partner task", "pt": "Atribuiu uma tarefa a um parceiro", "es": "Asignó una tarea a un socio"},
+    "activity.completed_consultation": {"en": "Completed the consultation for", "pt": "Concluiu a consulta de", "es": "Completó la consulta de"},
+    "activity.declined_request": {"en": "Declined a request", "pt": "Recusou um pedido", "es": "Rechazó una solicitud"},
+    "activity.opened_case": {"en": "Opened a case for", "pt": "Abriu um processo para", "es": "Abrió un caso para"},
+    "activity.opened_request": {"en": "Opened a request", "pt": "Abriu um pedido", "es": "Abrió una solicitud"},
+    "activity.removed_document_request": {"en": "Withdrew a document request", "pt": "Retirou um pedido de documento", "es": "Retiró una solicitud de documento"},
+    "activity.requested_documents": {"en": "Requested documents for", "pt": "Solicitou documentos para", "es": "Solicitó documentos para"},
+    "activity.returned_to_client": {"en": "Returned a document to the client", "pt": "Devolveu um documento ao cliente", "es": "Devolvió un documento al cliente"},
+    "activity.submitted_request": {"en": "Submitted a request", "pt": "Enviou um pedido", "es": "Envió una solicitud"},
+    "activity.uploaded": {"en": "Uploaded a document", "pt": "Enviou um documento", "es": "Subió un documento"},
+    "activity.withdrew_request": {"en": "Withdrew a request", "pt": "Retirou um pedido", "es": "Retiró una solicitud"},
+    "activity.authority_request_logged": {"en": "Logged a request from the authority", "pt": "Registou um pedido da autoridade", "es": "Registró una solicitud de la autoridad"},
+    "activity.advanced_to_stage": {"en": "Advanced to: {stage}", "pt": "Avançou para: {stage}", "es": "Avanzó a: {stage}"},
+    "deadline.authority_response": {"en": "Authority response due", "pt": "Resposta da autoridade prevista", "es": "Respuesta de la autoridad prevista"},
+    "notify.authority_request_logged": {"en": "The authority requested more information on {reference}", "pt": "A autoridade solicitou mais informações sobre {reference}", "es": "La autoridad solicitó más información sobre {reference}"},
+    "request.consultation_fallback": {"en": "Consultation", "pt": "Consulta", "es": "Consulta"},
     "notify.documents_requested": {"en": 'Your consultant requested documents', "pt": 'O seu consultor pediu documentos', "es": 'Su consultor solicitó documentos'},
     "notify.case_opened": {"en": 'Your case has been opened', "pt": 'O seu processo foi aberto', "es": 'Su caso ha sido abierto'},
     "notify.document_uploaded": {"en": '{person} uploaded {document}', "pt": '{person} carregou {document}', "es": '{person} subió {document}'},
