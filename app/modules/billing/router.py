@@ -46,7 +46,11 @@ class InvoiceCreate(BaseModel):
     client_id: str
     case_id: Optional[str] = None
     items: List[LineItem] = Field(min_length=1)
-    currency: str = "USD"
+    # Item A5: this platform's consultancies bill in euros - the earnings
+    # screen shows "$" for anything that is not literally "EUR", so a "USD"
+    # default here quietly mislabelled every invoice a consultant did not
+    # think to override.
+    currency: str = "EUR"
     tax_rate: float = Field(0.0, ge=0, le=1)
     due_in_days: int = Field(14, ge=1, le=180)
     notes: Optional[str] = None
@@ -106,6 +110,10 @@ async def list_invoices(status: Optional[InvoiceStatus] = Query(None),
         query["client_id"] = client_id
     if status:
         query["status"] = status.value
+    elif user.role == Role.CLIENT:
+        # A draft is the consultant still preparing it - not yet sent, and not
+        # theirs to see until it is.
+        query["status"] = {"$ne": InvoiceStatus.DRAFT.value}
     return await paginate(db, "invoices", query, params, sort=[("created_at", -1)])
 
 

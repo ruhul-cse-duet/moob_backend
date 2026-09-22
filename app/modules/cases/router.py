@@ -108,9 +108,13 @@ async def ai_fill_form(case_id: str,
     return await service.ai_fill_form(db, user, case_id)
 
 
-@router.patch("/{case_id}/form/{field_key}", summary="Consultant corrects one form field")
+@router.patch("/{case_id}/form/{field_key}",
+             summary="Fill or correct one field of the case's intake form")
 async def update_form_field(case_id: str, field_key: str, payload: s.FormFieldUpdate,
-                            user: CurrentUser = Depends(require_consultant),
+                            # Open to the client for their own case (item C2) -
+                            # `service.update_form_field` checks ownership and
+                            # tags who answered it.
+                            user: CurrentUser = Depends(get_current_user),
                             db: AsyncIOMotorDatabase = Depends(get_tenant_db)):
     return await service.update_form_field(db, user, case_id, field_key, payload)
 

@@ -10,6 +10,11 @@ class ReferenceFile(BaseModel):
     file_name: str
     file_url: str
     file_type: Optional[str] = None  # pdf, image, doc
+    # Item C3: the case document this was selected from, when it was picked
+    # from the case rather than uploaded fresh - lets the partner's screen
+    # download the actual stored file (`GET /documents/{id}/file`) instead of
+    # only ever being able to show its name.
+    document_id: Optional[str] = None
 
 
 class TaskCreate(BaseModel):

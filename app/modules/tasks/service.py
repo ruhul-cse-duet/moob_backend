@@ -3,7 +3,7 @@ from typing import Any, Dict, Optional
 from fastapi import UploadFile
 
 from app.core.deps import CurrentUser
-from app.core.enums import NotificationType, Role, TaskAssigneeType, TaskStatus
+from app.core.enums import DocumentStatus, NotificationType, Role, TaskAssigneeType, TaskStatus
 from app.core.exceptions import Forbidden, NotFound
 from app.core.utils import oid, serialize, utcnow
 from app.modules.deadlines import service as deadlines
@@ -138,15 +138,29 @@ async def set_status(db, user: CurrentUser, task_id: str, data) -> Dict[str, Any
                               {"$set": update,
                                "$push": {"history": {"status": data.status.value, "at": now,
                                                      "by": user.id, "note": data.note}}})
-    if data.status == TaskStatus.COMPLETED:
+    if data.status in {TaskStatus.COMPLETED, TaskStatus.CANCELLED}:
+        # Item S5: a decline needs the same "nothing left to chase" treatment
+        # a completion gets - the task is no longer this partner's to act on
+        # before its deadline.
         await deadlines.clear(db, kind="partner_task", source_collection="tasks",
                               source_id=task_id)
-    if data.status in {TaskStatus.COMPLETED, TaskStatus.SUBMITTED} and doc.get("assigned_by"):
+    if (data.status in {TaskStatus.COMPLETED, TaskStatus.SUBMITTED, TaskStatus.CANCELLED}
+            and doc.get("assigned_by")):
+        # A decline reaching the consultant is the whole point of S5's
+        # "Accept/Decline buttons" - without this, `set_status(cancelled)`
+        # already worked, but the consultant never found out.
         await notify(db, user_ids=[doc["assigned_by"]], type=NotificationType.TASK_COMPLETED,
                      title_key="notify.task_status_changed",
                      params={"person": doc["assignee_name"], "task": doc["title"]},
                      param_keys={"status": f"task_status.{data.status.value}"},
-                     body=doc.get("case_reference", ""), data={"task_id": task_id})
+                     body=data.note or doc.get("case_reference", ""), data={"task_id": task_id})
+    if data.status in {TaskStatus.COMPLETED, TaskStatus.CANCELLED} and doc.get("case_id"):
+        await log_activity(
+            db, actor_id=user.id, actor_name=user.raw.get("full_name", ""),
+            action=("declined a partner task" if data.status == TaskStatus.CANCELLED
+                    else "completed a partner task"),
+            subject=doc.get("title", ""), case_id=doc.get("case_id"),
+        )
     return serialize(await _get(db, task_id))
 
 
@@ -162,12 +176,56 @@ async def add_deliverable(db, user: CurrentUser, task_id: str,
         metadata={"task_id": task_id, "case_id": doc.get("case_id"),
                   "partner_id": user.id},
     )
+    now = utcnow()
     entry = {**stored, "uploaded_by": user.id,
-             "uploaded_by_name": user.raw.get("full_name"), "uploaded_at": utcnow()}
+             "uploaded_by_name": user.raw.get("full_name"), "uploaded_at": now}
     await db.tasks.update_one({"_id": oid(task_id)},
                               {"$push": {"deliverables": entry},
                                "$set": {"status": TaskStatus.SUBMITTED.value,
-                                        "updated_at": utcnow()}})
+                                        "updated_at": now}})
+
+    # Item C4: this used to live only in the task's own `deliverables` array -
+    # invisible from the case, and with no way for the consultant to approve
+    # or reject it the way every other document already can be. A `documents`
+    # row makes it exactly that: one more document on the case, in the same
+    # collection `DocumentReviewCard` already knows how to show, approve and
+    # reject - which also means it appears in `case_history` the moment it is
+    # logged below, item 7.1's promise that a delivery "appears in the case
+    # documents and history."
+    if doc.get("case_id"):
+        document_row = {
+            "request_id": None,
+            "case_id": doc.get("case_id"),
+            "client_id": doc.get("client_id"),
+            "consultant_id": doc.get("consultant_id"),
+            "name": file.filename or f"{doc.get('title', 'Task')} - delivery",
+            "category": "other",
+            "why": None,
+            "is_required": False,
+            "status": DocumentStatus.WITH_CONSULTANT.value,
+            "due_date": None,
+            "file": {**stored},
+            "ai_analysis": None,
+            "consultant_feedback": None,
+            "requested_by": user.id,
+            "delivered_by_task_id": task_id,
+            "created_at": now,
+            "updated_at": now,
+        }
+        document_id = str((await db.documents.insert_one(document_row)).inserted_id)
+        await log_activity(
+            db, actor_id=user.id, actor_name=user.raw.get("full_name", ""),
+            action="delivered a partner task", subject=file.filename or doc.get("title", ""),
+            case_id=doc.get("case_id"),
+        )
+        if doc.get("assigned_by"):
+            await notify(db, user_ids=[doc["assigned_by"]], type=NotificationType.TASK_COMPLETED,
+                        title_key="notify.task_delivered",
+                        params={"person": user.raw.get("full_name") or "", "task": doc.get("title", "")},
+                        body=doc.get("case_reference", ""),
+                        data={"task_id": task_id, "case_id": doc.get("case_id"),
+                              "document_id": document_id})
+
     return serialize(await _get(db, task_id))
 
 

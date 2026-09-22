@@ -3,8 +3,6 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
-from app.core.enums import CaseStage
-
 
 class CaseCreate(BaseModel):
     """A case is a client plus the procedure the consultant assigned.
@@ -33,16 +31,25 @@ class CaseUpdate(BaseModel):
 
 
 class AdvanceStage(BaseModel):
-    stage: Optional[CaseStage] = None   # omit to move to the next stage in order
+    # A free string, not the fixed `CaseStage` enum: a case opened against a
+    # procedure moves through *that procedure's own* stage keys (see
+    # `service._stage_order`), which the platform's 11-value enum knows
+    # nothing about. `service.advance_stage` validates it against the case's
+    # own stage list instead. Omit to move to the next stage in that order.
+    stage: Optional[str] = None
     note: Optional[str] = None
     # The review's own words: "each stage must have an owner and a deadline".
     # Both optional - a consultant working alone advancing their own case has
     # nothing new to say - but when set, `owner_id` becomes who the workspace
     # holds responsible for what happens next, and `deadline` is mirrored onto
-    # the calendar as a filing or an authority-response deadline (see
-    # `service.advance_stage`), not just left as a note on the timeline.
+    # the calendar (see `service.advance_stage`), not just left as a note on
+    # the timeline.
     owner_id: Optional[str] = None
     deadline: Optional[datetime] = None
+    # C6: moving into the last stage of the workflow is refused while a
+    # required document is still unapproved, unless the consultant explicitly
+    # confirms closing anyway.
+    force: bool = False
 
 
 class FormFieldUpdate(BaseModel):
@@ -77,7 +84,11 @@ class CaseOut(BaseModel):
     consultant: Optional[Dict[str, Any]] = None
     case_type: str
     destination_country: Optional[str] = None
-    stage: CaseStage
+    # A free string - see the note on `AdvanceStage.stage`. It was the fixed
+    # `CaseStage` enum; a procedure-driven case's own stage key (e.g.
+    # "documents") failed that validation and would have made this response
+    # a 500 instead of the case it is meant to return.
+    stage: str
     progress: int = 0
     deadline: Optional[datetime] = None
     # Set by `advance_stage` alongside the stage itself - see the schema note
@@ -86,6 +97,12 @@ class CaseOut(BaseModel):
     stage_owner_id: Optional[str] = None
     stage_deadline: Optional[datetime] = None
     authority_requests: List[Dict[str, Any]] = []
+    # The procedure's own stages and documents (item C1) - also declared here
+    # so `response_model` does not strip them from what `advance_stage` and
+    # `update_case` return.
+    workflow_stages: List[Dict[str, Any]] = []
+    required_documents: List[Dict[str, Any]] = []
+    client_fields: List[Dict[str, Any]] = []
     timeline: List[Dict[str, Any]] = []
     ai_guidance: Optional[Dict[str, Any]] = None
     created_at: Optional[datetime] = None
