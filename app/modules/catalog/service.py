@@ -404,3 +404,82 @@ async def snapshot_for_case(db, procedure_id: str) -> Dict[str, Any]:
         "workflow_stages": row.get("workflow_stages", []),
         "default_deadline_days": row.get("default_deadline_days"),
     }
+
+
+async def open_checklist_for_case(
+    db,
+    *,
+    procedure: Dict[str, Any],
+    case_id: str,
+    case_reference: str,
+    client_id: str,
+    client_name: Optional[str],
+    consultant_id: str,
+    requested_by: str,
+    request_id: Optional[str] = None,
+    deadline=None,
+) -> int:
+    """Turn the procedure's document list into document requests the client can
+    actually act on, and return how many were created.
+
+    A procedure names the documents a case needs, but naming them is not asking
+    for them: until these rows exist the case opens with an empty checklist, the
+    client has nothing to upload, and the guard that stops a case closing with
+    documents outstanding counts zero and lets it through.
+
+    Lives here, beside `case_plan` and `snapshot_for_case`, because all three
+    doors into a case - `POST /cases`, opening one from a request, and
+    completing a consultation - have to make the same decision, and each used to
+    make its own.
+    """
+    from app.core.enums import DocumentCategory, DocumentStatus
+    from app.modules.deadlines import service as deadlines
+    from app.modules.documents.service import _sync_request_status
+
+    required_documents = procedure.get("required_documents") or []
+    if not required_documents:
+        return 0
+
+    now = utcnow()
+    valid_categories = {c.value for c in DocumentCategory}
+    inserts: List[Dict[str, Any]] = []
+    for item in required_documents:
+        category = str(item.get("category") or "other").lower()
+        if category not in valid_categories:
+            # A template's own category ("supporting", "legal") is a
+            # consultant's word, not one of the platform's four - see the note
+            # on `RequiredDocument.category`. Coerced rather than rejected, the
+            # same way the frontend already treats an unrecognised category
+            # when a consultant requests documents by hand.
+            category = DocumentCategory.OTHER.value
+        inserts.append({
+            "request_id": request_id,
+            "case_id": case_id,
+            "client_id": client_id,
+            "consultant_id": consultant_id,
+            "name": item.get("name", ""),
+            "category": category,
+            "why": item.get("why"),
+            "is_required": bool(item.get("mandatory", True)),
+            "status": DocumentStatus.UPLOAD_NEEDED.value,
+            "due_date": deadline,
+            "file": None,
+            "ai_analysis": None,
+            "consultant_feedback": None,
+            "requested_by": requested_by,
+            "created_at": now,
+            "updated_at": now,
+        })
+
+    insert_result = await db.documents.insert_many(inserts)
+    for item, document_id in zip(inserts, insert_result.inserted_ids):
+        await deadlines.upsert(
+            db, kind="document_request", source_collection="documents",
+            source_id=str(document_id), due_date=item["due_date"], title=item["name"],
+            consultant_id=consultant_id, client_id=client_id,
+            client_name=client_name, case_id=case_id,
+            case_reference=case_reference,
+        )
+    if request_id:
+        await _sync_request_status(db, {"request_id": request_id})
+    return len(inserts)

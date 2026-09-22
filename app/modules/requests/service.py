@@ -18,7 +18,8 @@ from app.modules.deadlines import service as deadlines
 from app.schemas.common import PageParams
 from app.services.events import log_activity, notify
 from app.services.ai_service import suggest_required_documents
-from app.services.ownership import assert_request_access
+from app.services.ownership import (assert_request_access, assigned_client_ids,
+                                    delegated_case_ids)
 from app.services.pagination import paginate
 from app.services import storage
 
@@ -34,6 +35,31 @@ def _scope(user: CurrentUser) -> Dict[str, Any]:
     if user.role == Role.CLIENT:
         return {"client_id": user.id}
     return {}
+
+
+async def _partner_scope(db, user: CurrentUser) -> Dict[str, Any]:
+    """The requests a partner is allowed to see at all.
+
+    The same two rules the rest of the platform uses for a partner - the whole
+    client was handed to them, or they hold a task on the case behind this
+    request - written as a query so the list can be filtered in the database
+    rather than after the fact. A request still open has no `case_id` of its
+    own, so the case that points back at it is matched too.
+    """
+    client_ids = await assigned_client_ids(db, user.id)
+    case_ids = await delegated_case_ids(db, user.id)
+    request_ids: List[str] = []
+    if case_ids:
+        cursor = db.cases.find({"_id": {"$in": [oid(c) for c in case_ids]}},
+                               {"request_id": 1})
+        async for row in cursor:
+            if row.get("request_id"):
+                request_ids.append(row["request_id"])
+    return {"$or": [
+        {"client_id": {"$in": client_ids}},
+        {"case_id": {"$in": case_ids}},
+        {"_id": {"$in": [oid(r) for r in request_ids]}},
+    ]}
 
 
 async def _client_for(db, client_id: str) -> Dict[str, Any]:
@@ -423,17 +449,24 @@ async def list_requests(db, user: CurrentUser, params: PageParams,
                         consultant_id: Optional[str] = None,
                         lang: str = DEFAULT_LANGUAGE) -> Dict[str, Any]:
     query: Dict[str, Any] = _scope(user)
+    # Collected rather than assigned straight onto `query`: the partner scope
+    # and the search are both `$or`, and the second used to overwrite the first.
+    clauses: List[Dict[str, Any]] = []
+    if user.role == Role.PARTNER:
+        clauses.append(await _partner_scope(db, user))
     if consultant_id:
         query["consultant_id"] = consultant_id
     if status:
         query["status"] = status.value
     if search:
-        query["$or"] = [
+        clauses.append({"$or": [
             {"reference": {"$regex": search, "$options": "i"}},
             {"client_name": {"$regex": search, "$options": "i"}},
             {"visa_type": {"$regex": search, "$options": "i"}},
             {"destination_country": {"$regex": search, "$options": "i"}},
-        ]
+        ]})
+    if clauses:
+        query["$and"] = clauses
     page = await paginate(db, "requests", query, params, sort=[("created_at", -1)])
     for item in page["items"]:
         await _attach_document_counts(db, item)
@@ -497,6 +530,9 @@ async def get_request(db, user: CurrentUser, request_id: str,
     doc = await _get(db, request_id)
     if user.role == Role.CLIENT and doc["client_id"] != user.id:
         raise Forbidden("This request is not yours")
+    # A partner reaches a request only through work delegated to them.
+    if user.role == Role.PARTNER:
+        await assert_request_access(db, user, doc)
     out = serialize(doc)
     await _attach_document_counts(db, out)
 
@@ -577,9 +613,13 @@ async def get_request(db, user: CurrentUser, request_id: str,
 
     client = await db.users.find_one({"_id": oid(doc["client_id"])})
     if client:
-        out["client_profile"] = serialize(
-            {k: v for k, v in client.items() if k != "password_hash"}
-        )
+        profile = {k: v for k, v in client.items() if k != "password_hash"}
+        if user.role == Role.PARTNER:
+            # Everything a partner needs reaches them through the consultant, so
+            # they get the name for context and none of the ways to make contact.
+            profile = {k: v for k, v in profile.items()
+                       if k not in {"email", "mobile", "phone", "last_login_at"}}
+        out["client_profile"] = serialize(profile)
     return out
 
 
@@ -587,6 +627,8 @@ async def update_request(db, user: CurrentUser, request_id: str, data) -> Dict[s
     doc = await _get(db, request_id)
     if user.role == Role.CLIENT and doc["client_id"] != user.id:
         raise Forbidden("This request is not yours")
+    if user.role == Role.PARTNER:
+        await assert_request_access(db, user, doc)
     if user.role == Role.CLIENT and doc["status"] != RequestStatus.NEW.value:
         raise BadRequest("The consultant has started working on this request")
     payload = {k: v for k, v in data.model_dump(exclude_unset=True).items() if v is not None}
@@ -809,6 +851,17 @@ async def open_case(db, user: CurrentUser, request_id: str, data) -> Dict[str, A
     }
     case_id = str((await db.cases.insert_one(case)).inserted_id)
 
+    # Item C1: the case copies the procedure's checklist, but naming documents
+    # is not asking for them. Until these rows exist the client has nothing to
+    # upload and the guard that stops a case closing with documents still
+    # outstanding counts zero. Same helper `POST /cases` uses.
+    await catalog_plan.open_checklist_for_case(
+        db, procedure=procedure, case_id=case_id, case_reference=case["reference"],
+        client_id=doc["client_id"], client_name=doc.get("client_name"),
+        consultant_id=case["consultant_id"], requested_by=user.id,
+        request_id=request_id, deadline=plan["deadline"],
+    )
+
     await db.requests.update_one(
         {"_id": oid(request_id)},
         {"$set": {"case_id": case_id, "status": RequestStatus.UNDER_REVIEW.value,
@@ -854,24 +907,49 @@ async def complete_consultation(db, user: CurrentUser, request_id: str, data) ->
     if approved != total:
         raise BadRequest(f"Approve every required document first ({approved} of {total} approved)")
 
+    # Item C1: this door used to ignore the procedure entirely - the case came
+    # out with no checklist, no client fields and a fixed pair of generic
+    # stages, which is why cases opened this way showed nothing for the client
+    # to fill in. Same decision as the other two doors now.
+    from app.modules.catalog import service as catalog_plan
+
+    procedure_id = getattr(data, "procedure_id", None) or doc.get("procedure_id")
+    procedure = {}
+    if procedure_id:
+        procedure = await catalog_plan.snapshot_for_case(db, procedure_id)
+    plan = catalog_plan.case_plan(procedure, data.deadline)
+
     seq = await next_sequence(db, "case", start=80)
     now = utcnow()
     case_type = data.case_type
-    deadline = data.deadline
+    deadline = plan["deadline"]
+    # The consultation is over and every document it asked for is approved, so
+    # the case starts at the stage after collection rather than at the top.
+    stages = plan["workflow_stages"]
+    initial_stage = (stages[1]["key"] if len(stages) > 1
+                     else (stages[0]["key"] if stages
+                           else CaseStage.CONSULTANT_REVIEW.value))
     case = {
         "reference": build_reference("CAS", seq),
         "request_id": request_id,
         "client_id": doc["client_id"],
         "client_name": doc.get("client_name"),
         "consultant_id": doc.get("consultant_id") or user.id,
-        "case_type": case_type or doc["visa_type"],
+        "process_area": (procedure.get("process_area") or doc.get("process_area")),
+        "procedure_id": procedure.get("procedure_id"),
+        "procedure_name": procedure.get("procedure_name"),
+        "required_documents": procedure.get("required_documents", []),
+        "client_fields": procedure.get("client_fields", []),
+        "workflow_stages": stages,
+        "case_type": (case_type or procedure.get("procedure_name")
+                      or doc.get("procedure_name") or doc["visa_type"]),
         "destination_country": doc["destination_country"],
-        "stage": CaseStage.CONSULTANT_REVIEW.value,
+        "stage": initial_stage,
         "progress": 0,
         "deadline": deadline,
         "timeline": [
             {"stage": CaseStage.NEW_REQUEST.value, "at": doc["created_at"], "by": doc["client_id"]},
-            {"stage": CaseStage.CONSULTANT_REVIEW.value, "at": now, "by": user.id},
+            {"stage": initial_stage, "at": now, "by": user.id},
         ],
         "ai_guidance": None,
         "created_at": now,
