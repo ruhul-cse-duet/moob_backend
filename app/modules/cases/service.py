@@ -160,59 +160,15 @@ async def create_case(db, user: CurrentUser, data) -> Dict[str, Any]:
             {"$set": {"case_id": case_id, "updated_at": now}},
         )
 
-    # The other half of C1: a procedure names the documents a case needs, but
-    # nothing ever turned that list into actual document requests - the case
-    # opened with an empty checklist and the client had nothing to upload
-    # until the consultant separately asked. This is what
-    # `requests/service.py::request_documents` does for a request, done here
-    # for a case at the moment its procedure is assigned.
-    from app.modules.documents.service import _sync_request_status
-
-    required_documents = procedure.get("required_documents") or []
-    if required_documents:
-        from app.core.enums import DocumentCategory, DocumentStatus
-
-        valid_categories = {c.value for c in DocumentCategory}
-        inserts = []
-        for item in required_documents:
-            category = str(item.get("category") or "other").lower()
-            if category not in valid_categories:
-                # A template's own category ("supporting", "legal") is a
-                # consultant's word, not one of the platform's four - see the
-                # note on `RequiredDocument.category`. Coerced rather than
-                # rejected, the same way the frontend already treats an
-                # unrecognised category when a consultant requests documents
-                # by hand.
-                category = DocumentCategory.OTHER.value
-            inserts.append({
-                "request_id": data.request_id,
-                "case_id": case_id,
-                "client_id": data.client_id,
-                "consultant_id": consultant_id,
-                "name": item.get("name", ""),
-                "category": category,
-                "why": item.get("why"),
-                "is_required": bool(item.get("mandatory", True)),
-                "status": DocumentStatus.UPLOAD_NEEDED.value,
-                "due_date": deadline,
-                "file": None,
-                "ai_analysis": None,
-                "consultant_feedback": None,
-                "requested_by": user.id,
-                "created_at": now,
-                "updated_at": now,
-            })
-        insert_result = await db.documents.insert_many(inserts)
-        for item, document_id in zip(inserts, insert_result.inserted_ids):
-            await deadlines.upsert(
-                db, kind="document_request", source_collection="documents",
-                source_id=str(document_id), due_date=item["due_date"], title=item["name"],
-                consultant_id=consultant_id, client_id=data.client_id,
-                client_name=client.get("full_name"), case_id=case_id,
-                case_reference=doc["reference"],
-            )
-        if data.request_id:
-            await _sync_request_status(db, {"request_id": data.request_id})
+    # The procedure's document list becomes document requests the client can
+    # act on. Shared with the other two doors into a case - see
+    # `catalog/service.py::open_checklist_for_case`.
+    await catalog_plan.open_checklist_for_case(
+        db, procedure=procedure, case_id=case_id, case_reference=doc["reference"],
+        client_id=data.client_id, client_name=client.get("full_name"),
+        consultant_id=consultant_id, requested_by=user.id,
+        request_id=data.request_id, deadline=deadline,
+    )
 
     return await attach_consultant(db, serialize({**doc, "_id": result.inserted_id}))
 
