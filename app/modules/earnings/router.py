@@ -33,7 +33,10 @@ router = APIRouter(prefix="/earnings", tags=["Partner Earnings"])
 class EarningCreate(BaseModel):
     task_id: str
     amount: float = Field(gt=0)
-    currency: str = "USD"
+    # Item A5: partner earnings showed "$" on the review's test - this
+    # platform bills its consultancies in euros, and "USD" was the
+    # unconditional default nothing overrode.
+    currency: str = "EUR"
     note: Optional[str] = None
 
 
@@ -108,7 +111,7 @@ async def summary(partner_id: Optional[str] = Query(None),
     }) if target else 0
 
     return {"by_status": totals, "last_30_days": last_30, "open_tasks": open_tasks,
-            "currency": "USD"}
+            "currency": "EUR"}
 
 
 @router.get("", summary="Earnings ledger")
@@ -161,7 +164,7 @@ async def create_payout(partner_id: str = Body(embed=True),
         "consultant_id": user.id,
         "earning_ids": [r["id"] for r in rows],
         "amount": total,
-        "currency": rows[0].get("currency", "USD"),
+        "currency": rows[0].get("currency", "EUR"),
         "reference": reference,
         "paid_by": user.id,
         "created_at": now,

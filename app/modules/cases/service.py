@@ -30,6 +30,9 @@ _ACTIVITY_LABEL_KEYS = {
     "approved": "activity.approved",
     "approved a request": "activity.approved_request",
     "assigned a task": "activity.assigned_task",
+    "declined a partner task": "activity.declined_partner_task",
+    "completed a partner task": "activity.completed_partner_task",
+    "delivered a partner task": "activity.delivered_partner_task",
     "completed the consultation for": "activity.completed_consultation",
     "declined a request": "activity.declined_request",
     "opened a case for": "activity.opened_case",
@@ -45,9 +48,43 @@ _ACTIVITY_LABEL_KEYS = {
 _ADVANCED_PREFIX = "advanced to "
 
 
-def _progress(stage: CaseStage) -> int:
-    idx = CASE_STAGE_ORDER.index(stage)
-    return round((idx / (len(CASE_STAGE_ORDER) - 1)) * 100)
+def _stage_order(case: Dict[str, Any]) -> List[str]:
+    """The ordered list of stage keys this case actually moves through.
+
+    A case opened against a procedure moves through *that procedure's own*
+    stages - a civil matter and an immigration case do not share a workflow,
+    and forcing both through the platform's fixed 11-stage immigration ladder
+    is exactly what review item C1 flagged: a case opened with no documents,
+    "no deadline" and stage names like "government submission" no matter what
+    was actually assigned. A case with no procedure (or one opened before
+    procedures existed) still gets the fixed ladder, so nothing already
+    running on it breaks.
+    """
+    custom = case.get("workflow_stages") or []
+    if custom:
+        return [s["key"] for s in custom]
+    return [st.value for st in CASE_STAGE_ORDER]
+
+
+def _stage_label(case: Dict[str, Any], stage_key: str, lang: str = DEFAULT_LANGUAGE) -> str:
+    """A procedure's stage name is the consultant's own wording (typed into
+    the Procedure Catalog), so - like a document name - it is shown exactly as
+    written, never run through the platform's translation catalogue. Only the
+    fixed fallback ladder's stages are, since those are the platform's own
+    words and the only ones a translation exists for.
+    """
+    for s in (case.get("workflow_stages") or []):
+        if s.get("key") == stage_key:
+            return s.get("name") or stage_key
+    return translate(f"stage.{stage_key}", lang)
+
+
+def _progress_for(case: Dict[str, Any], stage_key: str) -> int:
+    order = _stage_order(case)
+    if stage_key not in order:
+        return case.get("progress", 0) or 0
+    idx = order.index(stage_key)
+    return round((idx / max(len(order) - 1, 1)) * 100)
 
 
 async def _get(db, case_id: str) -> Dict[str, Any]:
@@ -71,6 +108,20 @@ async def create_case(db, user: CurrentUser, data) -> Dict[str, Any]:
 
         procedure = await catalog.snapshot_for_case(db, data.procedure_id)
 
+    consultant_id = client.get("consultant_id") or user.id
+    workflow_stages = procedure.get("workflow_stages") or []
+    initial_stage = workflow_stages[0]["key"] if workflow_stages else CaseStage.NEW_REQUEST.value
+
+    # A deadline the consultant actually chose - by picking this procedure,
+    # which carries its own timeline - not one invented here. Explicit
+    # `data.deadline` still wins when given; this only fills the gap that
+    # used to become "Sem prazo" even though a 90-day immigration procedure,
+    # say, was assigned.
+    deadline = data.deadline
+    if deadline is None and procedure.get("default_deadline_days") is not None:
+        from datetime import timedelta
+        deadline = utcnow() + timedelta(days=procedure["default_deadline_days"])
+
     now = utcnow()
     doc = {
         "reference": build_reference("CAS", seq),
@@ -78,19 +129,20 @@ async def create_case(db, user: CurrentUser, data) -> Dict[str, Any]:
         "client_id": data.client_id,
         "client_name": client.get("full_name"),
         # The client's owning consultant keeps the case unless one is acting directly.
-        "consultant_id": client.get("consultant_id") or user.id,
+        "consultant_id": consultant_id,
         "process_area": procedure.get("process_area")
                         or getattr(data, "process_area", None),
         "procedure_id": procedure.get("procedure_id"),
         "procedure_name": procedure.get("procedure_name"),
         "required_documents": procedure.get("required_documents", []),
         "client_fields": procedure.get("client_fields", []),
+        "workflow_stages": workflow_stages,
         "case_type": data.case_type or procedure.get("procedure_name"),
         "destination_country": data.destination_country,
-        "stage": CaseStage.NEW_REQUEST.value,
+        "stage": initial_stage,
         "progress": 0,
-        "deadline": data.deadline,
-        "timeline": [{"stage": CaseStage.NEW_REQUEST.value, "at": now, "by": user.id}],
+        "deadline": deadline,
+        "timeline": [{"stage": initial_stage, "at": now, "by": user.id}],
         "ai_guidance": None,
         "created_at": now,
         "updated_at": now,
@@ -111,6 +163,60 @@ async def create_case(db, user: CurrentUser, data) -> Dict[str, Any]:
             {"request_id": data.request_id},
             {"$set": {"case_id": case_id, "updated_at": now}},
         )
+
+    # The other half of C1: a procedure names the documents a case needs, but
+    # nothing ever turned that list into actual document requests - the case
+    # opened with an empty checklist and the client had nothing to upload
+    # until the consultant separately asked. This is what
+    # `requests/service.py::request_documents` does for a request, done here
+    # for a case at the moment its procedure is assigned.
+    from app.modules.documents.service import _sync_request_status
+
+    required_documents = procedure.get("required_documents") or []
+    if required_documents:
+        from app.core.enums import DocumentCategory, DocumentStatus
+
+        valid_categories = {c.value for c in DocumentCategory}
+        inserts = []
+        for item in required_documents:
+            category = str(item.get("category") or "other").lower()
+            if category not in valid_categories:
+                # A template's own category ("supporting", "legal") is a
+                # consultant's word, not one of the platform's four - see the
+                # note on `RequiredDocument.category`. Coerced rather than
+                # rejected, the same way the frontend already treats an
+                # unrecognised category when a consultant requests documents
+                # by hand.
+                category = DocumentCategory.OTHER.value
+            inserts.append({
+                "request_id": data.request_id,
+                "case_id": case_id,
+                "client_id": data.client_id,
+                "consultant_id": consultant_id,
+                "name": item.get("name", ""),
+                "category": category,
+                "why": item.get("why"),
+                "is_required": bool(item.get("mandatory", True)),
+                "status": DocumentStatus.UPLOAD_NEEDED.value,
+                "due_date": deadline,
+                "file": None,
+                "ai_analysis": None,
+                "consultant_feedback": None,
+                "requested_by": user.id,
+                "created_at": now,
+                "updated_at": now,
+            })
+        insert_result = await db.documents.insert_many(inserts)
+        for item, document_id in zip(inserts, insert_result.inserted_ids):
+            await deadlines.upsert(
+                db, kind="document_request", source_collection="documents",
+                source_id=str(document_id), due_date=item["due_date"], title=item["name"],
+                consultant_id=consultant_id, client_id=data.client_id,
+                client_name=client.get("full_name"), case_id=case_id,
+                case_reference=doc["reference"],
+            )
+        if data.request_id:
+            await _sync_request_status(db, {"request_id": data.request_id})
 
     return await attach_consultant(db, serialize({**doc, "_id": result.inserted_id}))
 
@@ -154,7 +260,7 @@ async def list_cases(db, user: CurrentUser, params: PageParams,
     page["items"] = await attach_case_progress(db, page["items"])
     for item in page["items"]:
         if "stage" in item:
-            item["stage_label"] = translate(f"stage.{item['stage']}", lang)
+            item["stage_label"] = _stage_label(item, item["stage"], lang)
     return page
 
 
@@ -190,7 +296,7 @@ async def get_case(db, user: CurrentUser, case_id: str,
         if not has_task:
             await assert_case_access(db, user, doc)
     out = await attach_consultant(db, serialize(doc))
-    out["stage_label"] = translate(f"stage.{doc.get('stage')}", lang)
+    out["stage_label"] = _stage_label(doc, doc.get("stage"), lang)
 
     # Matched on the case OR on the request it came from. A document is stamped
     # with `case_id` when the case is opened, but a case opened before that
@@ -232,7 +338,13 @@ async def get_case(db, user: CurrentUser, case_id: str,
     for task_item in out["client_tasks"] + out["partner_tasks"]:
         if "status" in task_item:
             task_item["status_label"] = translate(f"task_status.{task_item['status']}", lang)
-    out["stage_order"] = [st.value for st in CASE_STAGE_ORDER]
+    # The case's own stage order (a procedure's stages when it has one, the
+    # fixed ladder otherwise) - see `_stage_order`. `CaseDetail.tsx` builds its
+    # stage picker and progress bar from this, so a procedure-driven case
+    # sending it the wrong list would put "Advance Stage" back to offering
+    # the fixed immigration stages this fix was meant to stop happening.
+    out["stage_order"] = _stage_order(doc)
+    out["stage_labels"] = {key: _stage_label(doc, key, lang) for key in out["stage_order"]}
     apply_progress(
         out,
         total=len(out["documents"]),
@@ -253,50 +365,76 @@ async def update_case(db, user: CurrentUser, case_id: str, data) -> Dict[str, An
 async def advance_stage(db, user: CurrentUser, case_id: str, data) -> Dict[str, Any]:
     doc = await _get(db, case_id)
     await assert_case_access(db, user, doc)
-    current = CaseStage(doc["stage"])
+    order = _stage_order(doc)
+    current = doc["stage"]
+
     if data.stage:
         target = data.stage
+        if target not in order:
+            raise BadRequest(f"'{target}' is not a stage of this case")
     else:
-        idx = CASE_STAGE_ORDER.index(current)
-        if idx >= len(CASE_STAGE_ORDER) - 1:
+        idx = order.index(current) if current in order else -1
+        if idx >= len(order) - 1:
             raise BadRequest("This case is already completed")
-        target = CASE_STAGE_ORDER[idx + 1]
+        target = order[idx + 1]
+
+    # C6: a case used to close with documents still missing, at whatever
+    # progress the checklist happened to be at, with no warning. Moving into
+    # the last stage of the workflow - "Completed", or a procedure's own
+    # final stage such as "Decision" - now has to be a decision the
+    # consultant actually makes, not something that happens silently.
+    is_closing = order and target == order[-1]
+    if is_closing and not getattr(data, "force", False):
+        from app.core.enums import DocumentStatus
+
+        outstanding = await db.documents.count_documents({
+            "case_id": case_id, "is_required": True,
+            "status": {"$ne": DocumentStatus.APPROVED.value},
+        })
+        if outstanding:
+            raise BadRequest(
+                f"{outstanding} required document(s) are not approved yet. "
+                f"Confirm to close the case anyway, or approve them first."
+            )
 
     now = utcnow()
     owner_id = data.owner_id or user.id
     await db.cases.update_one(
         {"_id": oid(case_id)},
-        {"$set": {"stage": target.value, "progress": _progress(target), "updated_at": now,
+        {"$set": {"stage": target, "progress": _progress_for(doc, target), "updated_at": now,
                   "stage_owner_id": owner_id, "stage_deadline": data.deadline},
-         "$push": {"timeline": {"stage": target.value, "at": now, "by": user.id,
+         "$push": {"timeline": {"stage": target, "at": now, "by": user.id,
                                 "note": data.note, "owner_id": owner_id,
                                 "deadline": data.deadline}}},
     )
     await notify(db, user_ids=[doc["client_id"]], type=NotificationType.CASE_STAGE_CHANGED,
                  title_key="notify.case_stage_changed",
                  params={"reference": doc["reference"],
-                         "stage": target.value.replace("_", " ")},
+                         "stage": _stage_label(doc, target).lower()},
                  body=data.note or "", data={"case_id": case_id})
     await log_activity(db, actor_id=user.id, actor_name=user.raw.get("full_name", ""),
-                       action=f"{_ADVANCED_PREFIX}{target.value}", subject=doc["reference"],
+                       action=f"{_ADVANCED_PREFIX}{target}", subject=doc["reference"],
                        case_id=case_id)
 
-    # Two of the eleven stages are the ones a date left unmirrored would
-    # repeat the client's own complaint about: filing with the authority and
-    # the wait for its response. Whichever one this case is leaving no longer
-    # needs chasing; whichever one it just entered does, if a deadline was
-    # given for it.
+    # Whichever stage this case is leaving no longer needs chasing on the
+    # calendar; whichever one it just entered does, if a deadline was given
+    # for it. The fixed ladder keeps its two named kinds (so the Agenda screen
+    # can still show "Filing" / "Authority response" specifically); a
+    # procedure's own stages get a generic one, since "documents" / "review"
+    # / "decision" carry no such fixed meaning.
     await deadlines.clear(db, kind="filing", source_collection="cases", source_id=case_id)
     await deadlines.clear(db, kind="authority_response", source_collection="cases",
                           source_id=case_id)
-    stage_deadline_kind = {
-        CaseStage.GOVERNMENT_SUBMISSION: "filing",
-        CaseStage.GOVERNMENT_PROCESSING: "authority_response",
-    }.get(target)
-    if stage_deadline_kind and data.deadline:
+    await deadlines.clear(db, kind="stage_deadline", source_collection="cases", source_id=case_id)
+    is_fixed_ladder = not doc.get("workflow_stages")
+    stage_deadline_kind = ({
+        CaseStage.GOVERNMENT_SUBMISSION.value: "filing",
+        CaseStage.GOVERNMENT_PROCESSING.value: "authority_response",
+    }.get(target) if is_fixed_ladder else None) or "stage_deadline"
+    if data.deadline:
         await deadlines.upsert(
             db, kind=stage_deadline_kind, source_collection="cases", source_id=case_id,
-            due_date=data.deadline, title=f"{doc['reference']} - {target.value.replace('_', ' ')}",
+            due_date=data.deadline, title=f"{doc['reference']} - {_stage_label(doc, target)}",
             consultant_id=doc.get("consultant_id"), client_id=doc["client_id"],
             client_name=doc.get("client_name"), case_id=case_id,
             case_reference=doc["reference"], owner_id=owner_id,
@@ -369,7 +507,7 @@ async def ai_fill_form(db, user: CurrentUser, case_id: str) -> Dict[str, Any]:
     now = utcnow()
     for key, result in filled.items():
         current = existing.get(key)
-        if current and current.get("source") == "consultant":
+        if current and current.get("source") in ("consultant", "client"):
             continue  # a person's own answer is never overwritten by a guess
         existing[key] = {"value": result.get("value"), "source": "ai",
                          "confidence": result.get("confidence", 0),
@@ -382,12 +520,25 @@ async def ai_fill_form(db, user: CurrentUser, case_id: str) -> Dict[str, Any]:
 
 async def update_form_field(db, user: CurrentUser, case_id: str, field_key: str,
                             data) -> Dict[str, Any]:
-    """The consultant's own correction - always wins over an AI guess, and
-    is never silently replaced by a later `ai_fill_form` run."""
+    """A correction to one field of the case's intake form - always wins over
+    an AI guess, and is never silently replaced by a later `ai_fill_form` run.
+
+    C2's other half: the client had nowhere to give the platform their own
+    personal data, so this is open to them for their own case, not just the
+    consultant. Either source is trusted the same way once written - the
+    person answering "what is my passport number" is whoever actually knows
+    it, and that is at least as often the client as the consultant.
+    """
     doc = await _get(db, case_id)
-    await assert_case_access(db, user, doc)
+    if user.role == Role.CLIENT:
+        if doc["client_id"] != user.id:
+            raise Forbidden("This case is not yours")
+        source = "client"
+    else:
+        await assert_case_access(db, user, doc)
+        source = "consultant"
     existing = dict(doc.get("field_values") or {})
-    existing[field_key] = {"value": data.value, "source": "consultant",
+    existing[field_key] = {"value": data.value, "source": source,
                            "confidence": 100, "updated_at": utcnow()}
     await db.cases.update_one({"_id": oid(case_id)},
                               {"$set": {"field_values": existing, "updated_at": utcnow()}})
@@ -489,10 +640,10 @@ async def timeline(db, case_id: str,
     doc = await _get(db, case_id)
     done = {entry["stage"]: entry for entry in doc.get("timeline", [])}
     return [
-        {"stage": st.value,
-         "label": translate(f"stage.{st.value}", lang),
-         "completed": st.value in done,
-         "at": done.get(st.value, {}).get("at"),
-         "current": doc["stage"] == st.value}
-        for st in CASE_STAGE_ORDER
+        {"stage": key,
+         "label": _stage_label(doc, key, lang),
+         "completed": key in done,
+         "at": done.get(key, {}).get("at"),
+         "current": doc["stage"] == key}
+        for key in _stage_order(doc)
     ]
