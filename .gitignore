@@ -16,3 +16,4 @@ uploads/
 *firebase-adminsdk*.json
 *-service-account*.json
 .claude
+.gitignore
