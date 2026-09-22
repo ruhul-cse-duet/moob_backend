@@ -72,15 +72,62 @@ jobs:
         env:
           SSH_KEY: ${{ secrets.DROPLET_SSH_KEY }}
           HOST: ${{ secrets.DROPLET_HOST }}
+          USER: ${{ secrets.DROPLET_USER }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
+          if [ -z "${SSH_KEY:-}" ]; then
+            echo "::error title=Missing secret::DROPLET_SSH_KEY is empty. Paste the whole private key, BEGIN and END lines included."
+            exit 1
+          fi
+          if [ -z "${HOST:-}" ]; then
+            echo "::error title=Missing secret::DROPLET_HOST is empty."
+            exit 1
+          fi
+
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          # Pin the host key on first contact rather than disabling the check.
+
+          # Does it parse as a key at all? `-y` derives the public half, which
+          # fails on a truncated paste, on CRLF line endings, and on a key that
+          # still has a passphrase - the three ways this secret is usually
+          # wrong. Output discarded: the public half is harmless, but there is
+          # no reason to print key material into a build log.
+          if ! ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null 2>&1; then
+            echo "::error title=DROPLET_SSH_KEY is not a usable key::It did not parse. Check for a truncated paste, Windows line endings, or a key with a passphrase (this one must have none)."
+            exit 1
+          fi
+
+          # Pin the host key on first contact rather than disabling the check:
           # StrictHostKeyChecking=no would accept whatever answers on that IP,
           # which is the whole protection this file relies on.
-          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          #
+          # Retried, and never fatal in itself. Under `set -e` a single slow
+          # answer from the host failed this step with no output, and the
+          # deploy never ran - which is how two deploys went red without
+          # anything to read.
+          for attempt in 1 2 3; do
+            if ssh-keyscan -T 10 -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null; then
+              break
+            fi
+            echo "ssh-keyscan attempt ${attempt} found nothing; retrying"
+            sleep 5
+          done
+
+          if [ ! -s ~/.ssh/known_hosts ]; then
+            echo "::error title=Cannot reach the droplet::ssh-keyscan got no answer from ${HOST} on port 22. Check the droplet is running and that the firewall allows SSH."
+            exit 1
+          fi
+
+          # Proves the key is authorised before anything is built, so a wrong
+          # key fails here with a clear message rather than midway through.
+          if ! ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o ConnectTimeout=15 \
+               "${USER:-root}@${HOST}" true 2>/tmp/ssh_err; then
+            echo "::error title=SSH was refused::The key is not authorised for ${USER:-root}@${HOST}, or the user is wrong. Add the matching public key to that account's ~/.ssh/authorized_keys."
+            sed -n '1,5p' /tmp/ssh_err
+            exit 1
+          fi
+          echo "SSH to ${USER:-root}@${HOST} is working."
 
       - name: Build and roll out
         env:
