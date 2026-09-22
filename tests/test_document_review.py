@@ -71,8 +71,13 @@ async def document(db):
 async def test_an_upload_is_read_before_a_consultant_opens_it(document, monkeypatch):
     seen = {}
 
-    async def _analyze(*, file_bytes, mime_type, document_name, context):
+    # **kwargs, not a fixed signature: the real `analyze_document` grew a
+    # `lang` argument, and a stub that refuses it raises inside the background
+    # task - where the error is caught and logged, so the test saw an empty
+    # result and reported a missing key rather than the mismatch.
+    async def _analyze(*, file_bytes, mime_type, document_name, context, **kwargs):
         seen["name"] = document_name
+        seen["lang"] = kwargs.get("lang")
         return {"confidence": 91, "recommendation": "approve",
                 "summary": "Valid passport, expires 2031.",
                 "extracted_fields": {"expiry_date": "2031-04-02"}, "issues": []}
@@ -90,6 +95,9 @@ async def test_an_upload_is_read_before_a_consultant_opens_it(document, monkeypa
     await asyncio.sleep(0)  # let the background task run
     stored = await document.documents.find_one({"_id": DOC_ID})
     assert seen["name"] == "Passport"
+    # Written in the reviewer's language - the analysis is generated text, so
+    # no translation file can reach it after the fact.
+    assert seen["lang"]
     assert stored["ai_analysis"]["recommendation"] == "approve"
     assert stored["ai_analysis"]["confidence"] == 91
 
@@ -124,3 +132,32 @@ class TestInlinePreview:
         # Served inline, either of these executes on the API's own origin.
         assert "image/svg+xml" not in documents_router.INLINE_SAFE_TYPES
         assert "text/html" not in documents_router.INLINE_SAFE_TYPES
+
+
+async def test_a_reviewer_we_cannot_look_up_does_not_stop_the_analysis(document, monkeypatch):
+    """The language lookup is a nicety; the analysis is the point.
+
+    `oid()` raises on anything that is not an ObjectId, and that exception was
+    taking the whole analysis down - the document ended up marked "failed" with
+    a perfectly readable file attached, and nothing on screen said why.
+    """
+    ran = {}
+
+    async def _analyze(*, file_bytes, mime_type, document_name, context, **kwargs):
+        ran["lang"] = kwargs.get("lang")
+        return {"confidence": 80, "recommendation": "approve", "summary": "ok",
+                "extracted_fields": {}, "issues": []}
+
+    monkeypatch.setattr(service, "analyze_document", _analyze)
+    monkeypatch.setattr(service.storage, "read_bytes",
+                        lambda *a, **k: _returns(b"%PDF-1.4"))
+    await document.documents.update_one(
+        {"_id": DOC_ID}, {"$set": {"consultant_id": "not-an-object-id"}})
+
+    await service.upload(document, _User(), str(DOC_ID), _Upload())
+    await asyncio.sleep(0)
+
+    stored = await document.documents.find_one({"_id": DOC_ID})
+    assert stored["ai_analysis"]["recommendation"] == "approve"
+    # It still asked for a language - the platform's, having failed to read one.
+    assert ran["lang"]

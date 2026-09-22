@@ -121,11 +121,21 @@ async def _run_analysis(db, document_id: str, doc: Dict[str, Any],
     # Written in the language of the consultant who will read it — the analysis
     # is text generated per document, so it is the one thing on the screen that
     # the translation files cannot reach.
+    # Best effort, and deliberately unable to fail the analysis: reading the
+    # reviewer's language is a nicety, the analysis is the point. `oid` raises
+    # on anything that is not an ObjectId - a consultant id from an older
+    # record, a fixture, an import - and that took the whole analysis down with
+    # it, leaving the document marked "failed" for a reason nothing on screen
+    # could explain.
     reviewer_lang = None
     reviewer_id = doc.get("consultant_id")
     if reviewer_id:
-        reviewer = await db.users.find_one({"_id": oid(reviewer_id)}, {"language": 1})
-        reviewer_lang = (reviewer or {}).get("language")
+        try:
+            reviewer = await db.users.find_one({"_id": oid(reviewer_id)},
+                                               {"language": 1})
+            reviewer_lang = (reviewer or {}).get("language")
+        except Exception:  # noqa: BLE001
+            logger.debug("Could not read the reviewer's language for %s", reviewer_id)
 
     analysis = await analyze_document(
         file_bytes=await storage.read_bytes(

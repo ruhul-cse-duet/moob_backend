@@ -29,15 +29,15 @@ duplicates. It is deleted, not archived, once resolved - this is a worklist of
 what still needs attention, not a log; the case history (`case_history.py`)
 is where the record of what happened lives.
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.core.deps import CurrentUser
-from app.core.enums import Role
+from app.core.enums import CONSULTANT_ROLES, Role
+from app.core.exceptions import Forbidden, NotFound
 from app.core.utils import oid, serialize, utcnow
-from app.services.ownership import assigned_client_ids
 
 #: Every kind a deadline can mirror, and the icon/verb the UI shows for it.
 KINDS = ("document_request", "document_expiry", "partner_task", "filing",
@@ -109,6 +109,19 @@ async def clear_source(db: AsyncIOMotorDatabase, *,
         {"source_collection": source_collection, "source_id": source_id})
 
 
+def _aware(value: Optional[datetime]) -> Optional[datetime]:
+    """A stored date, safe to compare against `utcnow()`.
+
+    The driver hands dates back with a timezone, so this is normally a no-op.
+    A row written by anything else - an import, a script, a restored backup -
+    can carry a naive one, and comparing the two raises. That turned a single
+    odd row into a 500 on the whole calendar rather than one wrong flag.
+    """
+    if value is not None and value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
 def _scope(user: CurrentUser) -> Dict[str, Any]:
     """Same visibility rule as everywhere else a worklist is scoped: a
     consultant sees the caseload, a partner sees only what was handed to
@@ -139,22 +152,18 @@ async def list_deadlines(db: AsyncIOMotorDatabase, user: CurrentUser,
             rng["$lte"] = date_to
         filters["due_date"] = rng
 
-    if user.role == Role.PARTNER:
-        # A partner's own deadlines (`owner_id`) plus anything on a client
-        # bulk-assigned to them, the same "two sources" rule used everywhere
-        # else a partner's visibility is scoped.
-        client_ids = await assigned_client_ids(db, user.id)
-        query: Dict[str, Any] = {"$or": [
-            {**filters, "owner_id": user.id},
-            {**filters, "client_id": {"$in": client_ids}},
-        ]}
-    else:
-        query = {**filters, **_scope(user)}
+    # A partner sees the deadlines on their own tasks and nothing else. The
+    # "two sources" rule used elsewhere - own records plus every client
+    # assigned to them - is wrong here: it showed a partner the client's
+    # document requests and passport expiries, which is exactly the contact
+    # with the client the review ruled out. What they need is their own
+    # deadline; anything else is asked of the consultant inside the task.
+    query = {**filters, **_scope(user)}
 
     now = utcnow()
     items = [serialize(d) async for d in db.deadlines.find(query).sort("due_date", 1)]
     for item in items:
-        due = item.get("due_date")
+        due = _aware(item.get("due_date"))
         item["overdue"] = bool(due and item.get("status") == "open" and due < now)
     return items
 
@@ -167,19 +176,11 @@ async def summary(db: AsyncIOMotorDatabase, user: CurrentUser) -> Dict[str, int]
     week_end = today_end + timedelta(days=(6 - now.weekday()))
     month_end = (now.replace(day=1) + timedelta(days=32)).replace(day=1) - timedelta(seconds=1)
 
-    if user.role == Role.PARTNER:
-        client_ids = await assigned_client_ids(db, user.id)
+    # Same scope as the list above, for the same reason.
+    base = {**_scope(user), "status": "open"}
 
-        async def _count(**rng: Any) -> int:
-            return await db.deadlines.count_documents({"$or": [
-                {"status": "open", "owner_id": user.id, "due_date": rng},
-                {"status": "open", "client_id": {"$in": client_ids}, "due_date": rng},
-            ]})
-    else:
-        base = {**_scope(user), "status": "open"}
-
-        async def _count(**rng: Any) -> int:
-            return await db.deadlines.count_documents({**base, "due_date": rng})
+    async def _count(**rng: Any) -> int:
+        return await db.deadlines.count_documents({**base, "due_date": rng})
 
     return {
         "overdue": await _count(**{"$lt": now}),
@@ -191,6 +192,24 @@ async def summary(db: AsyncIOMotorDatabase, user: CurrentUser) -> Dict[str, int]
 
 async def dismiss(db: AsyncIOMotorDatabase, user: CurrentUser, deadline_id: str) -> None:
     """A consultant clears a deadline by hand - the underlying record is
-    still whatever it was, this only stops the worklist chasing it."""
-    await db.deadlines.update_one({"_id": oid(deadline_id)},
-                                  {"$set": {"status": "dismissed", "updated_at": utcnow()}})
+    still whatever it was, this only stops the worklist chasing it.
+
+    Consultants only, and only their own caseload. Written with no check at
+    all, this let any signed-in account clear any deadline in the workspace by
+    id: a client could silence the chase on their own overdue passport, and a
+    partner could clear a filing date they are not even shown.
+    """
+    row = await db.deadlines.find_one({"_id": oid(deadline_id)})
+    if not row:
+        raise NotFound("Deadline not found")
+    if user.role not in CONSULTANT_ROLES:
+        raise Forbidden("Only a consultant can clear a deadline")
+    # The owner keeps the whole workspace; a consultant keeps their own clients.
+    if (user.role == Role.CONSULTANT
+            and row.get("consultant_id") not in (None, user.id)):
+        raise Forbidden("This deadline belongs to another consultant's client")
+
+    await db.deadlines.update_one(
+        {"_id": oid(deadline_id)},
+        {"$set": {"status": "dismissed", "dismissed_by": user.id,
+                  "dismissed_at": utcnow(), "updated_at": utcnow()}})
