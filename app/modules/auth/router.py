@@ -12,6 +12,8 @@ from app.modules.auth import schemas as s
 from app.core.i18n import DEFAULT_LANGUAGE, translate
 from app.core.i18n import normalize as normalize_language
 from app.modules.auth import service
+from app.core.deps import language as request_language
+from app.modules.subscriptions import plans as plans_module
 from app.modules.subscriptions.plans import order_summary, plan_catalogue
 from app.schemas.common import Message
 
@@ -55,8 +57,8 @@ async def signup_resend(token: str = Depends(_bearer)):
 
 
 @router.get("/plans", response_model=List[s.PlanOut], summary="Step 5 of 6 · Plan catalogue")
-async def list_plans():
-    return list((await plan_catalogue()).values())
+async def list_plans(lang: str = Depends(request_language)):
+    return plans_module.localise(await plan_catalogue(), lang)
 
 
 @router.get("/payment-config", response_model=s.PaymentConfig,
