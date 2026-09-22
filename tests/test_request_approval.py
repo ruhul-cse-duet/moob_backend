@@ -14,8 +14,9 @@ import pytest
 from bson import ObjectId
 from mongomock_motor import AsyncMongoMockClient
 
-from app.core.enums import RequestStatus, Role
+from app.core.enums import CaseStage, RequestStatus, Role
 from app.core.exceptions import BadRequest, Forbidden
+from app.core.utils import utcnow
 from app.core.i18n import DEFAULT_LANGUAGE, translate
 from app.modules.requests import service
 from app.schemas.common import PageParams
@@ -399,3 +400,94 @@ class TestWithdrawingARequest:
 
         assert db.told[0]["user_ids"] == [str(CONSULTANT_ID)]
         assert db.told[0]["title_key"] == "notify.request_withdrawn"
+
+
+class TestTheCaseFollowsTheProcedure:
+    """C1: "the case does not use the documents, stages and deadline of the
+    procedure."
+
+    The first fix for this went into `create_case` - `POST /cases` - which the
+    consultant never touches. They press "Abrir caso", which lands here, and
+    that path still opened every case at `new_request` with no deadline. The
+    checklist arrived, so it looked half-right on screen and the other
+    function's tests stayed green.
+    """
+
+    async def _with_procedure(self, db):
+        from app.modules.catalog import service as catalog
+
+        await catalog.ensure_defaults(db)
+        procedure = await db.procedures.insert_one({
+            "area_key": "immigration", "name": "Student visa", "active": True,
+            "required_documents": [{"name": "Passport", "mandatory": True}],
+            "client_fields": [{"key": "passport_number", "label": "Passport number"}],
+            "workflow_stages": [
+                {"key": "documents", "name": "Document collection", "duration_days": 14},
+                {"key": "review", "name": "Review", "duration_days": 7},
+                {"key": "decision", "name": "Decision", "duration_days": 60},
+            ],
+            "default_deadline_days": 90,
+        })
+        return str(procedure.inserted_id)
+
+    async def test_the_case_starts_at_the_procedures_first_stage(self, db):
+        procedure_id = await self._with_procedure(db)
+        opened = await service.create_request(
+            db, _consultant(), _Payload(client_id=str(CLIENT_ID)))
+
+        case = await service.open_case(
+            db, _consultant(), opened["id"], _OpenCase(procedure_id=procedure_id))
+
+        # Not `new_request` - that is the old fixed immigration ladder.
+        assert case["stage"] == "documents"
+        assert [s["key"] for s in case["workflow_stages"]] == [
+            "documents", "review", "decision"]
+
+    async def test_the_procedures_deadline_is_applied(self, db):
+        procedure_id = await self._with_procedure(db)
+        opened = await service.create_request(
+            db, _consultant(), _Payload(client_id=str(CLIENT_ID)))
+
+        case = await service.open_case(
+            db, _consultant(), opened["id"], _OpenCase(procedure_id=procedure_id))
+
+        # 90 days, rather than the "Sem prazo" the review reported.
+        assert case["deadline"] is not None
+        days = (case["deadline"] - utcnow()).days
+        assert 88 <= days <= 90
+
+    async def test_a_chosen_deadline_still_wins(self, db):
+        from datetime import timedelta
+
+        procedure_id = await self._with_procedure(db)
+        chosen = utcnow() + timedelta(days=5)
+        opened = await service.create_request(
+            db, _consultant(), _Payload(client_id=str(CLIENT_ID)))
+
+        case = await service.open_case(
+            db, _consultant(), opened["id"],
+            _OpenCase(procedure_id=procedure_id, deadline=chosen))
+
+        assert case["deadline"] == chosen
+
+    async def test_the_checklist_comes_across_too(self, db):
+        procedure_id = await self._with_procedure(db)
+        opened = await service.create_request(
+            db, _consultant(), _Payload(client_id=str(CLIENT_ID)))
+
+        case = await service.open_case(
+            db, _consultant(), opened["id"], _OpenCase(procedure_id=procedure_id))
+
+        assert [d["name"] for d in case["required_documents"]] == ["Passport"]
+        assert case["procedure_name"] == "Student visa"
+
+    async def test_a_case_with_no_procedure_still_opens(self, db):
+        # A consultation with nothing in the catalogue yet must not break.
+        opened = await service.create_request(
+            db, _consultant(), _Payload(client_id=str(CLIENT_ID)))
+
+        case = await service.open_case(db, _consultant(), opened["id"], _OpenCase())
+
+        # The old fixed ladder is the fallback, not the default.
+        assert case["stage"] == CaseStage.NEW_REQUEST.value
+        assert case["workflow_stages"] == []

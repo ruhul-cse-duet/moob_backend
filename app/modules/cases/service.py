@@ -109,18 +109,14 @@ async def create_case(db, user: CurrentUser, data) -> Dict[str, Any]:
         procedure = await catalog.snapshot_for_case(db, data.procedure_id)
 
     consultant_id = client.get("consultant_id") or user.id
-    workflow_stages = procedure.get("workflow_stages") or []
-    initial_stage = workflow_stages[0]["key"] if workflow_stages else CaseStage.NEW_REQUEST.value
 
-    # A deadline the consultant actually chose - by picking this procedure,
-    # which carries its own timeline - not one invented here. Explicit
-    # `data.deadline` still wins when given; this only fills the gap that
-    # used to become "Sem prazo" even though a 90-day immigration procedure,
-    # say, was assigned.
-    deadline = data.deadline
-    if deadline is None and procedure.get("default_deadline_days") is not None:
-        from datetime import timedelta
-        deadline = utcnow() + timedelta(days=procedure["default_deadline_days"])
+    # Same decision, same place, as opening a case from a request.
+    from app.modules.catalog import service as catalog_plan
+
+    plan = catalog_plan.case_plan(procedure, data.deadline)
+    workflow_stages = plan["workflow_stages"]
+    initial_stage = plan["stage"] or CaseStage.NEW_REQUEST.value
+    deadline = plan["deadline"]
 
     now = utcnow()
     doc = {
