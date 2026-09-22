@@ -770,6 +770,13 @@ async def open_case(db, user: CurrentUser, request_id: str, data) -> Dict[str, A
 
         procedure = await catalog.snapshot_for_case(db, procedure_id)
 
+    # The stages and the deadline the procedure carries, decided in the one
+    # place both ways of opening a case agree on.
+    from app.modules.catalog import service as catalog_plan
+
+    plan = catalog_plan.case_plan(procedure, getattr(data, "deadline", None))
+    initial_stage = plan["stage"] or CaseStage.NEW_REQUEST.value
+
     seq = await next_sequence(db, "case", start=80)
     now = utcnow()
     case = {
@@ -787,14 +794,15 @@ async def open_case(db, user: CurrentUser, request_id: str, data) -> Dict[str, A
         # later leaves this case assessed against what it was opened with.
         "required_documents": procedure.get("required_documents", []),
         "client_fields": procedure.get("client_fields", []),
+        "workflow_stages": plan["workflow_stages"],
         "case_type": (getattr(data, "case_type", None)
                       or procedure.get("procedure_name")
                       or doc.get("procedure_name") or doc.get("visa_type")),
         "destination_country": doc.get("destination_country"),
-        "stage": CaseStage.NEW_REQUEST.value,
+        "stage": initial_stage,
         "progress": 0,
-        "deadline": getattr(data, "deadline", None),
-        "timeline": [{"stage": CaseStage.NEW_REQUEST.value, "at": now, "by": user.id}],
+        "deadline": plan["deadline"],
+        "timeline": [{"stage": initial_stage, "at": now, "by": user.id}],
         "ai_guidance": None,
         "created_at": now,
         "updated_at": now,

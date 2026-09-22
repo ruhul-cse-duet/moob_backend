@@ -22,6 +22,7 @@ must never reach backwards into matters already running on the old version of it
 """
 import re
 import weakref
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from pymongo.errors import DuplicateKeyError
@@ -356,6 +357,31 @@ async def create_from_template(db, user: CurrentUser, template_key: str,
 # --------------------------------------------------------------------------- #
 # Used by requests and cases
 # --------------------------------------------------------------------------- #
+
+
+def case_plan(procedure: Dict[str, Any],
+              deadline: Optional[datetime] = None) -> Dict[str, Any]:
+    """What a procedure decides about a case being opened on it.
+
+    The stage it starts at, the stages it will move through, and when it is
+    due. Shared by both ways a case can be opened - `POST /cases` and opening
+    one from a request - because they were each deciding it separately and had
+    already drifted apart: one honoured the procedure, the other opened every
+    case at `new_request` with no deadline.
+
+    An explicitly chosen deadline always wins; the procedure only fills the gap
+    that otherwise became "no deadline" even where the procedure carries a
+    timeline of its own.
+    """
+    stages = procedure.get("workflow_stages") or []
+    days = procedure.get("default_deadline_days")
+    if deadline is None and days is not None:
+        deadline = utcnow() + timedelta(days=days)
+    return {
+        "workflow_stages": stages,
+        "stage": stages[0]["key"] if stages else None,
+        "deadline": deadline,
+    }
 
 
 async def snapshot_for_case(db, procedure_id: str) -> Dict[str, Any]:
