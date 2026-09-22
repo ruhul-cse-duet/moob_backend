@@ -70,7 +70,9 @@ class TestLanguageResolution:
 class TestTranslation:
     @pytest.mark.parametrize("lang,expected", [
         ("en", "Waiting for client"),
-        ("pt", "A aguardar o cliente"),
+        # Item A4: Brazilian Portuguese, not European - BR uses the gerund
+        # where EP says "estar a + infinitive".
+        ("pt", "Aguardando o cliente"),
         ("es", "Esperando al cliente"),
     ])
     def test_the_status_the_client_reported(self, lang, expected):
