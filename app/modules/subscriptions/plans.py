@@ -1,9 +1,35 @@
 """Plan catalogue exactly as designed on the subscription screen."""
 from copy import deepcopy
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from app.core.enums import BillingCycle, PlanCode
+from app.core.config import settings
+from app.core.i18n import translate
 from app.db.mongo import platform_db
+
+#: The dictionary key behind each piece of plan copy. The English text stays in
+#: `PLANS` as the fallback, so a missing translation still reads correctly.
+PLAN_TAGLINE_KEYS = {'For solo consultants opening their first workspace.': 'plan.starter.tagline', 'For growing practices with a partner network.': 'plan.professional.tagline', 'For multi-office firms with compliance needs.': 'plan.enterprise.tagline'}
+
+PLAN_FEATURE_KEYS = {'1 consultant seat · Up to 3 partners': 'plan.starter.feature1', 'Up to 25 active cases': 'plan.starter.feature2', 'Client request queue and document centre': 'plan.starter.feature3', 'Email support within 2 business days': 'plan.starter.feature4', '5 consultant seats · Up to 15 partners': 'plan.professional.feature1', 'Unlimited cases': 'plan.professional.feature2', 'AI document review and form drafting': 'plan.professional.feature3', 'Partner task delegation and deliverables': 'plan.professional.feature4', 'Priority support within 4 hours': 'plan.professional.feature5', 'Unlimited consultant seats · Unlimited partners': 'plan.enterprise.feature1', 'Everything in Professional': 'plan.enterprise.feature2', 'Multi-office workspaces and audit trail': 'plan.enterprise.feature3', 'Custom data retention and SSO': 'plan.enterprise.feature4', 'Dedicated success manager': 'plan.enterprise.feature5'}
+
+
+def localise(plans: Dict[Any, dict], language: str | None) -> List[dict]:
+    """The catalogue in one language, ready to serve."""
+    out: List[dict] = []
+    for plan in plans.values():
+        plan = deepcopy(plan)
+        tagline_key = PLAN_TAGLINE_KEYS.get(plan.get("tagline"))
+        if tagline_key:
+            plan["tagline"] = translate(tagline_key, language) or plan["tagline"]
+        plan["currency"] = (settings.STRIPE_CURRENCY or "eur").upper()
+        plan["features"] = [
+            (translate(PLAN_FEATURE_KEYS[f], language) or f)
+            if f in PLAN_FEATURE_KEYS else f
+            for f in plan.get("features", [])
+        ]
+        out.append(plan)
+    return out
 
 PLANS = {
     PlanCode.STARTER: {
@@ -18,7 +44,7 @@ PLANS = {
         "active_case_limit": 25,
         "features": [
             "1 consultant seat · Up to 3 partners",
-            "Up to 25 active immigration cases",
+            "Up to 25 active cases",
             "Client request queue and document centre",
             "Email support within 2 business days",
         ],
@@ -36,7 +62,7 @@ PLANS = {
         "active_case_limit": None,
         "features": [
             "5 consultant seats · Up to 15 partners",
-            "Unlimited immigration cases",
+            "Unlimited cases",
             "AI document review and form drafting",
             "Partner task delegation and deliverables",
             "Priority support within 4 hours",

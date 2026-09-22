@@ -118,6 +118,8 @@ class PlanOut(BaseModel):
     partner_seats: Optional[int]
     active_case_limit: Optional[int]
     features: List[str]
+    #: Item A5 - the screen used to print a dollar sign regardless.
+    currency: str = "EUR"
 
 
 class OrderSummary(BaseModel):

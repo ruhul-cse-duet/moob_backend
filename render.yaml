@@ -120,7 +120,7 @@ services:
       - key: STRIPE_WEBHOOK_SECRET
         sync: false
       - key: STRIPE_CURRENCY
-        value: usd
+        value: eur
       - key: STRIPE_PRICES
         value: "{}"
 

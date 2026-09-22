@@ -192,7 +192,9 @@ class Settings(BaseSettings):
     # number never reaches this server.
     STRIPE_PUBLISHABLE_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""
-    STRIPE_CURRENCY: str = "usd"
+    # Invoices and partner earnings are both in euros; the plan prices were
+    # the one place still quoting dollars (item A5).
+    STRIPE_CURRENCY: str = "eur"
     # Recurring billing needs a Stripe Price per plan/cycle. Create them once in
     # the Stripe dashboard and map them here as JSON, keyed "<plan>_<cycle>":
     #   STRIPE_PRICES={"starter_monthly":"price_1A...","starter_annual":"price_1B..."}
