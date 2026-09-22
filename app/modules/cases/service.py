@@ -48,6 +48,21 @@ _ACTIVITY_LABEL_KEYS = {
 _ADVANCED_PREFIX = "advanced to "
 
 
+def activity_label(action: str, lang: str) -> str:
+    """One logged action, in the reader's language.
+
+    Actions are stored as the English phrase they were written with, so the
+    translation happens on the way out and old rows read correctly too.
+    """
+    action = action or ""
+    if action.startswith(_ADVANCED_PREFIX):
+        stage_code = action[len(_ADVANCED_PREFIX):]
+        return translate("activity.advanced_to_stage", lang,
+                         stage=translate(f"stage.{stage_code}", lang))
+    key = _ACTIVITY_LABEL_KEYS.get(action)
+    return translate(key, lang) if key else action
+
+
 def _stage_order(case: Dict[str, Any]) -> List[str]:
     """The ordered list of stage keys this case actually moves through.
 
@@ -522,15 +537,7 @@ async def case_history(db, user: CurrentUser, case_id: str,
     events = [serialize(a) async for a in
              db.activities.find({"case_id": case_id}).sort("created_at", 1)]
     for event in events:
-        action = event.get("action") or ""
-        if action.startswith(_ADVANCED_PREFIX):
-            stage_code = action[len(_ADVANCED_PREFIX):]
-            event["action_label"] = translate(
-                "activity.advanced_to_stage", lang,
-                stage=translate(f"stage.{stage_code}", lang))
-        else:
-            key = _ACTIVITY_LABEL_KEYS.get(action)
-            event["action_label"] = translate(key, lang) if key else action
+        event["action_label"] = activity_label(event.get("action") or "", lang)
     return events
 
 

@@ -16,6 +16,7 @@ from app.core.i18n import normalize as normalize_language
 from app.core.deps import (
     CurrentUser,
     get_current_user,
+    language as request_language,
     get_tenant_db,
     page_params,
     require_active_tenant,
@@ -147,14 +148,15 @@ async def update_client_settings(payload: s.NotificationSettings,
 
 @router.get("/client/gdpr-consent", response_model=s.GdprConsentView,
             summary="Get GDPR Data Processing Consent Details")
-async def get_client_gdpr_consent(user: CurrentUser = Depends(get_current_user)):
+async def get_client_gdpr_consent(user: CurrentUser = Depends(get_current_user),
+                                  lang: str = Depends(request_language)):
     return {
-        "title": "Data Processing Consent",
-        "description": "To process your immigration case, WebImove needs your consent to collect, store, and process your personal documents in accordance with GDPR. Your data is encrypted and only accessible to your assigned consultant.",
+        "title": translate("consent.data_processing.title", lang),
+        "description": translate("consent.data_processing.description", lang),
         "items": [
-            "Collection and storage of identity documents",
-            "Sharing data with relevant government authorities",
-            "Processing sensitive data for your immigration case",
+            translate("consent.data_processing.item_identity", lang),
+            translate("consent.data_processing.item_authorities", lang),
+            translate("consent.data_processing.item_sensitive", lang),
         ],
         "status": "provided",
         "badge_status": "active",
@@ -164,29 +166,29 @@ async def get_client_gdpr_consent(user: CurrentUser = Depends(get_current_user))
 
 
 @router.get("/client/privacy-policy", response_model=s.LegalDocumentView, summary="Get Privacy Policy")
-async def get_client_privacy_policy():
+async def get_client_privacy_policy(lang: str = Depends(request_language)):
     return {
-        "title": "Privacy Policy",
-        "last_updated": "Last updated: April 2026",
+        "title": translate("legal.privacy.title", lang),
+        "last_updated": translate("legal.privacy.updated", lang),
         "sections": [
-            "We respect your privacy. WebImove collects only the data needed to help process your immigration case — your location, account details, and submitted documents.",
-            "We never sell your personal information to third parties. You can request a copy of your data or delete your account at any time from Privacy & Security settings.",
-            "Your data is stored securely in encrypted databases isolated per agency.",
+            translate("legal.privacy.s1", lang),
+            translate("legal.privacy.s2", lang),
+            translate("legal.privacy.s3", lang),
         ],
         "contact_email": "privacy@webimove.com",
     }
 
 
 @router.get("/client/terms-of-service", response_model=s.LegalDocumentView, summary="Get Terms of Service")
-async def get_client_terms_of_service():
+async def get_client_terms_of_service(lang: str = Depends(request_language)):
     return {
-        "title": "Terms of Service",
-        "last_updated": "Effective April 2026",
+        "title": translate("legal.terms.title", lang),
+        "last_updated": translate("legal.terms.updated", lang),
         "sections": [
-            "By using WebImove you agree to submit documents and case information in good faith. Services shown in the app are provided by licensed consultants and subject to availability.",
-            "You are responsible for the accuracy of any information you submit and for keeping your account credentials secure. We may update these terms periodically and will notify you of material changes.",
-            "We never sell your personal information to third parties. You can request a copy of your data or delete your account at any time.",
-            "Misuse of system services or fraudulent activity may result in account suspension.",
+            translate("legal.terms.s1", lang),
+            translate("legal.terms.s2", lang),
+            translate("legal.terms.s3", lang),
+            translate("legal.terms.s4", lang),
         ],
         "contact_email": "legal@webimove.com",
     }

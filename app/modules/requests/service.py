@@ -18,6 +18,7 @@ from app.modules.deadlines import service as deadlines
 from app.schemas.common import PageParams
 from app.services.events import log_activity, notify
 from app.services.ai_service import suggest_required_documents
+from app.modules.cases.service import activity_label
 from app.services.ownership import (assert_request_access, assigned_client_ids,
                                     delegated_case_ids)
 from app.services.pagination import paginate
@@ -402,7 +403,9 @@ async def get_client_dashboard(db, user: CurrentUser,
         {"$or": [{"actor_id": client_id}, {"request_id": {"$in": request_ids}}]}
     ).sort("created_at", -1).limit(6)
     async for act in act_cursor:
-        recent_activities.append(serialize(act))
+        row = serialize(act)
+        row["action_label"] = activity_label(row.get("action") or "", lang)
+        recent_activities.append(row)
 
     return {
         "client_name": client_name,
@@ -1029,7 +1032,9 @@ async def get_consultant_dashboard(db, user: CurrentUser,
     act_cursor = db.activities.find({}).sort("created_at", -1).limit(5)
     activities = []
     async for act in act_cursor:
-        activities.append(serialize(act))
+        row = serialize(act)
+        row["action_label"] = activity_label(row.get("action") or "", lang)
+        activities.append(row)
 
     return {
         "consultant_name": user.raw.get("full_name", "Consultant"),
